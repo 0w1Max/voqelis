@@ -29,6 +29,9 @@ def test_recurring_tasks_are_created_first(tmp_path: Path):
     items = store.ensure_daily_plan(1, date(2026, 9, 23))
     assert items
     assert all(item.kind == TaskKind.RECURRING for item in items)
+    group = next(item for item in items if item.title.startswith("Дорога на группу"))
+    assert (group.start_minute, group.end_minute) == (18 * 60, 19 * 60)
+    assert not any(item.start_minute == 19 * 60 for item in items)
     store.close()
 
 
@@ -104,4 +107,29 @@ def test_exports_create_files_with_merged_multihour_item(tmp_path: Path):
     pdf = build_pdf(1, day, store, PlannerConfig(), tmp_path / "plan.pdf")
     assert docx.exists() and docx.stat().st_size > 0
     assert pdf.exists() and pdf.stat().st_size > 0
+    store.close()
+
+
+def test_exact_conflict_suggests_nearest_free_slots(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    store.ensure_daily_plan(1, day)
+    scheduler = Scheduler(store, PlannerConfig())
+    draft = TaskDraft("Резюме", day, start_minute=10 * 60, duration_minutes=60)
+    result = scheduler.schedule(1, draft)
+    assert isinstance(result, Conflict)
+    assert result.proposal.alternatives
+    assert result.proposal.alternatives[0] == (12 * 60, 13 * 60)
+    store.close()
+
+def test_night_period_uses_after_midnight_plan_window(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    store.ensure_daily_plan(1, day)
+    scheduler = Scheduler(store, PlannerConfig())
+    draft = TaskDraft("Ночная задача", day, period="ночью", duration_minutes=60)
+    result = scheduler.schedule(1, draft)
+    assert not isinstance(result, Conflict)
+    assert result.start_minute == 24 * 60
+    assert result.end_minute == 25 * 60
     store.close()
