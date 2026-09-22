@@ -221,7 +221,7 @@ class PlannerService:
         if index < 0 or index >= len(items):
             return ["Такого номера нет."]
         item = items[index]
-        self.store.set_session(user_id, "review_status", day, {"current_item_id": item.plan_item.id})
+        self.store.set_session(user_id, "review_status", day, {"current_item_id": item.plan_item.id, "editing": True})
         return [
             "✏️ Исправление анализа.\n\n"
             + render_review_prompt(item)
@@ -232,9 +232,13 @@ class PlannerService:
         status = {"+": "+", "-": "-", "+-": "+-", "да": "+", "нет": "-", "частично": "+-"}.get(text.strip().lower())
         if status is None:
             return ["Выбери +, - или +-. Можно также написать «да», «нет» или «частично»."]
-        item_id = int(self.store.session_payload(user_id)["current_item_id"])
+        current_payload = self.store.session_payload(user_id)
+        item_id = int(current_payload["current_item_id"])
         item = next(x for x in self.store.reviews(user_id, day) if x.plan_item.id == item_id)
-        self.store.set_session(user_id, "review_detail", day, {"current_item_id": item_id, "status": status})
+        self.store.set_session(
+            user_id, "review_detail", day,
+            {"current_item_id": item_id, "status": status, "editing": bool(current_payload.get("editing"))},
+        )
         prompt = "Расскажи, что произошло: что делал, что чувствовал и почему не выполнил." if status == "-" else "Расскажи, что делал и что чувствовал."
         return [f"{render_review_prompt(item)}\n\n{prompt}"]
 
@@ -247,6 +251,10 @@ class PlannerService:
         else:
             activity, feelings, reason = text.strip(), (), None
         self.store.save_review(item_id, status, activity or None, feelings, reason)
+
+        if payload.get("editing"):
+            self.store.clear_session(user_id)
+            return ["✅ Исправление сохранено.\n\n" + render_plan_text(day, self.store.plan_items(user_id, day), self.config)]
 
         next_item = next((x for x in self.store.reviews(user_id, day) if x.status is None), None)
         if next_item:
