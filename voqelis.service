@@ -1,0 +1,62 @@
+[Unit]
+Description=Voqelis
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=voqelis
+Group=voqelis
+WorkingDirectory=/opt/voqelis
+EnvironmentFile=/opt/voqelis/.env
+
+# Systemd-managed writable paths:
+# /var/lib/voqelis      -> model cache
+# /run/voqelis         -> temporary audio files
+StateDirectory=voqelis
+RuntimeDirectory=voqelis
+RuntimeDirectoryMode=0700
+Environment=MODEL_CACHE_DIR=/var/lib/voqelis/models
+Environment=TEMP_DIR=/run/voqelis
+
+ExecStart=/opt/voqelis/.venv/bin/python -m voqelis
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+KillMode=control-group
+
+# Keep transcription below the VPN/SSH priority on a shared 1-vCPU VPS.
+Nice=10
+CPUWeight=50
+
+# Don't let a model/runtime problem consume the whole VPS.
+MemoryHigh=1150M
+MemoryMax=1400M
+MemorySwapMax=512M
+OOMScoreAdjust=500
+TasksMax=64
+LimitNOFILE=4096
+UMask=0077
+
+# Baseline systemd hardening.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectClock=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
