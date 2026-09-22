@@ -103,10 +103,10 @@ def create_planner_router(*, service: PlannerService, allowed_user_ids: frozense
         if not allowed(message) or not message.text or message.text.startswith("/"):
             return
         replies = await service.handle_text(message.from_user.id, message.text, planner_today())
+        session = service.store.session(message.from_user.id)
+        current_state = session["state"] if session else None
+        markup = review_keyboard() if current_state == "review_status" else planner_keyboard()
         for reply in replies:
-            await message.answer(
-                reply,
-                reply_markup=review_keyboard() if "Выполнено?" in reply else planner_keyboard(),
-            )
+            await message.answer(reply, reply_markup=markup)
 
     return router
