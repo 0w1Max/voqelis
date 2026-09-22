@@ -52,6 +52,10 @@ class ScheduleMove:
     plan_item_id: int
     new_start_minute: int
     new_end_minute: int
+    # Expected old position is stored in the proposal so stale confirmations
+    # cannot silently move a task that changed in the meantime.
+    old_start_minute: int | None = None
+    old_end_minute: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
