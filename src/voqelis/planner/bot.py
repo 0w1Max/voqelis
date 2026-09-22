@@ -84,7 +84,7 @@ def create_planner_router(*, service: PlannerService, allowed_user_ids: frozense
         if allowed(message):
             await message.answer(
                 await service.start_review_edit(message.from_user.id, date.today()),
-                reply_markup=review_keyboard(),
+                reply_markup=planner_keyboard(),
             )
 
     @router.message(F.text == "⏹️ Выйти из режима")
