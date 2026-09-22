@@ -164,8 +164,11 @@ class PlannerService:
             if answer in {"отмена", "нет", "cancel"}:
                 self.store.set_session(user_id, "planning", draft.day, {})
                 replies = ["Хорошо, конфликт оставляю без изменений."]
-                for extra in (self._draft(x) for x in payload.get("pending", [])):
-                    replies.extend(await self.add_from_text(user_id, extra.source_text, today))
+                replies.extend(await self._add_drafts(
+                    user_id,
+                    [self._draft(x) for x in payload.get("pending", [])],
+                    today,
+                ))
                 return replies
             if answer not in {"1", "2", "3"}:
                 return ["Выбери 1–3 или напиши «отмена»."]
@@ -212,7 +215,7 @@ class PlannerService:
     async def _review_edit_select(self, user_id: int, text: str, day: date) -> list[str]:
         answer = text.strip().lower()
         if answer in {"отмена", "cancel"}:
-            self.store.set_session(user_id, "review", day, {})
+            self.store.clear_session(user_id)
             return ["Редактирование отменено."]
         try:
             index = int(answer) - 1
