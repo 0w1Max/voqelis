@@ -47,7 +47,10 @@ class Scheduler:
     def _candidates(self, draft: TaskDraft, duration: int) -> list[tuple[int, int]]:
         ws, we = self.config.plan_start_minute, self.config.plan_end_minute
         if draft.start_minute is not None:
-            return [(draft.start_minute, draft.start_minute + duration)]
+            start = draft.start_minute
+            if start < ws and start == 0:
+                start = 24 * 60
+            return [(start, start + duration)]
 
         if draft.relation and draft.anchor:
             anchor = self.config.anchor(draft.anchor)
@@ -63,9 +66,17 @@ class Scheduler:
                 raise ScheduleValidationError(f"Неизвестное отношение: {draft.relation}")
         else:
             period = self.config.period(draft.period) if draft.period else None
-            lo = max(ws, period.start if period else ws)
-            hi = min(we, period.end if period else we)
+            if period is None:
+                lo, hi = ws, we
+            elif period.name == "night":
+                lo = max(ws, 24 * 60)
+                hi = min(we, 30 * 60)
+            else:
+                lo = max(ws, period.start)
+                hi = min(we, period.end)
             preferred = draft.preferred_minute
+            if preferred is not None and period is not None and period.name == "night" and preferred < 24 * 60:
+                preferred += 24 * 60
 
         if hi - lo < duration:
             return []
