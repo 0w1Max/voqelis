@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from enum import StrEnum
+from enum import Enum
 
 
-class TaskKind(StrEnum):
+class TaskKind(str, Enum):
     RECURRING = "recurring"
     ORDINARY = "ordinary"
 
 
-class ReviewStatus(StrEnum):
+class ReviewStatus(str, Enum):
     DONE = "+"
     MISSED = "-"
     PARTIAL = "+-"
