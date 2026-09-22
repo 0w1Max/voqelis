@@ -78,7 +78,7 @@ class PlannerService:
         for item in p.conflicts:
             lines.append(f"Занято: {fmt_time(item.start_minute)}–{fmt_time(item.end_minute)} — {item.title}")
         if p.moves:
-            lines.append("Предлагаю перенос конфликтующей обычной задачи:")
+            lines.append("Предлагаю разовый перенос конфликтующих задач:")
             for move in p.moves:
                 item = next(x for x in p.conflicts if x.id == move.plan_item_id)
                 lines.append(f"• {item.title}: {fmt_time(move.new_start_minute)}–{fmt_time(move.new_end_minute)}")
