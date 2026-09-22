@@ -179,12 +179,27 @@ class PlannerStore:
         existing = self.plan_items(user_id, day)
         if existing:
             return existing
-        self.seed_defaults(user_id, config or PlannerConfig())
-        for row in self.recurring(user_id):
-            self.add_item(
-                PlanItem(0, user_id, day, row["title"], row["why"], row["start_minute"],
-                         row["start_minute"] + row["duration_minutes"], TaskKind.RECURRING, row["id"])
-            )
+
+        config = config or PlannerConfig()
+        self.seed_defaults(user_id, config)
+        rows = self.recurring(user_id)
+        try:
+            self.db.execute("BEGIN IMMEDIATE")
+            for row in rows:
+                start = int(row["start_minute"])
+                end = start + int(row["duration_minutes"])
+                self.db.execute(
+                    "INSERT INTO plan_items(user_id,day,title,why,start_minute,end_minute,kind,recurring_template_id,urgent,source_text,created_at) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        user_id, day.isoformat(), row["title"], row["why"], start, end,
+                        TaskKind.RECURRING.value, row["id"], 0, None, datetime.utcnow().isoformat(),
+                    ),
+                )
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
         return self.plan_items(user_id, day)
 
     def save_review(self, plan_item_id: int, status: str, activity: str | None, feelings: tuple[str, ...], reason: str | None) -> None:
