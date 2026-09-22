@@ -142,11 +142,32 @@ class Scheduler:
             )
             return self.store.get_plan_item(item_id)
 
-        alternatives = tuple(
-            candidate for candidate in candidates
-            if self._valid(*candidate)
-            and not any(self._overlap(candidate, (x.start_minute, x.end_minute)) for x in occupied)
-        )[:3]
+        if draft.start_minute is not None:
+            # Exact-time requests keep the requested slot as the primary choice,
+            # but conflicts expose the nearest free hourly slots instead of forcing
+            # the user to invent another time manually.
+            alternatives_pool = [
+                (start, start + duration)
+                for start in range(
+                    self.config.plan_start_minute,
+                    self.config.plan_end_minute - duration + 1,
+                    self.config.slot_minutes,
+                )
+            ]
+            alternatives = tuple(
+                candidate for candidate in sorted(
+                    alternatives_pool,
+                    key=lambda value: (abs(value[0] - desired[0]), value[0]),
+                )
+                if candidate != desired
+                and not any(self._overlap(candidate, (x.start_minute, x.end_minute)) for x in occupied)
+            )[:3]
+        else:
+            alternatives = tuple(
+                candidate for candidate in candidates
+                if self._valid(*candidate)
+                and not any(self._overlap(candidate, (x.start_minute, x.end_minute)) for x in occupied)
+            )[:3]
         moves = self._moves(draft, desired, conflicts, occupied)
         reason = "Запрошенное время занято."
         if moves:
