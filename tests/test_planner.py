@@ -133,3 +133,30 @@ def test_night_period_uses_after_midnight_plan_window(tmp_path: Path):
     assert result.start_minute == 24 * 60
     assert result.end_minute == 25 * 60
     store.close()
+
+
+def test_planner_config_rejects_invalid_timezone():
+    from voqelis.planner.config import PlannerConfig
+    import pytest
+    with pytest.raises(ValueError, match="Invalid planner timezone"):
+        PlannerConfig(timezone="Not/AZone")
+
+
+def test_planner_config_default_timezone_is_explicit():
+    from voqelis.planner.config import PlannerConfig
+    assert PlannerConfig().timezone == "Europe/Berlin"
+
+
+def test_move_proposal_carries_expected_old_position(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    store.ensure_daily_plan(1, day)
+    scheduler = Scheduler(store, PlannerConfig())
+    draft = TaskDraft("Срочная задача", day, start_minute=10 * 60, duration_minutes=60, urgent=True)
+    result = scheduler.schedule(1, draft)
+    assert isinstance(result, Conflict)
+    assert result.proposal.moves
+    move = result.proposal.moves[0]
+    blocker = store.get_plan_item(move.plan_item_id)
+    assert (move.old_start_minute, move.old_end_minute) == (blocker.start_minute, blocker.end_minute)
+    store.close()
