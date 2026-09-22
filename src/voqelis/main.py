@@ -11,6 +11,10 @@ from .bot import cleanup_temp_dir, create_router, run_worker
 from .config import load_settings
 from .queue import JobQueue
 from .transcription import Transcriber
+from .planner.bot import create_planner_router
+from .planner.service import PlannerService
+from .planner.ai import GeminiPlannerAI
+from .planner.store import PlannerStore
 
 
 logger = logging.getLogger(__name__)
@@ -29,12 +33,17 @@ async def async_main() -> None:
     # a bot that appears online but silently accumulates unusable jobs.
     await transcriber.start()
 
+    planner_store = PlannerStore(settings.planner_db_path)
+    planner_ai = GeminiPlannerAI(settings.gemini_api_key, model=settings.gemini_model, timeout_seconds=settings.planner_ai_timeout_seconds) if settings.gemini_api_key else None
+    planner = PlannerService(planner_store, ai=planner_ai)
+
     queue = JobQueue(
         max_pending_jobs=settings.max_pending_jobs,
         max_pending_per_user=settings.max_pending_per_user,
     )
 
     dp = Dispatcher()
+    dp.include_router(create_planner_router(service=planner, allowed_user_ids=settings.allowed_user_ids))
     dp.include_router(create_router(settings=settings, queue=queue))
 
     async with Bot(
@@ -47,6 +56,7 @@ async def async_main() -> None:
                 queue=queue,
                 transcriber=transcriber,
                 settings=settings,
+                planner=planner,
             ),
             name="transcription-worker",
         )
@@ -61,6 +71,7 @@ async def async_main() -> None:
             worker_task.cancel()
             with suppress(asyncio.CancelledError):
                 await worker_task
+            planner_store.close()
 
 
 def main() -> None:

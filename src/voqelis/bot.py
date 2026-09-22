@@ -18,6 +18,7 @@ from .config import Settings
 from .domain import AudioJob
 from .queue import JobQueue
 from .text import chunk_text
+from .planner.service import PlannerService
 from .transcription import Transcriber
 
 
@@ -196,6 +197,7 @@ async def run_worker(
     queue: JobQueue,
     transcriber: Transcriber,
     settings: Settings,
+    planner: PlannerService | None = None,
 ) -> None:
     while True:
         job = await queue.get()
@@ -220,17 +222,36 @@ async def run_worker(
                 )
                 continue
 
-            parts = chunk_text(result.text)
-            for index, part in enumerate(parts):
-                await bot.send_message(
-                    job.chat_id,
-                    part,
-                    reply_to_message_id=job.reply_to_message_id if index == 0 else None,
-                    parse_mode=None,
-                )
-                if index < len(parts) - 1:
-                    # Telegram recommends staying under one message/second per chat.
-                    await asyncio.sleep(1.05)
+            session = planner.store.session(job.user_id) if planner else None
+            if planner and session:
+                from datetime import date
+                replies = await planner.handle_text(job.user_id, result.text, date.today())
+                if replies:
+                    for part in replies:
+                        await bot.send_message(
+                            job.chat_id,
+                            part,
+                            reply_to_message_id=job.reply_to_message_id,
+                            parse_mode=None,
+                        )
+                else:
+                    await bot.send_message(
+                        job.chat_id,
+                        result.text,
+                        reply_to_message_id=job.reply_to_message_id,
+                        parse_mode=None,
+                    )
+            else:
+                parts = chunk_text(result.text)
+                for index, part in enumerate(parts):
+                    await bot.send_message(
+                        job.chat_id,
+                        part,
+                        reply_to_message_id=job.reply_to_message_id if index == 0 else None,
+                        parse_mode=None,
+                    )
+                    if index < len(parts) - 1:
+                        await asyncio.sleep(1.05)
 
             logger.info(
                 "Transcribed user=%s duration=%.1fs processing=%.1fs language=%s prob=%.3f",
