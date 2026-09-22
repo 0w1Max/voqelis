@@ -23,7 +23,7 @@ class RecurringTemplateSpec:
 
 @dataclass(frozen=True, slots=True)
 class PlannerConfig:
-    timezone: str = "Europe/Berlin"
+    timezone: str = "Europe/Moscow"
     default_duration_minutes: int = 60
     slot_minutes: int = 60
     plan_start_minute: int = 9 * 60
@@ -76,7 +76,7 @@ class PlannerConfig:
             for x in data["recurring_templates"]
         )
         config = cls(
-            timezone=str(data.get("timezone", "Europe/Berlin")),
+            timezone=str(data.get("timezone", "Europe/Moscow")),
             default_duration_minutes=int(data.get("default_duration_minutes", 60)),
             slot_minutes=int(data.get("slot_minutes", 60)),
             plan_start_minute=int(data.get("plan_start_minute", 540)),
