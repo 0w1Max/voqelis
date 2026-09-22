@@ -190,14 +190,19 @@ class Scheduler:
         )
         if {x.id for x in current_conflicts} != {x.id for x in proposal.conflicts}:
             raise ScheduleValidationError("План изменился после предложения; требуется новое согласование.")
-        item_id = self.store.apply_moves_and_add(
-            moves=proposal.moves,
-            item=PlanItem(
-                0, user_id, proposal.draft.day, proposal.draft.title, proposal.draft.why,
-                proposal.desired_start_minute, proposal.desired_end_minute, TaskKind.ORDINARY,
-                None, proposal.draft.urgent, proposal.draft.source_text,
-            ),
-        )
+        try:
+            item_id = self.store.apply_moves_and_add(
+                moves=proposal.moves,
+                item=PlanItem(
+                    0, user_id, proposal.draft.day, proposal.draft.title, proposal.draft.why,
+                    proposal.desired_start_minute, proposal.desired_end_minute, TaskKind.ORDINARY,
+                    None, proposal.draft.urgent, proposal.draft.source_text,
+                ),
+            )
+        except ValueError as exc:
+            raise ScheduleValidationError(
+                f"План изменился до подтверждения: {exc}. Повтори согласование."
+            ) from exc
         return self.store.get_plan_item(item_id)
 
 
