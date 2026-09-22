@@ -195,9 +195,6 @@ class PlannerStore:
                 for other_start, other_end in planned_ranges.values():
                     if overlaps(*new_range, other_start, other_end):
                         raise ValueError("A proposed move collides with another scheduled task")
-                for other_id, (other_start, other_end) in list(planned_ranges.items()):
-                    if other_id in move_ids:
-                        continue
                 planned_ranges[move.plan_item_id] = new_range
 
             for move in moves:
@@ -206,9 +203,7 @@ class PlannerStore:
                     (move.new_start_minute, move.new_end_minute, move.plan_item_id),
                 )
 
-            for existing_id, existing_range in planned_ranges.items():
-                if existing_id in move_ids:
-                    continue
+            for existing_range in planned_ranges.values():
                 if overlaps(
                     item.start_minute,
                     item.end_minute,
