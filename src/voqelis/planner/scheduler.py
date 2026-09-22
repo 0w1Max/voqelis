@@ -120,7 +120,7 @@ class Scheduler:
                 break
             if found is None:
                 return ()
-            moves.append(ScheduleMove(blocker.id, *found))
+            moves.append(ScheduleMove(blocker.id, *found, blocker.start_minute, blocker.end_minute))
         return tuple(moves)
 
     def schedule(self, user_id: int, draft: TaskDraft) -> PlanItem | Conflict:
