@@ -1,4 +1,5 @@
 {
+  "timezone": "Europe/Berlin",
   "default_duration_minutes": 60,
   "slot_minutes": 60,
   "plan_start_minute": 540,
