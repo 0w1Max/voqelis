@@ -127,6 +127,17 @@ PYTHONPATH=src python -m voqelis
 
 On first startup, `faster-whisper` downloads the selected model into `MODEL_CACHE_DIR`.
 
+### Production runtime paths
+
+The bundled `voqelis.service` deliberately keeps runtime-writable data outside `/opt/voqelis`:
+
+- temporary audio: `/run/voqelis`
+- model cache: `/var/lib/voqelis/models`
+
+For the production systemd deployment, **do not add `TEMP_DIR` or `MODEL_CACHE_DIR` to `/opt/voqelis/.env`**. Values loaded through `EnvironmentFile=` take precedence over the unit's `Environment=` assignments, so defining those variables in `.env` would override the protected production paths. With `ProtectSystem=strict`, that can send writes back into the read-only project tree and break processing.
+
+The repository `.env.example` therefore omits these two variables. They are still supported by the application for local/manual runs, where the code defaults to `./data/tmp` and `./data/models`.
+
 ### First access setup
 
 For security the allowlist is fail-closed.

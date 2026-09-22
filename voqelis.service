@@ -13,6 +13,9 @@ EnvironmentFile=/opt/voqelis/.env
 # Systemd-managed writable paths:
 # /var/lib/voqelis      -> model cache
 # /run/voqelis         -> temporary audio files
+#
+# Do not define these variables in /opt/voqelis/.env: EnvironmentFile=
+# values take precedence and would override these protected paths.
 StateDirectory=voqelis
 RuntimeDirectory=voqelis
 RuntimeDirectoryMode=0700
