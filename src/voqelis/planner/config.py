@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,20 +38,71 @@ class PlannerConfig:
         "dinner": (21 * 60, 22 * 60),
     })
     recurring_templates: tuple[RecurringTemplateSpec, ...] = field(default_factory=lambda: (
-        RecurringTemplateSpec("Проснуться + молитва + умыться + зарядка", "Чтобы быстрее проснуться и заняться делами. Настроиться на день. Для здоровья.", 540, 60),
-        RecurringTemplateSpec("Завтрак + душ", "Для здоровья", 600, 60),
+        RecurringTemplateSpec("Проснуться + молитва + умыться + зарядка (КД)", "Чтобы быстрее проснуться и заняться делами. Настроиться на день. Для здоровья.", 540, 60),
+        RecurringTemplateSpec("Завтрак + душ (КД)", "Для здоровья", 600, 60),
         RecurringTemplateSpec("Послушать спикерскую + заниматься проектами", "Прокачивать опыт, для резюме", 660, 60),
         RecurringTemplateSpec("Читать книгу", "Получить новые знания", 780, 60),
         RecurringTemplateSpec("Переделать резюме", "Чтобы найти работу", 840, 60),
         RecurringTemplateSpec("Обед + отдых", "Для здоровья, убрать чувство голода, пополнить энергию", 900, 60),
         RecurringTemplateSpec("Делать домашку по психотерапии", "Для получения нового опыта и практики. Для выздоровления, трезвости", 960, 60),
         RecurringTemplateSpec("Собираться на группу", "Чтобы прийти вовремя", 1020, 60),
-        RecurringTemplateSpec("Дорога на группу + собрание + прогулка", "Для моего выздоровления, чтобы быть полезным, для общения", 1080, 180),
+        RecurringTemplateSpec("Дорога на группу + собрание + прогулка", "Для моего выздоровления, чтобы быть полезным, для общения", 1080, 60),
         RecurringTemplateSpec("Дорога домой + ужин", "Добраться домой, пополнить энергию", 1260, 60),
         RecurringTemplateSpec("Делать домашку по шагам", "Для получения нового опыта и практики. Для выздоровления, трезвости", 1320, 60),
         RecurringTemplateSpec("Читать книгу", "Получить новые знания", 1380, 60),
         RecurringTemplateSpec("Подготовка ко сну + дневник успеха + молитва + благодарности за день", "Для восстановления энергии, выздоровления, чтобы оставаться трезвым", 1440, 60),
     ))
+
+    @classmethod
+    def from_json_file(cls, path: Path) -> "PlannerConfig":
+        data = json.loads(path.read_text(encoding="utf-8"))
+        periods = tuple(
+            Period(str(x["name"]), int(x["start"]), int(x["end"]))
+            for x in data["periods"]
+        )
+        anchors = {
+            str(name): (int(value[0]), int(value[1]))
+            for name, value in data["anchors"].items()
+        }
+        recurring = tuple(
+            RecurringTemplateSpec(
+                title=str(x["title"]),
+                why=x.get("why"),
+                start_minute=int(x["start_minute"]),
+                duration_minutes=int(x["duration_minutes"]),
+            )
+            for x in data["recurring_templates"]
+        )
+        config = cls(
+            default_duration_minutes=int(data.get("default_duration_minutes", 60)),
+            slot_minutes=int(data.get("slot_minutes", 60)),
+            plan_start_minute=int(data.get("plan_start_minute", 540)),
+            plan_end_minute=int(data.get("plan_end_minute", 1500)),
+            periods=periods,
+            anchors=anchors,
+            recurring_templates=recurring,
+        )
+        config.validate()
+        return config
+
+    def validate(self) -> None:
+        if self.default_duration_minutes <= 0:
+            raise ValueError("Planner default duration must be positive")
+        if self.slot_minutes <= 0:
+            raise ValueError("Planner slot size must be positive")
+        if self.plan_start_minute >= self.plan_end_minute:
+            raise ValueError("Planner window must have a positive duration")
+        for period in self.periods:
+            if not (0 <= period.start < period.end <= 24 * 60):
+                raise ValueError(f"Invalid planner period: {period.name}")
+        for name, (start, end) in self.anchors.items():
+            if not (0 <= start < end <= 24 * 60):
+                raise ValueError(f"Invalid planner anchor: {name}")
+        for spec in self.recurring_templates:
+            if spec.duration_minutes <= 0:
+                raise ValueError(f"Invalid recurring duration: {spec.title}")
+            if spec.start_minute % self.slot_minutes or spec.duration_minutes % self.slot_minutes:
+                raise ValueError(f"Recurring template is not aligned to planner grid: {spec.title}")
 
     def period(self, name: str) -> Period | None:
         aliases = {
