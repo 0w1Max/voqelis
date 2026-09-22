@@ -130,7 +130,8 @@ class PlannerStore:
             "INSERT INTO recurring_templates(user_id,title,why,start_minute,duration_minutes) VALUES(?,?,?,?,?)",
             [(user_id, x.title, x.why, x.start_minute, x.duration_minutes) for x in config.recurring_templates],
         )
-        self.db.commit()
+        if not self.db.in_transaction:
+            self.db.commit()
 
     def plan_items(self, user_id: int, day: date) -> list[PlanItem]:
         rows = self.db.execute(
@@ -232,15 +233,19 @@ class PlannerStore:
             raise
 
     def ensure_daily_plan(self, user_id: int, day: date, config: PlannerConfig | None = None) -> list[PlanItem]:
-        existing = self.plan_items(user_id, day)
-        if existing:
-            return existing
-
         config = config or PlannerConfig()
-        self.seed_defaults(user_id, config)
-        rows = self.recurring(user_id)
         try:
+            # Serialize the check + seed + materialization so two concurrent
+            # callers cannot both observe an empty day and create duplicates.
             self.db.execute("BEGIN IMMEDIATE")
+
+            existing = self.plan_items(user_id, day)
+            if existing:
+                self.db.commit()
+                return existing
+
+            self.seed_defaults(user_id, config)
+            rows = self.recurring(user_id)
             for row in rows:
                 start = int(row["start_minute"])
                 end = start + int(row["duration_minutes"])
