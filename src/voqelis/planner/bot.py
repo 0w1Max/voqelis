@@ -64,7 +64,7 @@ def create_planner_router(*, service: PlannerService, allowed_user_ids: frozense
     async def on_planning(message: Message) -> None:
         if allowed(message):
             await message.answer(
-                service.start_planning(message.from_user.id, date.today() + timedelta(days=1)),
+                service.start_planning(message.from_user.id, planner_today() + timedelta(days=1)),
                 reply_markup=planner_keyboard(),
             )
 
@@ -72,7 +72,7 @@ def create_planner_router(*, service: PlannerService, allowed_user_ids: frozense
     async def on_plan_tomorrow(message: Message) -> None:
         if allowed(message):
             await message.answer(
-                await service.show_plan(message.from_user.id, date.today() + timedelta(days=1)),
+                await service.show_plan(message.from_user.id, planner_today() + timedelta(days=1)),
                 reply_markup=planner_keyboard(),
             )
 
