@@ -104,6 +104,9 @@ class PlannerConfig:
             if spec.start_minute % self.slot_minutes or spec.duration_minutes % self.slot_minutes:
                 raise ValueError(f"Recurring template is not aligned to planner grid: {spec.title}")
 
+    def __post_init__(self) -> None:
+        self.validate()
+
     def period(self, name: str) -> Period | None:
         aliases = {
             "утром": "morning", "утро": "morning",
