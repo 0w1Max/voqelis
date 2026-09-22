@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +23,7 @@ class RecurringTemplateSpec:
 
 @dataclass(frozen=True, slots=True)
 class PlannerConfig:
+    timezone: str = "Europe/Berlin"
     default_duration_minutes: int = 60
     slot_minutes: int = 60
     plan_start_minute: int = 9 * 60
@@ -74,6 +76,7 @@ class PlannerConfig:
             for x in data["recurring_templates"]
         )
         config = cls(
+            timezone=str(data.get("timezone", "Europe/Berlin")),
             default_duration_minutes=int(data.get("default_duration_minutes", 60)),
             slot_minutes=int(data.get("slot_minutes", 60)),
             plan_start_minute=int(data.get("plan_start_minute", 540)),
@@ -86,6 +89,10 @@ class PlannerConfig:
         return config
 
     def validate(self) -> None:
+        try:
+            ZoneInfo(self.timezone)
+        except Exception as exc:
+            raise ValueError(f"Invalid planner timezone: {self.timezone}") from exc
         if self.default_duration_minutes <= 0:
             raise ValueError("Planner default duration must be positive")
         if self.slot_minutes <= 0:
