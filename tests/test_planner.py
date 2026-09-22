@@ -2,7 +2,7 @@ from datetime import date
 from pathlib import Path
 
 from voqelis.planner.config import PlannerConfig
-from voqelis.planner.models import Conflict, TaskDraft, TaskKind
+from voqelis.planner.models import Conflict, PlanItem, TaskDraft, TaskKind
 from voqelis.planner.parser import parse_voice
 from voqelis.planner.scheduler import Scheduler
 from voqelis.planner.store import PlannerStore
@@ -179,9 +179,9 @@ def test_confirmed_move_is_rejected_if_target_becomes_occupied(tmp_path: Path):
 
     # Simulate a concurrent/manual change into the proposed destination.
     store.add_item(
-        TaskDraft(
-            "Новая задача", day, start_minute=move.new_start_minute,
-            end_minute=move.new_end_minute,
+        PlanItem(
+            0, 1, day, "Новая задача", None,
+            move.new_start_minute, move.new_end_minute, TaskKind.ORDINARY,
         )
     )
 
