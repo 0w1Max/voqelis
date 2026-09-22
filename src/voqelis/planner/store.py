@@ -159,6 +159,18 @@ class PlannerStore:
         try:
             self.db.execute("BEGIN IMMEDIATE")
             for move in moves:
+                row = self.db.execute(
+                    "SELECT start_minute,end_minute,user_id,day FROM plan_items WHERE id=?",
+                    (move.plan_item_id,),
+                ).fetchone()
+                if row is None:
+                    raise ValueError(f"Plan item {move.plan_item_id} no longer exists")
+                if int(row["user_id"]) != item.user_id or row["day"] != item.day.isoformat():
+                    raise ValueError("A proposed move belongs to a different plan")
+                if move.old_start_minute is not None and int(row["start_minute"]) != move.old_start_minute:
+                    raise ValueError("A conflicting task changed before confirmation")
+                if move.old_end_minute is not None and int(row["end_minute"]) != move.old_end_minute:
+                    raise ValueError("A conflicting task changed before confirmation")
                 self.db.execute(
                     "UPDATE plan_items SET start_minute=?,end_minute=? WHERE id=?",
                     (move.new_start_minute, move.new_end_minute, move.plan_item_id),
