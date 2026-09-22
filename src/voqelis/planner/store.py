@@ -158,23 +158,72 @@ class PlannerStore:
     def apply_moves_and_add(self, *, moves: tuple[ScheduleMove, ...], item: PlanItem) -> int:
         try:
             self.db.execute("BEGIN IMMEDIATE")
+
+            move_ids = {move.plan_item_id for move in moves}
+            existing_rows = self.db.execute(
+                "SELECT * FROM plan_items WHERE user_id=? AND day=? ORDER BY start_minute,id",
+                (item.user_id, item.day.isoformat()),
+            ).fetchall()
+
+            current_by_id = {}
+            for row in existing_rows:
+                current_by_id[int(row["id"])] = row
+
             for move in moves:
-                row = self.db.execute(
-                    "SELECT start_minute,end_minute,user_id,day FROM plan_items WHERE id=?",
-                    (move.plan_item_id,),
-                ).fetchone()
+                row = current_by_id.get(move.plan_item_id)
                 if row is None:
                     raise ValueError(f"Plan item {move.plan_item_id} no longer exists")
-                if int(row["user_id"]) != item.user_id or row["day"] != item.day.isoformat():
-                    raise ValueError("A proposed move belongs to a different plan")
                 if move.old_start_minute is not None and int(row["start_minute"]) != move.old_start_minute:
                     raise ValueError("A conflicting task changed before confirmation")
                 if move.old_end_minute is not None and int(row["end_minute"]) != move.old_end_minute:
                     raise ValueError("A conflicting task changed before confirmation")
+
+            def overlaps(a_start: int, a_end: int, b_start: int, b_end: int) -> bool:
+                return a_start < b_end and b_start < a_end
+
+            planned_ranges: dict[int, tuple[int, int]] = {}
+            for row in existing_rows:
+                item_id = int(row["id"])
+                if item_id in move_ids:
+                    continue
+                planned_ranges[item_id] = (int(row["start_minute"]), int(row["end_minute"]))
+
+            for move in moves:
+                new_range = (move.new_start_minute, move.new_end_minute)
+                if new_range[0] >= new_range[1]:
+                    raise ValueError("A proposed move has an invalid time range")
+                for other_start, other_end in planned_ranges.values():
+                    if overlaps(*new_range, other_start, other_end):
+                        raise ValueError("A proposed move collides with another scheduled task")
+                for other_id, (other_start, other_end) in list(planned_ranges.items()):
+                    if other_id in move_ids:
+                        continue
+                planned_ranges[move.plan_item_id] = new_range
+
+            for move in moves:
                 self.db.execute(
                     "UPDATE plan_items SET start_minute=?,end_minute=? WHERE id=?",
                     (move.new_start_minute, move.new_end_minute, move.plan_item_id),
                 )
+
+            for existing_id, existing_range in planned_ranges.items():
+                if existing_id in move_ids:
+                    continue
+                if overlaps(
+                    item.start_minute,
+                    item.end_minute,
+                    existing_range[0],
+                    existing_range[1],
+                ):
+                    raise ValueError("The new task conflicts with another scheduled task")
+
+            for first_id, first_range in planned_ranges.items():
+                for second_id, second_range in planned_ranges.items():
+                    if first_id >= second_id:
+                        continue
+                    if overlaps(*first_range, *second_range):
+                        raise ValueError("Scheduled tasks would overlap after applying moves")
+
             cur = self.db.execute(
                 "INSERT INTO plan_items(user_id,day,title,why,start_minute,end_minute,kind,recurring_template_id,urgent,source_text,created_at) "
                 "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
