@@ -160,3 +160,42 @@ def test_move_proposal_carries_expected_old_position(tmp_path: Path):
     blocker = store.get_plan_item(move.plan_item_id)
     assert (move.old_start_minute, move.old_end_minute) == (blocker.start_minute, blocker.end_minute)
     store.close()
+
+
+def test_confirmed_move_is_rejected_if_target_becomes_occupied(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    store.ensure_daily_plan(1, day)
+    scheduler = Scheduler(store, PlannerConfig())
+
+    draft = TaskDraft(
+        "Срочная встреча", day, start_minute=10 * 60,
+        duration_minutes=60, urgent=True,
+    )
+    result = scheduler.schedule(1, draft)
+    assert isinstance(result, Conflict)
+    move = result.proposal.moves[0]
+    blocker = store.get_plan_item(move.plan_item_id)
+
+    # Simulate a concurrent/manual change into the proposed destination.
+    store.add_item(
+        TaskDraft(
+            "Новая задача", day, start_minute=move.new_start_minute,
+            end_minute=move.new_end_minute,
+        )
+    )
+
+    try:
+        scheduler.apply_proposal(1, result.proposal)
+    except Exception as exc:
+        assert "collides" in str(exc).lower() or "overlap" in str(exc).lower()
+    else:
+        raise AssertionError("A stale move must not be applied")
+
+    unchanged = store.get_plan_item(blocker.id)
+    assert (unchanged.start_minute, unchanged.end_minute) == (
+        move.old_start_minute,
+        move.old_end_minute,
+    )
+    assert not any(x.title == "Срочная встреча" for x in store.plan_items(1, day))
+    store.close()
