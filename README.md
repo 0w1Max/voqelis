@@ -1,294 +1,206 @@
 # Voqelis
 
-**Voqelis** is a local-first Telegram bot that turns voice messages and audio files into text using `faster-whisper` running on your own VPS.
+**Local-first voice intelligence platform for turning speech into useful information.**
 
-The MVP is intentionally small and inexpensive: Telegram is the transport layer, speech recognition runs locally, and there is no paid speech-to-text API.
+Voqelis is a self-hosted platform that receives voice messages through Telegram, processes speech locally with AI, and turns speech into text that can later become structured information.
 
-The long-term goal is larger than transcription: the same pipeline will later feed AI modules for tasks, daily notes, feelings, summaries, plans, reports, DOCX/Markdown export, and other structured outputs.
+**Current version: v0.1.0 (MVP)**
 
-## Current MVP
+The first version focuses on one core pipeline:
 
-- Telegram voice messages
-- Telegram audio files
-- Audio documents such as MP3, M4A, OGG/Opus, WAV and FLAC
-- Local speech-to-text with `faster-whisper`
-- CPU + INT8 profile for a small VPS
-- One transcription worker to protect a shared 1-vCPU server
-- Bounded queue and per-user back-pressure
-- Telegram user allowlist
-- Size and duration limits
-- Temporary audio cleanup after processing
-- Plain-text transcript delivery
-- `systemd` service with hardening for a VPS shared with other software
+    🎙️ Voice message
+          ↓
+    💬 Telegram
+          ↓
+    🧠 Local speech recognition
+          ↓
+    📝 Transcription
+
+The current MVP is intentionally small. The architecture is designed so that the same transcription result can become the input for future task extraction, notes, summaries, insights, reports, and other processing modules.
+
+---
+
+## What Voqelis does
+
+For a user, the experience is simple:
+
+    🎙️ Send a voice message
+            ↓
+    🤖 Voqelis processes it
+            ↓
+    📝 Receive the transcription
+
+Behind this simple interaction is a modular backend that separates Telegram communication, validation, job processing, and speech recognition.
+
+---
 
 ## Architecture
 
-```text
-                    Telegram
-                       │
-          voice / audio / document
-                       │
-                       ▼
-              ┌─────────────────┐
-              │ Telegram layer  │
-              └────────┬────────┘
-                       │
-                       ▼
-              access + size checks
-                       │
-                       ▼
-              ┌─────────────────┐
-              │ bounded queue   │
-              └────────┬────────┘
-                       │
-                    1 worker
-                       │
-                       ▼
-              ┌─────────────────┐
-              │ faster-whisper  │
-              │ CPU / INT8      │
-              └────────┬────────┘
-                       │
-                       ▼
-              TranscriptionResult
-                       │
-          ┌────────────┼────────────┐
-          ▼            ▼            ▼
-       Tasks         Diary       Analyzer
-          │            │            │
-          └────────────┼────────────┘
-                       ▼
-                DOCX / Markdown / JSON
+```mermaid
+flowchart TD
+    U["👤 User"] --> TG["💬 Telegram"]
+    TG --> BOT["🤖 Voqelis Bot"]
+    BOT --> AUTH["🔐 Access Control"]
+    AUTH --> QUEUE["📥 Bounded Job Queue"]
+    QUEUE --> WORKER["⚙️ Transcription Worker"]
+    WORKER --> STT["🧠 faster-whisper"]
+    STT --> RESULT["📄 TranscriptionResult"]
+    RESULT --> TG
+    RESULT -. future .-> TASKS["✅ Task Extraction"]
+    RESULT -. future .-> JOURNAL["📔 Notes / Journal"]
+    RESULT -. future .-> INSIGHTS["💡 Insights"]
+    RESULT -. future .-> SUMMARY["📊 Summaries"]
+    RESULT -. future .-> REPORTS["📁 Reports"]
+    REPORTS -.-> OUTPUT["DOCX / Markdown / JSON"]
 ```
 
-The important boundary is `TranscriptionResult`: future AI features should consume this contract instead of being coupled directly to Telegram or Whisper.
+The key architectural boundary is **`TranscriptionResult`**.
 
-## Requirements
+Future AI features can consume this stable result instead of being tightly coupled to Telegram or the speech-recognition engine. This makes it possible to add new capabilities without rebuilding the core pipeline.
 
-- Ubuntu/Linux
-- Python 3.10–3.14
-- VPS target: 1 vCPU / 2 GB RAM
-- outbound HTTPS access for Telegram and the initial model download
-- no system FFmpeg package is required; audio decoding is provided through PyAV
+---
 
-Pinned runtime dependencies:
+## Built to scale for different tasks
 
-- `aiogram==3.31.0`
-- `faster-whisper==1.2.1`
-- `av==18.1.0`
-- `python-dotenv==1.2.3`
+Voqelis is not limited to transcription.
 
-## Create the Telegram bot
-
-Open **@BotFather** in Telegram and run `/newbot`.
-
-Recommended public bot name:
+The current version establishes a reusable processing layer:
 
 ```text
-Voqelis
+                    🎙️ Voice / Audio
+                           │
+                           ▼
+                  ┌──────────────────┐
+                  │     Voqelis      │
+                  │   Core Pipeline  │
+                  └────────┬─────────┘
+                           │
+                    TranscriptionResult
+                           │
+          ┌────────────────┼────────────────┐
+          ▼                ▼                ▼
+       Tasks            Notes            Insights
+          │                │                │
+          └────────────────┼────────────────┘
+                           ▼
+                Summaries / Reports
+                           │
+                           ▼
+                 DOCX / Markdown / JSON
 ```
 
-Recommended username:
+For example, one voice message such as:
+
+> “Tomorrow call the client and finish the report.”
+
+could eventually be processed into:
 
 ```text
-VoqelisBot
+📝 Transcript
+      ↓
+┌───────────────────────────────┐
+│ Tasks                         │
+│ • Call the client             │
+│ • Finish the report           │
+└───────────────────────────────┘
+      +
+📊 Summary
+      +
+📔 Daily note
 ```
 
-Telegram bot usernames must be 5–32 characters, use Latin letters/numbers/underscores, and end with `bot`. The username cannot be changed later, so choose it carefully. The token returned by BotFather is a secret and must never be committed to Git. See the official Telegram bot documentation.
+The point is not to predict every future feature. The point is to provide a core that can be extended for **different personal, work, or information-processing tasks**.
 
-## Local setup
+---
 
-```bash
-git clone https://github.com/YOUR_USERNAME/voqelis.git
-cd voqelis
+## Current MVP — v0.1.0
 
-python3 -m venv .venv
-source .venv/bin/activate
+The current production version provides:
 
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python -m pip install -e .
+- Telegram voice-message and audio-file input
+- Local speech-to-text with `faster-whisper`
+- Russian-language transcription
+- Access control for authorized users
+- File size and duration limits
+- Bounded queue and per-user back-pressure
+- Single transcription worker for a 1-vCPU server
+- Temporary audio cleanup after processing
+- Plain-text transcript delivery
+- Dedicated unprivileged Linux service account
+- `systemd` deployment with service hardening
 
-cp .env.example .env
-```
+The MVP deliberately focuses on a reliable foundation before adding higher-level AI processing.
 
-Edit `.env` and put in the BotFather token:
+---
 
-```dotenv
-BOT_TOKEN=123456789:AA-your-real-token
-ALLOWED_USER_IDS=
-```
+## Real-world performance
 
-Run the bot:
+The current configuration has been tested on the actual production VPS.
 
-```bash
-PYTHONPATH=src python -m voqelis
-```
+| Audio duration | Processing time |
+|---:|---:|
+| 11.8 s | 3.0 s |
+| 44.0 s | 5.8 s |
+| 84.0 s | 12.0 s |
+| 157.6 s | 29.9 s |
 
-On first startup, `faster-whisper` downloads the selected model into `MODEL_CACHE_DIR`.
-
-### Production runtime paths
-
-The bundled `voqelis.service` deliberately keeps runtime-writable data outside `/opt/voqelis`:
-
-- temporary audio: `/run/voqelis`
-- model cache: `/var/lib/voqelis/models`
-
-For the production systemd deployment, **do not add `TEMP_DIR` or `MODEL_CACHE_DIR` to `/opt/voqelis/.env`**. Values loaded through `EnvironmentFile=` take precedence over the unit's `Environment=` assignments, so defining those variables in `.env` would override the protected production paths. With `ProtectSystem=strict`, that can send writes back into the read-only project tree and break processing.
-
-The repository `.env.example` therefore omits these two variables. They are still supported by the application for local/manual runs, where the code defaults to `./data/tmp` and `./data/models`.
-
-### First access setup
-
-For security the allowlist is fail-closed.
-
-1. Start the bot.
-2. Send `/id` to it.
-3. Copy your numeric Telegram user ID.
-4. Put the ID into `.env`.
-5. Restart the bot.
-
-Example:
-
-```dotenv
-ALLOWED_USER_IDS=123456789
-```
-
-Multiple users can be listed with commas.
-
-## VPS deployment
-
-The production deployment runs Voqelis as a dedicated unprivileged service user.
-
-Assuming the project will live at `/opt/voqelis`:
-
-```bash
-sudo useradd --system --home /var/lib/voqelis --shell /usr/sbin/nologin voqelis
-sudo mkdir -p /opt/voqelis
-sudo chown -R voqelis:voqelis /opt/voqelis
-```
-
-Copy the project into `/opt/voqelis`, then:
-
-```bash
-cd /opt/voqelis
-
-sudo -u voqelis python3 -m venv .venv
-sudo -u voqelis .venv/bin/pip install --upgrade pip
-sudo -u voqelis .venv/bin/pip install -r requirements.txt
-sudo -u voqelis .venv/bin/pip install -e .
-
-sudo cp .env.example .env
-sudo chown voqelis:voqelis .env
-sudo chmod 600 .env
-```
-
-Edit the environment file:
-
-```bash
-sudo nano /opt/voqelis/.env
-```
-
-At minimum:
-
-```dotenv
-BOT_TOKEN=your-real-token-from-BotFather
-ALLOWED_USER_IDS=your-telegram-user-id
-```
-
-Install the systemd unit:
-
-```bash
-sudo cp voqelis.service /etc/systemd/system/voqelis.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now voqelis
-```
-
-Check the service:
-
-```bash
-sudo systemctl status voqelis --no-pager
-```
-
-Follow logs:
-
-```bash
-sudo journalctl -u voqelis -f
-```
-
-Restart after configuration/code changes:
-
-```bash
-sudo systemctl restart voqelis
-```
-
-Stop it:
-
-```bash
-sudo systemctl stop voqelis
-```
-
-## Recommended VPS profile
-
-Start with the conservative profile already present in `.env.example`:
-
-```dotenv
-MODEL_SIZE=base
-MODEL_DEVICE=cpu
-MODEL_COMPUTE_TYPE=int8
-CPU_THREADS=1
-BEAM_SIZE=5
-LANGUAGE=ru
-```
-
-Do not immediately switch to `small`. Measure actual RAM and processing time on the real VPS first. The upstream `faster-whisper` benchmark reports about 1.48 GB RAM for the **small** model in CPU INT8 on an 8-thread desktop benchmark; the actual footprint on your VPS will differ, but that number illustrates why the 2 GB machine needs a conservative starting profile.
-
-## Input limits
-
-The bot enforces:
-
-- maximum Telegram file download: 20 MB
-- default maximum audio duration: 20 minutes
-- maximum reserved jobs globally: 4
-- maximum reserved jobs per allowed user: 2
-
-These limits are intentional because the bot shares the VPS with other workloads.
-
-## Commands
+Production environment:
 
 ```text
-/start   help
-/id      show your Telegram user ID
-/status  show queue/model limits
+1 vCPU
+2 GB RAM
+20 GB NVMe
+Ubuntu 24.04 LTS
 ```
 
-## Privacy model
+Current inference profile:
 
-Audio is stored temporarily on the VPS only for processing and is deleted after the job finishes. No paid speech-recognition API is used.
-
-Telegram remains the transport layer, so the original voice/audio necessarily passes through Telegram before the bot can download it.
-
-## Development
-
-Install development dependencies:
-
-```bash
-python3 -m pip install -r requirements-dev.txt
+```text
+Model:        faster-whisper base
+Device:       CPU
+Compute type: INT8
+CPU threads:  1
+Language:     Russian
 ```
 
-Run tests:
+The configuration is intentionally conservative because Voqelis shares the VPS with other services.
 
-```bash
-PYTHONPATH=src pytest -q
-```
+---
 
-Run lint:
+## Local-first
 
-```bash
-ruff check .
-```
+Voqelis follows a **local-first** approach.
 
-## Repository structure
+Telegram provides the convenient user interface and transport layer, while speech recognition runs on infrastructure controlled by the project owner.
+
+This creates a foundation for:
+
+- reducing dependence on paid speech-to-text APIs
+- keeping processing under the owner's control
+- adding local AI models later
+- building private workflows around personal data
+- moving the processing core to another server or local machine
+
+Local-first does not mean that every future component must be local. External AI services can be added later as optional modules when they provide a useful capability.
+
+---
+
+## Technology
+
+| Layer | Technology |
+|---|---|
+| Interface / transport | Telegram Bot |
+| Backend | Python |
+| Bot framework | aiogram |
+| Speech recognition | faster-whisper |
+| Audio decoding | PyAV |
+| Deployment | systemd |
+| Operating system | Ubuntu Linux |
+| Version control | Git / GitHub |
+
+---
+
+## Project structure
 
 ```text
 voqelis/
@@ -313,11 +225,81 @@ voqelis/
 └── README.md
 ```
 
-## Security
+The codebase is organized around separate responsibilities rather than a single monolithic bot script.
 
-Read [SECURITY.md](SECURITY.md) before exposing the bot to additional users.
+---
 
-The original implementation review and architectural changes are documented in [AUDIT.md](AUDIT.md).
+## Roadmap
+
+```text
+v0.1.0
+Telegram → Local STT → Text
+                │
+                ├── Task extraction
+                ├── Structured notes
+                ├── Daily summaries
+                ├── Insights
+                ├── Document generation
+                └── Local / external LLM modules
+```
+
+The roadmap is intentionally flexible. New modules can be added around the existing processing result without changing the basic user interaction.
+
+---
+
+## Project status
+
+**v0.1.0 — MVP**
+
+Voqelis is already running as a production service on a real VPS and processing Telegram voice messages.
+
+The current goal is to keep the core small, reliable, and resource-aware while gradually turning it into a modular personal information-processing platform.
+
+**From voice transcription to a system for turning unstructured speech into structured information.**
+
+---
+
+## Security and privacy
+
+Audio is stored temporarily on the VPS only for processing and is removed after the job finishes. No paid speech-recognition API is required.
+
+Telegram remains the transport layer, so the original voice/audio necessarily passes through Telegram before Voqelis can download and process it.
+
+Additional deployment and security details are documented in [SECURITY.md](SECURITY.md) and [AUDIT.md](AUDIT.md).
+
+---
+
+## Development
+
+For local development:
+
+```bash
+git clone https://github.com/0w1Max/voqelis.git
+cd voqelis
+
+python3 -m venv .venv
+source .venv/bin/activate
+
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m pip install -e .
+```
+
+Run tests:
+
+```bash
+PYTHONPATH=src pytest -q
+```
+
+Run lint:
+
+```bash
+ruff check .
+```
+
+Production deployment details are kept separate from the main project overview so that the README stays focused on the product, architecture, and engineering decisions.
+
+---
 
 ## License
 
