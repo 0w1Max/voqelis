@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
 from aiogram.enums import ChatType
@@ -30,6 +31,10 @@ def review_keyboard() -> ReplyKeyboardMarkup:
 
 
 def create_planner_router(*, service: PlannerService, allowed_user_ids: frozenset[int]) -> Router:
+    planner_tz = ZoneInfo(service.config.timezone)
+
+    def planner_today() -> date:
+        return datetime.now(planner_tz).date()
     router = Router(name="planner")
 
     def allowed(message: Message) -> bool:
@@ -43,7 +48,7 @@ def create_planner_router(*, service: PlannerService, allowed_user_ids: frozense
     async def on_plan(message: Message) -> None:
         if allowed(message):
             await message.answer(
-                service.start_planning(message.from_user.id, date.today() + timedelta(days=1)),
+                service.start_planning(message.from_user.id, planner_today() + timedelta(days=1)),
                 reply_markup=planner_keyboard(),
             )
 
@@ -51,7 +56,7 @@ def create_planner_router(*, service: PlannerService, allowed_user_ids: frozense
     async def on_review_command(message: Message) -> None:
         if allowed(message):
             await message.answer(
-                await service.start_review(message.from_user.id, date.today()),
+                await service.start_review(message.from_user.id, planner_today()),
                 reply_markup=review_keyboard(),
             )
 
@@ -75,7 +80,7 @@ def create_planner_router(*, service: PlannerService, allowed_user_ids: frozense
     async def on_review(message: Message) -> None:
         if allowed(message):
             await message.answer(
-                await service.start_review(message.from_user.id, date.today()),
+                await service.start_review(message.from_user.id, planner_today()),
                 reply_markup=review_keyboard(),
             )
 
