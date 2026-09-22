@@ -4,6 +4,8 @@ import asyncio
 import logging
 import shutil
 import uuid
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from contextlib import suppress
 from pathlib import Path
 
@@ -199,6 +201,8 @@ async def run_worker(
     settings: Settings,
     planner: PlannerService | None = None,
 ) -> None:
+    planner_tz = ZoneInfo(planner.config.timezone) if planner else None
+
     while True:
         job = await queue.get()
         try:
@@ -224,8 +228,8 @@ async def run_worker(
 
             session = planner.store.session(job.user_id) if planner else None
             if planner and session:
-                from datetime import date
-                replies = await planner.handle_text(job.user_id, result.text, date.today())
+                today = datetime.now(planner_tz).date()
+                replies = await planner.handle_text(job.user_id, result.text, today)
                 if replies:
                     for part in replies:
                         await bot.send_message(
