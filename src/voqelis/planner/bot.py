@@ -88,7 +88,7 @@ def create_planner_router(*, service: PlannerService, allowed_user_ids: frozense
     async def on_review_edit(message: Message) -> None:
         if allowed(message):
             await message.answer(
-                await service.start_review_edit(message.from_user.id, date.today()),
+                await service.start_review_edit(message.from_user.id, planner_today()),
                 reply_markup=planner_keyboard(),
             )
 
@@ -102,7 +102,7 @@ def create_planner_router(*, service: PlannerService, allowed_user_ids: frozense
     async def on_planner_text(message: Message) -> None:
         if not allowed(message) or not message.text or message.text.startswith("/"):
             return
-        replies = await service.handle_text(message.from_user.id, message.text, date.today())
+        replies = await service.handle_text(message.from_user.id, message.text, planner_today())
         for reply in replies:
             await message.answer(
                 reply,
