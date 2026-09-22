@@ -195,12 +195,38 @@ class PlannerService:
         return f"🔎 Начинаем анализ дня.\n\n{render_review_prompt(item)}\n\nВыполнено?"
 
     async def start_review_edit(self, user_id: int, day: date) -> str:
-        items = self.store.reviews(user_id, day)
+        items = [x for x in self.store.reviews(user_id, day) if x.status is not None]
         if not items:
-            return "На этот день пока нет плана."
-        item = items[0]
+            return "На этот день пока нет заполненных ответов для редактирования."
+        self.store.set_session(user_id, "review_edit_select", day, {})
+        lines = ["✏️ Выбери задачу для исправления анализа:"]
+        for index, item in enumerate(items, 1):
+            lines.append(
+                f"{index}. {fmt_time(item.plan_item.start_minute)}–{fmt_time(item.plan_item.end_minute)} — "
+                f"{item.plan_item.title} [{item.status}]"
+            )
+        lines.append("Напиши номер задачи или «отмена».")
+        return "\n".join(lines)
+
+    async def _review_edit_select(self, user_id: int, text: str, day: date) -> list[str]:
+        answer = text.strip().lower()
+        if answer in {"отмена", "cancel"}:
+            self.store.set_session(user_id, "review", day, {})
+            return ["Редактирование отменено."]
+        try:
+            index = int(answer) - 1
+        except ValueError:
+            return ["Напиши номер задачи из списка или «отмена»."]
+        items = [x for x in self.store.reviews(user_id, day) if x.status is not None]
+        if index < 0 or index >= len(items):
+            return ["Такого номера нет."]
+        item = items[index]
         self.store.set_session(user_id, "review_status", day, {"current_item_id": item.plan_item.id})
-        return "✏️ Редактирование анализа дня.\n\n" + render_review_prompt(item) + "\n\nВыбери новый статус."
+        return [
+            "✏️ Исправление анализа.\n\n"
+            + render_review_prompt(item)
+            + "\n\nВыбери новый статус: +, - или +-."
+        ]
 
     async def _review_status(self, user_id: int, text: str, day: date) -> list[str]:
         status = {"+": "+", "-": "-", "+-": "+-", "да": "+", "нет": "-", "частично": "+-"}.get(text.strip().lower())
@@ -252,6 +278,8 @@ class PlannerService:
             return await self.add_from_text(user_id, text, today)
         if state == "planning_conflict":
             return await self._resolve_conflict(user_id, text, today)
+        if state == "review_edit_select":
+            return await self._review_edit_select(user_id, text, day)
         if state == "review_status":
             return await self._review_status(user_id, text, day)
         if state == "review_detail":
