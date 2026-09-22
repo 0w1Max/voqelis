@@ -144,7 +144,7 @@ def test_planner_config_rejects_invalid_timezone():
 
 def test_planner_config_default_timezone_is_explicit():
     from voqelis.planner.config import PlannerConfig
-    assert PlannerConfig().timezone == "Europe/Berlin"
+    assert PlannerConfig().timezone == "Europe/Moscow"
 
 
 def test_move_proposal_carries_expected_old_position(tmp_path: Path):
