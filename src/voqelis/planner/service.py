@@ -92,14 +92,7 @@ class PlannerService:
             lines.append("Подходящего свободного окна нет.")
         return "\n".join(lines)
 
-    async def add_from_text(self, user_id: int, text: str, today: date) -> list[str]:
-        try:
-            drafts = await self._extract(text, user_id, today)
-        except Exception as exc:
-            return [f"⚠️ Не удалось разобрать задачу: {exc}"]
-        if not drafts:
-            return ["Не удалось выделить задачу. Назови дело и, если важно, время или период."]
-
+    async def _add_drafts(self, user_id: int, drafts: list[TaskDraft], today: date) -> list[str]:
         replies: list[str] = []
         for index, draft in enumerate(drafts):
             try:
@@ -117,12 +110,18 @@ class PlannerService:
                 replies.append(self._conflict_text(result))
                 break
             message = f"✅ Добавил: {fmt_time(result.start_minute)}–{fmt_time(result.end_minute)} — {result.title}"
-            if result.why:
-                message += f"\nЗачем: {result.why}"
-            else:
-                message += "\nЗачем: не указано."
+            message += f"\nЗачем: {result.why}" if result.why else "\nЗачем: не указано."
             replies.append(message)
         return replies
+
+    async def add_from_text(self, user_id: int, text: str, today: date) -> list[str]:
+        try:
+            drafts = await self._extract(text, user_id, today)
+        except Exception as exc:
+            return [f"⚠️ Не удалось разобрать задачу: {exc}"]
+        if not drafts:
+            return ["Не удалось выделить задачу. Назови дело и, если важно, время или период."]
+        return await self._add_drafts(user_id, drafts, today)
 
     async def _resolve_conflict(self, user_id: int, text: str, today: date) -> list[str]:
         session = self.store.session(user_id)
@@ -146,8 +145,11 @@ class PlannerService:
             if answer not in {"да", "д", "yes", "подтверждаю"}:
                 self.store.set_session(user_id, "planning", draft.day, {})
                 replies = ["Хорошо, ничего не переношу."]
-                for extra in (self._draft(x) for x in payload.get("pending", [])):
-                    replies.extend(await self.add_from_text(user_id, extra.source_text, today))
+                replies.extend(await self._add_drafts(
+                    user_id,
+                    [self._draft(x) for x in payload.get("pending", [])],
+                    today,
+                ))
                 return replies
             proposal = ConflictProposal(
                 draft, payload["desired"][0], payload["desired"][1],
@@ -181,8 +183,7 @@ class PlannerService:
         self.store.set_session(user_id, "planning", draft.day, {})
         if pending:
             replies = [reply]
-            for extra in pending:
-                replies.extend(await self.add_from_text(user_id, extra.source_text, today))
+            replies.extend(await self._add_drafts(user_id, pending, today))
             return replies
         return [reply]
 
