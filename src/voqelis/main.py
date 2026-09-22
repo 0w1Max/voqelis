@@ -15,6 +15,7 @@ from .planner.bot import create_planner_router
 from .planner.service import PlannerService
 from .planner.ai import GeminiPlannerAI
 from .planner.store import PlannerStore
+from .planner.config import PlannerConfig
 
 
 logger = logging.getLogger(__name__)
@@ -34,8 +35,13 @@ async def async_main() -> None:
     await transcriber.start()
 
     planner_store = PlannerStore(settings.planner_db_path)
+    planner_config = (
+        PlannerConfig.from_json_file(settings.planner_config_path)
+        if settings.planner_config_path.exists()
+        else PlannerConfig()
+    )
     planner_ai = GeminiPlannerAI(settings.gemini_api_key, model=settings.gemini_model, timeout_seconds=settings.planner_ai_timeout_seconds) if settings.gemini_api_key else None
-    planner = PlannerService(planner_store, ai=planner_ai)
+    planner = PlannerService(planner_store, config=planner_config, ai=planner_ai)
 
     queue = JobQueue(
         max_pending_jobs=settings.max_pending_jobs,
