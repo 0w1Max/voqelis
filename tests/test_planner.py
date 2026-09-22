@@ -147,6 +147,30 @@ def test_planner_config_default_timezone_is_explicit():
     assert PlannerConfig().timezone == "Europe/Moscow"
 
 
+def test_ensure_daily_plan_is_idempotent_after_existing_ordinary_item(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+
+    # An ordinary task may be created before the daily template is materialized.
+    store.add_item(
+        PlanItem(
+            0, 1, day, "Обычная задача", None,
+            12 * 60, 13 * 60, TaskKind.ORDINARY,
+        )
+    )
+
+    items = store.ensure_daily_plan(1, day)
+    assert any(item.kind == TaskKind.RECURRING for item in items)
+
+    # Repeating the operation must not duplicate either ordinary or recurring items.
+    again = store.ensure_daily_plan(1, day)
+    assert [(item.id, item.title) for item in again] == [(item.id, item.title) for item in items]
+
+    recurring_ids = [item.recurring_template_id for item in again if item.kind == TaskKind.RECURRING]
+    assert len(recurring_ids) == len(set(recurring_ids))
+    store.close()
+
+
 def test_move_proposal_carries_expected_old_position(tmp_path: Path):
     store = PlannerStore(tmp_path / "planner.sqlite3")
     day = date(2026, 9, 23)
