@@ -22,6 +22,7 @@ RuntimeDirectoryMode=0700
 Environment=MODEL_CACHE_DIR=/var/lib/voqelis/models
 Environment=TEMP_DIR=/run/voqelis
 Environment=PLANNER_DB_PATH=/var/lib/voqelis/planner.sqlite3
+Environment=PLANNER_CONFIG_PATH=/opt/voqelis/config/planner.json
 
 ExecStart=/opt/voqelis/.venv/bin/python -m voqelis
 Restart=on-failure
