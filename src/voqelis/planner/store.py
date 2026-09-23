@@ -5,9 +5,8 @@ import sqlite3
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from .config import PlannerConfig
+from .config import PlannerConfig, RecurringTemplateSpec
 from .models import DayReview, PlanItem, ReviewItem, ScheduleMove, TaskKind
-from .config import RecurringTemplateSpec
 
 
 SCHEMA = """
