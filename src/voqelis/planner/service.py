@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import date, timedelta
 
 from .ai import PlannerAI
@@ -95,6 +95,34 @@ class PlannerService:
     async def _add_drafts(self, user_id: int, drafts: list[TaskDraft], today: date) -> list[str]:
         replies: list[str] = []
         for index, draft in enumerate(drafts):
+            if not draft.why:
+                suggested = self.store.previous_why(user_id, draft.title)
+                self.store.set_session(
+                    user_id,
+                    "planning_why",
+                    draft.day,
+                    {
+                        "draft": asdict(draft) | {"day": draft.day.isoformat()},
+                        "pending": [
+                            asdict(item) | {"day": item.day.isoformat()}
+                            for item in drafts[index + 1:]
+                        ],
+                        "suggested_why": suggested,
+                        "why_mode": "confirm" if suggested else "input",
+                    },
+                )
+                if suggested:
+                    replies.append(
+                        f"❓ Для «{draft.title}» раньше была указана причина:\n"
+                        f"«{suggested}»\n\nИспользовать её?"
+                    )
+                else:
+                    replies.append(
+                        f"❓ Для «{draft.title}» не указана причина. "
+                        "Зачем тебе нужно это сделать? Можешь написать или продиктовать. "
+                        "Можно также нажать «Оставить пустым»."
+                    )
+                break
             try:
                 result = self.scheduler.schedule(user_id, draft)
             except ScheduleValidationError as exc:
@@ -112,6 +140,39 @@ class PlannerService:
             message = f"✅ Добавил: {fmt_time(result.start_minute)}–{fmt_time(result.end_minute)} — {result.title}"
             message += f"\nЗачем: {result.why}" if result.why else "\nЗачем: не указано."
             replies.append(message)
+        return replies
+
+    async def _resolve_why(self, user_id: int, text: str, today: date) -> list[str]:
+        session = self.store.session(user_id)
+        payload = self.store.session_payload(user_id)
+        if not session or not payload.get("draft"):
+            self.store.set_session(user_id, "planning", today + timedelta(days=1), {})
+            return ["Запрос причины больше не актуален. Возвращаюсь к планированию."]
+
+        answer = text.strip()
+        mode = payload.get("why_mode", "input")
+        suggested = str(payload.get("suggested_why") or "").strip()
+
+        if mode == "confirm" and answer.lower() in {"да", "д", "yes", "использовать"}:
+            why = suggested or None
+        elif answer.lower() in {"пропустить", "skip", "нет", "no"}:
+            why = None
+        elif mode == "confirm" and answer.lower() in {"другая", "другую", "other"}:
+            self.store.set_session(
+                user_id,
+                "planning_why",
+                date.fromisoformat(session["target_day"]),
+                payload | {"why_mode": "input"},
+            )
+            return ["Хорошо. Напиши или продиктуй, зачем тебе нужна эта задача."]
+        else:
+            why = answer or None
+
+        draft = self._draft(payload["draft"])
+        draft = replace(draft, why=why)
+        pending = [self._draft(x) for x in payload.get("pending", [])]
+        self.store.set_session(user_id, "planning", draft.day, {})
+        replies = await self._add_drafts(user_id, [draft, *pending], today)
         return replies
 
     async def add_from_text(self, user_id: int, text: str, today: date) -> list[str]:
@@ -422,6 +483,8 @@ class PlannerService:
         day = date.fromisoformat(session["target_day"]) if session["target_day"] else today
         if state == "planning":
             return await self.add_from_text(user_id, text, today)
+        if state == "planning_why":
+            return await self._resolve_why(user_id, text, today)
         if state == "planning_conflict":
             return await self._resolve_conflict(user_id, text, today)
         if state == "review_full_input":
@@ -444,6 +507,28 @@ class PlannerService:
         """Handle inline Planner actions and reject stale buttons safely."""
         session = self.store.session(user_id)
         state = session["state"] if session else None
+
+        if callback_data.startswith("pl:why:"):
+            if state != "planning_why":
+                return ["Эта кнопка больше не актуальна. Причина уже обработана."]
+            action = callback_data.removeprefix("pl:why:")
+            if action == "yes":
+                return await self._resolve_why(user_id, "да", today)
+            if action == "skip":
+                return await self._resolve_why(user_id, "пропустить", today)
+            if action == "other":
+                session_payload = self.store.session_payload(user_id)
+                if not session_payload:
+                    return ["Эта кнопка больше не актуальна."]
+                session_payload["why_mode"] = "input"
+                self.store.set_session(
+                    user_id,
+                    "planning_why",
+                    date.fromisoformat(session["target_day"]),
+                    session_payload,
+                )
+                return ["Хорошо. Напиши или продиктуй новую причину."]
+            return ["Неизвестное действие для причины."]
 
         if callback_data.startswith("pl:conf:"):
             if state != "planning_conflict":
