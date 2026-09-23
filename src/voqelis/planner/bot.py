@@ -103,7 +103,7 @@ def planner_markup_for_state(
             [
                 InlineKeyboardButton(
                     text=f"{index + 1}. {item.plan_item.title[:35]}",
-                    callback_data=f"pl:edit:{index}",
+                    callback_data=f"pl:edit:{item.plan_item.id}",
                 )
             ]
             for index, item in enumerate(items)
