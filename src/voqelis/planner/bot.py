@@ -23,7 +23,8 @@ def planner_keyboard() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text="📅 Планирование дня")],
             [KeyboardButton(text="📋 План на завтра"), KeyboardButton(text="🔎 Анализ сегодня")],
-            [KeyboardButton(text="🎙️ Рассказать весь день")],\n            [KeyboardButton(text="✏️ Исправить анализ")],
+            [KeyboardButton(text="🎙️ Рассказать весь день")],
+            [KeyboardButton(text="✏️ Исправить анализ")],
             [KeyboardButton(text="⏹️ Выйти из режима")],
         ],
         resize_keyboard=True,
