@@ -33,3 +33,20 @@ def render_plan_text(day: date, items: list[PlanItem], config: PlannerConfig) ->
 
 def render_review_prompt(item: ReviewItem) -> str:
     return f"📝 {fmt_time(item.plan_item.start_minute)}–{fmt_time(item.plan_item.end_minute)}\n{item.plan_item.title}"
+
+
+def render_full_review_proposal(
+    items: list[tuple[PlanItem, str, str | None, tuple[str, ...], str | None]],
+) -> str:
+    lines = ["🧠 AI-разбор всего дня. Проверь перед сохранением:"]
+    for item, status, activity, feelings, reason in items:
+        parts = [f"{fmt_time(item.start_minute)}–{fmt_time(item.end_minute)} — {item.title}", f"Статус: {status}"]
+        if activity:
+            parts.append(f"Дела: {activity}")
+        if feelings:
+            parts.append(f"Чувства: {', '.join(feelings)}")
+        if reason:
+            parts.append(f"Причина: {reason}")
+        lines.append("\n".join(parts))
+    lines.append("\nСохранить этот разбор?")
+    return "\n\n".join(lines)
