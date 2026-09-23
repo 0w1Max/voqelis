@@ -285,8 +285,23 @@ class PlannerService:
                 int(item["plan_item_id"]), item["status"], item.get("activity"),
                 tuple(item.get("feelings", [])), item.get("reason"),
             )
-        self.store.clear_session(user_id)
-        return ["✅ Общий разбор сохранён.\n\n" + render_plan_text(day, self.store.plan_items(user_id, day), self.config)]
+        next_item = next((x for x in self.store.reviews(user_id, day) if x.status is None), None)
+        if next_item:
+            self.store.set_session(
+                user_id, "review_status", day, {"current_item_id": next_item.plan_item.id}
+            )
+            return [
+                "✅ Общий разбор сохранён для уверенно сопоставленных задач.\n\n"
+                "Остались пункты, по которым AI не смог уверенно определить результат. "
+                "Проверим их по очереди.\n\n"
+                f"{render_review_prompt(next_item)}\n\nВыполнено?"
+            ]
+        self.store.set_session(user_id, "review_final1", day, {})
+        return [
+            "✅ Общий разбор сохранён.\n\n"
+            "Все задачи сопоставлены.\n\n"
+            "Что бы ты изменил, если бы следовал рекомендации по оздоровлению?"
+        ]
 
     async def start_review_edit(self, user_id: int, day: date) -> str:
         items = [x for x in self.store.reviews(user_id, day) if x.status is not None]
