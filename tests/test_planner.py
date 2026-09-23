@@ -290,8 +290,10 @@ def test_review_can_resume_final_questions(tmp_path: Path):
 
     store = PlannerStore(tmp_path / "planner.sqlite3")
     day = date(2026, 9, 23)
-    store.ensure_daily_plan(1, day)
+    items = store.ensure_daily_plan(1, day)
     service = PlannerService(store, PlannerConfig())
+    for item in items:
+        store.save_review(item.id, "+", "сделал", (), None)
     asyncio.run(service._review_final1(1, "стал лучше планировать", day))
     assert store.session(1)["state"] == "review_final2"
     resumed = asyncio.run(service.start_review(1, day))
