@@ -216,7 +216,7 @@ def create_planner_router(
                 "Режим планирования завершён.", reply_markup=planner_keyboard()
             )
 
-    @router.callback_query(lambda callback: callback.data is not None)
+    @router.callback_query(lambda callback: callback.data is not None and callback.data.startswith("pl:"))
     async def on_planner_callback(callback: CallbackQuery) -> None:
         if callback.from_user.id not in allowed_user_ids:
             await callback.answer()
