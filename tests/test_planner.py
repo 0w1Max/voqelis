@@ -392,3 +392,82 @@ def test_full_review_cancel_does_not_write_results(tmp_path: Path):
     assert not any(x.status is not None for x in store.reviews(1, day))
     assert store.session(1) is None
     store.close()
+
+
+def test_recurring_rules_materialize_only_on_matching_days(tmp_path: Path):
+    from voqelis.planner.config import RecurringTemplateSpec
+
+    config = PlannerConfig(
+        recurring_templates=(
+            RecurringTemplateSpec(
+                "Будняя задача",
+                None,
+                9 * 60,
+                60,
+                recurrence="weekdays",
+            ),
+            RecurringTemplateSpec(
+                "Выходная задача",
+                None,
+                10 * 60,
+                60,
+                recurrence="weekends",
+            ),
+            RecurringTemplateSpec(
+                "Среда",
+                None,
+                11 * 60,
+                60,
+                recurrence="custom",
+                days_of_week=(2,),
+            ),
+        )
+    )
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+
+    monday = date(2026, 9, 21)
+    saturday = date(2026, 9, 26)
+    wednesday = date(2026, 9, 23)
+
+    monday_items = store.ensure_daily_plan(1, monday, config)
+    assert [x.title for x in monday_items] == ["Будняя задача"]
+
+    saturday_items = store.ensure_daily_plan(2, saturday, config)
+    assert [x.title for x in saturday_items] == ["Выходная задача"]
+
+    wednesday_items = store.ensure_daily_plan(3, wednesday, config)
+    assert [x.title for x in wednesday_items] == ["Будняя задача", "Среда"]
+
+    store.close()
+
+
+def test_recurring_rule_migration_preserves_existing_daily_templates(tmp_path: Path):
+    import sqlite3
+
+    db_path = tmp_path / "legacy.sqlite3"
+    db = sqlite3.connect(db_path)
+    db.executescript("""
+        CREATE TABLE recurring_templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            why TEXT,
+            start_minute INTEGER NOT NULL,
+            duration_minutes INTEGER NOT NULL,
+            recurrence TEXT NOT NULL DEFAULT 'daily',
+            active INTEGER NOT NULL DEFAULT 1
+        );
+        INSERT INTO recurring_templates(user_id,title,why,start_minute,duration_minutes)
+        VALUES(1,'Старая КД',NULL,540,60);
+    """)
+    db.commit()
+    db.close()
+
+    store = PlannerStore(db_path)
+    columns = {row["name"] for row in store.db.execute("PRAGMA table_info(recurring_templates)")}
+    assert "recurrence_days" in columns
+    items = store.ensure_daily_plan(1, date(2026, 9, 23), PlannerConfig(
+        recurring_templates=()
+    ))
+    assert [x.title for x in items] == ["Старая КД"]
+    store.close()
