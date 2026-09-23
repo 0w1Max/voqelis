@@ -482,3 +482,38 @@ def test_recurring_rule_migration_preserves_existing_daily_templates(tmp_path: P
     ))
     assert [x.title for x in items] == ["Старая КД"]
     store.close()
+
+
+def test_planning_prompts_for_missing_reason_and_reuses_previous_reason(tmp_path: Path):
+    import asyncio
+
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    config = PlannerConfig(recurring_templates=())
+    service = PlannerService(store, config, ai=None)
+
+    store.add_item(
+        PlanItem(
+            0, 1, day - timedelta(days=1), "Позвонить клиенту",
+            "Чтобы закрыть вопрос", 9 * 60, 10 * 60, TaskKind.ORDINARY,
+        )
+    )
+
+    replies = asyncio.run(service.add_from_text(1, "завтра позвонить клиенту", day))
+    assert "раньше была указана причина" in replies[0]
+    assert store.session(1)["state"] == "planning_why"
+
+    saved = asyncio.run(service.handle_callback(1, "pl:why:yes", day))
+    assert "Добавил" in saved[0]
+    item = store.plan_items(1, day + timedelta(days=1))[-1]
+    assert item.why == "Чтобы закрыть вопрос"
+
+    replies = asyncio.run(service.add_from_text(1, "завтра проверить почту", day))
+    assert "не указана причина" in replies[0]
+    assert store.session(1)["state"] == "planning_why"
+
+    saved = asyncio.run(service.handle_callback(1, "pl:why:skip", day))
+    assert "Добавил" in saved[0]
+    item = store.plan_items(1, day + timedelta(days=1))[-1]
+    assert item.why is None
+    store.close()
