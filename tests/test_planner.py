@@ -24,6 +24,17 @@ def test_default_duration_is_one_hour():
     assert drafts[0].duration_minutes == 60
 
 
+def test_planner_markup_is_absent_without_active_session(tmp_path: Path):
+    from voqelis.planner.bot import planner_markup_for_state
+    from voqelis.planner.service import PlannerService
+
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    service = PlannerService(store, PlannerConfig())
+
+    assert planner_markup_for_state(service, 1) is None
+    store.close()
+
+
 def test_recurring_tasks_are_created_first(tmp_path: Path):
     store = PlannerStore(tmp_path / "planner.sqlite3")
     items = store.ensure_daily_plan(1, date(2026, 9, 23))
