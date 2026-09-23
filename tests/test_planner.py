@@ -316,3 +316,79 @@ def test_review_resume_after_all_items_without_day_review(tmp_path: Path):
     assert "оздоровлению" in resumed
     assert store.session(1)["state"] == "review_final1"
     store.close()
+
+
+def test_full_review_requires_confirmation_and_then_continues_unmatched_tasks(tmp_path: Path):
+    import asyncio
+    from voqelis.planner.service import PlannerService
+
+    class FakeAI:
+        async def extract_tasks(self, text, *, today, target_day, config):
+            return []
+
+        async def extract_review(self, text, *, task_title):
+            return text, (), None
+
+        async def extract_full_review(self, text, *, items):
+            return [{
+                "plan_item_id": items[0]["plan_item_id"],
+                "status": "+",
+                "activity": "сделал",
+                "feelings": ["интерес"],
+                "missed_reason": None,
+            }]
+
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    items = store.ensure_daily_plan(1, day)
+    service = PlannerService(store, PlannerConfig(), ai=FakeAI())
+
+    prompt = asyncio.run(service.start_full_review(1, day))
+    assert "одним сообщением" in prompt
+
+    proposal = asyncio.run(service.handle_text(1, "Весь день прошёл нормально", day))
+    assert "Сохранить этот разбор?" in proposal[0]
+    assert store.reviews(1, day)[0].status is None
+    assert store.session(1)["state"] == "review_full_confirm"
+
+    saved = asyncio.run(service.handle_callback(1, "pl:full:yes", day))
+    assert "Остались пункты" in saved[0]
+    assert store.session(1)["state"] == "review_status"
+    assert store.reviews(1, day)[0].status == "+"
+
+    store.close()
+
+
+def test_full_review_cancel_does_not_write_results(tmp_path: Path):
+    import asyncio
+    from voqelis.planner.service import PlannerService
+
+    class FakeAI:
+        async def extract_tasks(self, text, *, today, target_day, config):
+            return []
+
+        async def extract_review(self, text, *, task_title):
+            return text, (), None
+
+        async def extract_full_review(self, text, *, items):
+            return [{
+                "plan_item_id": items[0]["plan_item_id"],
+                "status": "+",
+                "activity": "сделал",
+                "feelings": [],
+                "missed_reason": None,
+            }]
+
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    store.ensure_daily_plan(1, day)
+    service = PlannerService(store, PlannerConfig(), ai=FakeAI())
+
+    asyncio.run(service.start_full_review(1, day))
+    asyncio.run(service.handle_text(1, "мой день", day))
+    result = asyncio.run(service.handle_callback(1, "pl:full:no", day))
+
+    assert "не сохранён" in result[0]
+    assert not any(x.status is not None for x in store.reviews(1, day))
+    assert store.session(1) is None
+    store.close()
