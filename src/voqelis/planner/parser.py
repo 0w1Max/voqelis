@@ -10,6 +10,11 @@ from .models import TaskDraft
 _TIME = re.compile(r"(?<!\d)(\d{1,2})(?::(\d{2}))?(?:\s*(?:час(?:а|ов)?|ч))?")
 _RANGE = re.compile(r"с\s+(\d{1,2})(?::(\d{2}))?\s*(?:до|-)\s*(\d{1,2})(?::(\d{2}))?", re.I)
 _DURATION = re.compile(r"(\d+(?:[.,]\d+)?)\s*(?:час(?:а|ов)?|ч)", re.I)
+_DURATION_MINUTES = re.compile(r"(\d+)\s*(?:минут(?:а|ы)?|мин\b)", re.I)
+_DURATION_HOURS_AND_MINUTES = re.compile(
+    r"(\d+(?:[.,]\d+)?)\s*(?:час(?:а|ов)?|ч)\s*(?:и\s*)?(\d+)\s*(?:минут(?:а|ы)?|мин\b)",
+    re.I,
+)
 
 
 def _minute(hour: str, minute: str | None = None) -> int:
@@ -54,11 +59,19 @@ def parse_voice(text: str, *, today: date, config: PlannerConfig) -> list[TaskDr
             if tm:
                 start = _minute(tm.group(1), tm.group(2))
         duration = config.default_duration_minutes
-        dm = _DURATION.search(chunk)
+        dm = _DURATION_HOURS_AND_MINUTES.search(chunk)
         if dm:
-            duration = int(float(dm.group(1).replace(",", ".")) * 60)
-        if "полтора" in chunk.lower():
-            duration = 90
+            duration = int(float(dm.group(1).replace(",", ".")) * 60) + int(dm.group(2))
+        else:
+            dm = _DURATION_MINUTES.search(chunk)
+            if dm:
+                duration = int(dm.group(1))
+            else:
+                dm = _DURATION.search(chunk)
+                if dm:
+                    duration = int(float(dm.group(1).replace(",", ".")) * 60)
+                if "полтора" in chunk.lower():
+                    duration = 90
 
         period = _period(chunk)
         preferred = None
