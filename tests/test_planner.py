@@ -20,6 +20,14 @@ def test_period_and_duration_extraction():
     assert drafts[0].end_minute == 15 * 60
 
 
+def test_parser_supports_minute_and_mixed_durations():
+    config = PlannerConfig()
+    minute = parse_voice("завтра делать проект 90 минут", today=date(2026, 9, 22), config=config)[0]
+    mixed = parse_voice("завтра делать проект 1 час 30 минут", today=date(2026, 9, 22), config=config)[0]
+    assert minute.duration_minutes == 90
+    assert mixed.duration_minutes == 90
+
+
 def test_default_duration_is_one_hour():
     drafts = parse_voice("Завтра делать резюме", today=date(2026, 9, 22), config=PlannerConfig())
     assert drafts[0].duration_minutes == 60
