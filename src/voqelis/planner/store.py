@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .config import PlannerConfig
 from .models import DayReview, PlanItem, ReviewItem, ScheduleMove, TaskKind
+from .config import RecurringTemplateSpec
 
 
 SCHEMA = """
@@ -128,7 +129,16 @@ class PlannerStore:
             return
         self.db.executemany(
             "INSERT INTO recurring_templates(user_id,title,why,start_minute,duration_minutes) VALUES(?,?,?,?,?)",
-            [(user_id, x.title, x.why, x.start_minute, x.duration_minutes) for x in config.recurring_templates],
+            [
+                (
+                    user_id,
+                    x.title,
+                    x.why,
+                    x.start_minute,
+                    x.duration_minutes,
+                )
+                for x in config.recurring_templates
+            ],
         )
         if not self.db.in_transaction:
             self.db.commit()
@@ -242,7 +252,19 @@ class PlannerStore:
             existing = self.plan_items(user_id, day)
 
             self.seed_defaults(user_id, config)
-            rows = self.recurring(user_id)
+            rows = [
+                row for row in self.recurring(user_id)
+                if config.recurring_applies_on(
+                    RecurringTemplateSpec(
+                        title=row["title"],
+                        why=row["why"],
+                        start_minute=int(row["start_minute"]),
+                        duration_minutes=int(row["duration_minutes"]),
+                        recurrence=row["recurrence"],
+                    ),
+                    day,
+                )
+            ]
             materialized_template_ids = {
                 item.recurring_template_id
                 for item in existing
