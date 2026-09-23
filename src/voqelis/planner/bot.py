@@ -45,10 +45,10 @@ def review_keyboard() -> InlineKeyboardMarkup:
 
 def planner_markup_for_state(
     service: PlannerService, user_id: int
-) -> InlineKeyboardMarkup | ReplyKeyboardMarkup:
+) -> InlineKeyboardMarkup | ReplyKeyboardMarkup | None:
     session = service.store.session(user_id)
     if not session:
-        return planner_keyboard()
+        return None
 
     state = session["state"]
     payload = service.store.session_payload(user_id)
