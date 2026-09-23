@@ -453,6 +453,16 @@ class PlannerService:
                 return await self._resolve_conflict(user_id, str(int(value) + 1), today)
             return ["Некорректный вариант времени."]
 
+        if callback_data.startswith("pl:full:"):
+            if state != "review_full_confirm":
+                return ["Эта кнопка больше не актуальна. Общий разбор уже изменён или закрыт."]
+            day = date.fromisoformat(session["target_day"]) if session and session["target_day"] else today
+            return await self._review_full_confirm(
+                user_id,
+                "да" if callback_data == "pl:full:yes" else "нет",
+                day,
+            )
+
         if callback_data.startswith("pl:review:"):
             if state != "review_status":
                 return ["Эта кнопка больше не актуальна. Текущий пункт анализа уже изменён."]
