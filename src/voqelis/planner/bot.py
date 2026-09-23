@@ -53,6 +53,18 @@ def planner_markup_for_state(
     state = session["state"]
     payload = service.store.session_payload(user_id)
 
+    if state == "planning_why":
+        if payload.get("suggested_why"):
+            return InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="✅ Использовать", callback_data="pl:why:yes"),
+                InlineKeyboardButton(text="✏️ Другая причина", callback_data="pl:why:other"),
+            ], [
+                InlineKeyboardButton(text="⏭ Оставить пустым", callback_data="pl:why:skip"),
+            ]])
+        return InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="⏭ Оставить пустым", callback_data="pl:why:skip"),
+        ]])
+
     if state == "planning_conflict":
         rows = []
         if payload.get("moves"):
