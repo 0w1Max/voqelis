@@ -65,7 +65,7 @@ def test_ninety_minute_task_stays_one_logical_item(tmp_path: Path):
     day = date(2026, 9, 23)
     store.ensure_daily_plan(1, day)
     scheduler = Scheduler(store, PlannerConfig())
-    draft = TaskDraft("Большая задача", day, start_minute=12 * 60, duration_minutes=90)
+    draft = TaskDraft("Большая задача", day, start_minute=19 * 60, duration_minutes=90)
     result = scheduler.schedule(1, draft)
     assert not isinstance(result, Conflict)
     assert result.start_minute == 12 * 60
@@ -99,7 +99,7 @@ def test_exports_create_files_with_merged_multihour_item(tmp_path: Path):
     day = date(2026, 9, 23)
     store.ensure_daily_plan(1, day)
     scheduler = Scheduler(store, PlannerConfig())
-    draft = TaskDraft("Большая задача", day, start_minute=12 * 60, duration_minutes=90)
+    draft = TaskDraft("Большая задача", day, start_minute=19 * 60, duration_minutes=90)
     result = scheduler.schedule(1, draft)
     assert not isinstance(result, Conflict)
 
@@ -225,11 +225,7 @@ def test_confirmed_move_is_rejected_if_target_becomes_occupied(tmp_path: Path):
     store.close()
 
 
-import pytest
-
-
-@pytest.mark.asyncio
-async def test_callback_conflict_confirmation_uses_same_resolution_path(tmp_path: Path):
+def test_callback_conflict_confirmation_uses_same_resolution_path(tmp_path: Path):
     from voqelis.planner.service import PlannerService
 
     store = PlannerStore(tmp_path / "planner.sqlite3")
@@ -265,14 +261,14 @@ async def test_callback_conflict_confirmation_uses_same_resolution_path(tmp_path
             "pending": [],
         },
     )
-    replies = await service.handle_callback(1, "pl:conf:no", date(2026, 9, 22))
+    import asyncio
+    replies = asyncio.run(service.handle_callback(1, "pl:conf:no", date(2026, 9, 22))
     assert replies
     assert service.store.session(1)["state"] == "planning"
     store.close()
 
 
-@pytest.mark.asyncio
-async def test_review_status_callback_sets_detail_state(tmp_path: Path):
+def test_review_status_callback_sets_detail_state(tmp_path: Path):
     from voqelis.planner.service import PlannerService
 
     store = PlannerStore(tmp_path / "planner.sqlite3")
@@ -280,7 +276,8 @@ async def test_review_status_callback_sets_detail_state(tmp_path: Path):
     items = store.ensure_daily_plan(1, day)
     service = PlannerService(store, PlannerConfig())
     service.store.set_session(1, "review_status", day, {"current_item_id": items[0].id})
-    replies = await service.handle_callback(1, "pl:review:partial", day)
+    import asyncio
+    replies = asyncio.run(service.handle_callback(1, "pl:review:partial", day)
     assert replies
     session = service.store.session(1)
     assert session["state"] == "review_detail"
