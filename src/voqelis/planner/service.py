@@ -7,7 +7,7 @@ from .ai import PlannerAI
 from .config import PlannerConfig
 from .models import Conflict, ConflictProposal, PlanItem, ScheduleMove, ScheduleValidationError, TaskDraft, TaskKind
 from .parser import parse_voice
-from .render import render_plan_text, render_review_prompt
+from .render import render_full_review_proposal, render_plan_text, render_review_prompt
 from .scheduler import Scheduler, fmt_time
 from .store import PlannerStore
 
@@ -220,6 +220,73 @@ class PlannerService:
 
         return "Все задачи этого дня уже проанализированы."
 
+    async def start_full_review(self, user_id: int, day: date) -> str:
+        self.store.ensure_daily_plan(user_id, day, self.config)
+        items = self.store.reviews(user_id, day)
+        if self.store.day_review(user_id, day)?.completed:
+            return "Этот день уже полностью проанализирован. Для изменения используй «✏️ Исправить анализ»."
+        self.store.set_session(user_id, "review_full_input", day, {})
+        return (
+            "🎙️ Расскажи одним сообщением, как прошёл весь день. "
+            "Я попробую сопоставить рассказ с задачами, а перед сохранением покажу результат для проверки."
+        )
+
+    async def _review_full_input(self, user_id: int, text: str, day: date) -> list[str]:
+        if self.ai is None:
+            return ["Для общего голосового анализа нужен настроенный AI-провайдер. Используй последовательный анализ задач."]
+        items = self.store.reviews(user_id, day)
+        payload = [
+            {"plan_item_id": x.plan_item.id, "time": f"{fmt_time(x.plan_item.start_minute)}–{fmt_time(x.plan_item.end_minute)}",
+             "title": x.plan_item.title, "why": x.plan_item.why}
+            for x in items
+        ]
+        try:
+            extracted = await self.ai.extract_full_review(text, items=payload)
+        except Exception as exc:
+            return [f"⚠️ Не удалось разобрать общий обзор дня: {exc}\nПопробуй ещё раз."]
+        by_id = {x.plan_item.id: x.plan_item for x in items}
+        proposal = []
+        for raw in extracted:
+            try:
+                item_id = int(raw["plan_item_id"])
+                status = raw.get("status")
+                if item_id not in by_id or status not in {"+", "-", "+-"}:
+                    continue
+                feelings = tuple(str(x).strip() for x in raw.get("feelings", []) if str(x).strip())
+                proposal.append((item_id, status, raw.get("activity"), feelings, raw.get("missed_reason")))
+            except (KeyError, TypeError, ValueError):
+                continue
+        if not proposal:
+            return ["Не удалось уверенно сопоставить рассказ с задачами. Попробуй последовательный анализ по пунктам."]
+        normalized = []
+        for item_id, status, activity, feelings, reason in proposal:
+            normalized.append((by_id[item_id], status, activity, feelings, reason))
+        self.store.set_session(
+            user_id, "review_full_confirm", day,
+            {"items": [
+                {"plan_item_id": item_id, "status": status, "activity": activity,
+                 "feelings": list(feelings), "reason": reason}
+                for item_id, status, activity, feelings, reason in proposal
+            ]},
+        )
+        return [render_full_review_proposal(normalized)]
+ 
+    async def _review_full_confirm(self, user_id: int, answer: str, day: date) -> list[str]:
+        normalized = answer.strip().lower()
+        if normalized in {"нет", "no", "отмена", "cancel"}:
+            self.store.clear_session(user_id)
+            return ["Хорошо, общий разбор не сохранён."]
+        if normalized not in {"да", "д", "yes", "сохранить"}:
+            return ["Нажми «Сохранить» или «Отмена»."]
+        payload = self.store.session_payload(user_id)
+        for item in payload.get("items", []):
+            self.store.save_review(
+                int(item["plan_item_id"]), item["status"], item.get("activity"),
+                tuple(item.get("feelings", [])), item.get("reason"),
+            )
+        self.store.clear_session(user_id)
+        return ["✅ Общий разбор сохранён.\n\n" + render_plan_text(day, self.store.plan_items(user_id, day), self.config)]
+
     async def start_review_edit(self, user_id: int, day: date) -> str:
         items = [x for x in self.store.reviews(user_id, day) if x.status is not None]
         if not items:
@@ -336,7 +403,7 @@ class PlannerService:
             return await self.add_from_text(user_id, text, today)
         if state == "planning_conflict":
             return await self._resolve_conflict(user_id, text, today)
-        if state == "review_edit_select":
+        if state == "review_full_input":\n            return await self._review_full_input(user_id, text, day)\n        if state == "review_full_confirm":\n            return await self._review_full_confirm(user_id, text, day)\n        if state == "review_edit_select":
             return await self._review_edit_select(user_id, text, day)
         if state == "review_status":
             return await self._review_status(user_id, text, day)
