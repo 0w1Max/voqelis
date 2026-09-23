@@ -46,8 +46,8 @@ def build_docx(user_id: int, day: date, store: PlannerStore, config: PlannerConf
         review = reviews.get(item.id) if item else None
         cells[0].text = (review.status if review else "") or ""
         cells[1].text = f"{fmt_time(start)}–{fmt_time(end)}"
-        cells[2].text = item.title if item else ""
-        cells[3].text = item.why if item else ""
+        cells[2].text = (item.title if item else "") or ""
+        cells[3].text = (item.why if item else "") or ""
         cells[4].text = _actual_text(review)
         meta.append((item, len(table.rows) - 1))
 
@@ -111,8 +111,8 @@ def build_pdf(user_id: int, day: date, store: PlannerStore, config: PlannerConfi
         data.append([
             Paragraph((review.status if review else "") or "", body),
             Paragraph(f"{fmt_time(start)}–{fmt_time(end)}", body),
-            Paragraph(item.title if item else "", body),
-            Paragraph(item.why if item else "", body),
+            Paragraph((item.title if item else "") or "", body),
+            Paragraph((item.why if item else "") or "", body),
             Paragraph(escape(_actual_text(review)).replace("\n", "<br/>"), body),
         ])
         row_items.append(item)
