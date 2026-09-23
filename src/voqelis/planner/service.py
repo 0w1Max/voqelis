@@ -419,7 +419,11 @@ class PlannerService:
             return await self.add_from_text(user_id, text, today)
         if state == "planning_conflict":
             return await self._resolve_conflict(user_id, text, today)
-        if state == "review_full_input":\n            return await self._review_full_input(user_id, text, day)\n        if state == "review_full_confirm":\n            return await self._review_full_confirm(user_id, text, day)\n        if state == "review_edit_select":
+        if state == "review_full_input":
+            return await self._review_full_input(user_id, text, day)
+        if state == "review_full_confirm":
+            return await self._review_full_confirm(user_id, text, day)
+        if state == "review_edit_select":
             return await self._review_edit_select(user_id, text, day)
         if state == "review_status":
             return await self._review_status(user_id, text, day)
