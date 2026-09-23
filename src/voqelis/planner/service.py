@@ -223,7 +223,8 @@ class PlannerService:
     async def start_full_review(self, user_id: int, day: date) -> str:
         self.store.ensure_daily_plan(user_id, day, self.config)
         items = self.store.reviews(user_id, day)
-        if self.store.day_review(user_id, day)?.completed:
+        day_review = self.store.day_review(user_id, day)
+        if day_review is not None and day_review.completed:
             return "Этот день уже полностью проанализирован. Для изменения используй «✏️ Исправить анализ»."
         self.store.set_session(user_id, "review_full_input", day, {})
         return (
