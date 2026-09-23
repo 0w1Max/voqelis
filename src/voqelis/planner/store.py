@@ -173,6 +173,15 @@ class PlannerStore:
             raise KeyError(item_id)
         return self._item(row)
 
+    def previous_why(self, user_id: int, title: str) -> str | None:
+        row = self.db.execute(
+            "SELECT why FROM plan_items "
+            "WHERE user_id=? AND lower(title)=lower(?) AND why IS NOT NULL AND trim(why)<>'' "
+            "ORDER BY day DESC, start_minute DESC, id DESC LIMIT 1",
+            (user_id, title),
+        ).fetchone()
+        return str(row["why"]) if row else None
+
     def add_item(self, item: PlanItem) -> int:
         cur = self.db.execute(
             "INSERT INTO plan_items(user_id,day,title,why,start_minute,end_minute,kind,recurring_template_id,urgent,source_text,created_at) "
