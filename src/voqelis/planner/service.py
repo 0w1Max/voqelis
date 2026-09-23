@@ -240,14 +240,21 @@ class PlannerService:
             self.store.clear_session(user_id)
             return ["Редактирование отменено."]
         try:
-            index = int(answer) - 1
+            item_id = int(answer)
         except ValueError:
             return ["Напиши номер задачи из списка или «отмена»."]
-        items = [x for x in self.store.reviews(user_id, day) if x.status is not None]
-        if index < 0 or index >= len(items):
-            return ["Такого номера нет."]
-        item = items[index]
-        self.store.set_session(user_id, "review_status", day, {"current_item_id": item.plan_item.id, "editing": True})
+        item = next(
+            (x for x in self.store.reviews(user_id, day) if x.plan_item.id == item_id and x.status is not None),
+            None,
+        )
+        if item is None:
+            return ["Эта задача больше недоступна для редактирования. Открой «✏️ Исправить анализ» заново."]
+        self.store.set_session(
+            user_id,
+            "review_status",
+            day,
+            {"current_item_id": item.plan_item.id, "editing": True},
+        )
         return [
             "✏️ Исправление анализа.\n\n"
             + render_review_prompt(item)
