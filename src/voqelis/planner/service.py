@@ -302,6 +302,46 @@ class PlannerService:
             return await self._review_final2(user_id, text, day)
         return []
 
+    async def handle_callback(self, user_id: int, callback_data: str, today: date) -> list[str]:
+        """Handle Planner inline-button actions without changing text-command semantics."""
+        if callback_data == "pl:conf:yes":
+            return await self._resolve_conflict(user_id, "да", today)
+        if callback_data == "pl:conf:no":
+            return await self._resolve_conflict(user_id, "нет", today)
+        if callback_data.startswith("pl:alt:"):
+            value = callback_data.removeprefix("pl:alt:")
+            if value.isdigit():
+                return await self._resolve_conflict(user_id, str(int(value) + 1), today)
+            return ["Некорректный вариант времени."]
+        if callback_data == "pl:review:+": 
+            session = self.store.session(user_id)
+            day = date.fromisoformat(session["target_day"]) if session and session["target_day"] else today
+            return await self._review_status(user_id, "+", day)
+        if callback_data == "pl:review:-":
+            session = self.store.session(user_id)
+            day = date.fromisoformat(session["target_day"]) if session and session["target_day"] else today
+            return await self._review_status(user_id, "-", day)
+        if callback_data == "pl:review:partial":
+            session = self.store.session(user_id)
+            day = date.fromisoformat(session["target_day"]) if session and session["target_day"] else today
+            return await self._review_status(user_id, "+-", day)
+        if callback_data.startswith("pl:edit:"):
+            value = callback_data.removeprefix("pl:edit:")
+            if value.isdigit():
+                session = self.store.session(user_id)
+                day = date.fromisoformat(session["target_day"]) if session and session["target_day"] else today
+                return await self._review_edit_select(user_id, str(int(value) + 1), day)
+            return ["Некорректный номер задачи."]
+        if callback_data == "pl:skip:final1":
+            session = self.store.session(user_id)
+            day = date.fromisoformat(session["target_day"]) if session and session["target_day"] else today
+            return await self._review_final1(user_id, "пропустить", day)
+        if callback_data == "pl:skip:final2":
+            session = self.store.session(user_id)
+            day = date.fromisoformat(session["target_day"]) if session and session["target_day"] else today
+            return await self._review_final2(user_id, "пропустить", day)
+        return ["Эта кнопка больше не актуальна. Повтори действие из текущего сообщения."]
+
     async def show_plan(self, user_id: int, day: date) -> str:
         return render_plan_text(day, self.store.ensure_daily_plan(user_id, day, self.config), self.config)
 
