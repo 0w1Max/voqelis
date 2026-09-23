@@ -192,11 +192,33 @@ class PlannerService:
 
     async def start_review(self, user_id: int, day: date) -> str:
         self.store.ensure_daily_plan(user_id, day, self.config)
-        item = next((x for x in self.store.reviews(user_id, day) if x.status is None), None)
-        if not item:
-            return "Все задачи этого дня уже проанализированы."
-        self.store.set_session(user_id, "review_status", day, {"current_item_id": item.plan_item.id})
-        return f"🔎 Начинаем анализ дня.\n\n{render_review_prompt(item)}\n\nВыполнено?"
+        pending_item = next((x for x in self.store.reviews(user_id, day) if x.status is None), None)
+        if pending_item:
+            self.store.set_session(
+                user_id, "review_status", day, {"current_item_id": pending_item.plan_item.id}
+            )
+            return (
+                f"🔎 Продолжаем анализ дня.\n\n"
+                f"{render_review_prompt(pending_item)}\n\nВыполнено?"
+            )
+
+        day_review = self.store.day_review(user_id, day)
+        if day_review is None:
+            self.store.set_session(user_id, "review_final1", day, {})
+            return (
+                "Все задачи обработаны.\n\n"
+                "Что бы ты изменил, если бы следовал рекомендации по оздоровлению?"
+            )
+
+        if not day_review.completed:
+            self.store.set_session(user_id, "review_final2", day, {})
+            return (
+                "Продолжаем финальную часть анализа.\n\n"
+                "Теперь расскажи признаки срыва. Можно назвать несколько наблюдений "
+                "одним сообщением. Или нажми «Пропустить»."
+            )
+
+        return "Все задачи этого дня уже проанализированы."
 
     async def start_review_edit(self, user_id: int, day: date) -> str:
         items = [x for x in self.store.reviews(user_id, day) if x.status is not None]
@@ -250,22 +272,39 @@ class PlannerService:
         payload = self.store.session_payload(user_id)
         item_id, status = int(payload["current_item_id"]), payload["status"]
         item = next(x for x in self.store.reviews(user_id, day) if x.plan_item.id == item_id)
-        if self.ai is not None:
-            activity, feelings, reason = await self.ai.extract_review(text, task_title=item.plan_item.title)
-        else:
-            activity, feelings, reason = text.strip(), (), None
+        try:
+            if self.ai is not None:
+                activity, feelings, reason = await self.ai.extract_review(
+                    text, task_title=item.plan_item.title
+                )
+            else:
+                activity, feelings, reason = text.strip(), (), None
+        except Exception as exc:
+            return [
+                f"⚠️ Не удалось разобрать ответ для «{item.plan_item.title}». {exc}\n"
+                "Попробуй ещё раз."
+            ]
         self.store.save_review(item_id, status, activity or None, feelings, reason)
 
         if payload.get("editing"):
             self.store.clear_session(user_id)
-            return ["✅ Исправление сохранено.\n\n" + render_plan_text(day, self.store.plan_items(user_id, day), self.config)]
+            return [
+                "✅ Исправление сохранено.\n\n"
+                + render_plan_text(day, self.store.plan_items(user_id, day), self.config)
+            ]
 
         next_item = next((x for x in self.store.reviews(user_id, day) if x.status is None), None)
         if next_item:
-            self.store.set_session(user_id, "review_status", day, {"current_item_id": next_item.plan_item.id})
+            self.store.set_session(
+                user_id, "review_status", day, {"current_item_id": next_item.plan_item.id}
+            )
             return [f"Сохранено.\n\n{render_review_prompt(next_item)}\n\nВыполнено?"]
+
         self.store.set_session(user_id, "review_final1", day, {})
-        return ["Все задачи обработаны.\n\nЧто бы ты изменил, если бы следовал рекомендации по оздоровлению?"]
+        return [
+            "Все задачи обработаны.\n\n"
+            "Что бы ты изменил, если бы следовал рекомендации по оздоровлению?"
+        ]
 
     async def _review_final1(self, user_id: int, text: str, day: date) -> list[str]:
         what = None if text.strip().lower() == "пропустить" else text.strip()
