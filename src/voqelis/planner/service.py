@@ -260,7 +260,11 @@ class PlannerService:
         if not proposal:
             return ["Не удалось уверенно сопоставить рассказ с задачами. Попробуй последовательный анализ по пунктам."]
         normalized = []
+        seen_ids: set[int] = set()
         for item_id, status, activity, feelings, reason in proposal:
+            if item_id in seen_ids:
+                continue
+            seen_ids.add(item_id)
             normalized.append((by_id[item_id], status, activity, feelings, reason))
         self.store.set_session(
             user_id, "review_full_confirm", day,
@@ -323,11 +327,12 @@ class PlannerService:
             self.store.clear_session(user_id)
             return ["Редактирование отменено."]
         try:
-            item_id = int(answer)
+            selected = int(answer)
         except ValueError:
             return ["Напиши номер задачи из списка или «отмена»."]
-        item = next(
-            (x for x in self.store.reviews(user_id, day) if x.plan_item.id == item_id and x.status is not None),
+        items = [x for x in self.store.reviews(user_id, day) if x.status is not None]
+        item = items[selected - 1] if 1 <= selected <= len(items) else next(
+            (x for x in items if x.plan_item.id == selected),
             None,
         )
         if item is None:
