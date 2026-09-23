@@ -19,6 +19,8 @@ class RecurringTemplateSpec:
     why: str | None
     start_minute: int
     duration_minutes: int
+    recurrence: str = "daily"
+    days_of_week: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +74,8 @@ class PlannerConfig:
                 why=x.get("why"),
                 start_minute=int(x["start_minute"]),
                 duration_minutes=int(x["duration_minutes"]),
+                recurrence=str(x.get("recurrence", "daily")),
+                days_of_week=tuple(int(day) for day in x.get("days_of_week", [])),
             )
             for x in data["recurring_templates"]
         )
@@ -110,6 +114,12 @@ class PlannerConfig:
                 raise ValueError(f"Invalid recurring duration: {spec.title}")
             if spec.start_minute % self.slot_minutes or spec.duration_minutes % self.slot_minutes:
                 raise ValueError(f"Recurring template is not aligned to planner grid: {spec.title}")
+            if spec.recurrence not in {"daily", "weekdays", "weekends", "custom"}:
+                raise ValueError(f"Invalid recurring rule: {spec.recurrence}")
+            if any(day < 0 or day > 6 for day in spec.days_of_week):
+                raise ValueError(f"Invalid recurring weekday: {spec.title}")
+            if spec.recurrence == "custom" and not spec.days_of_week:
+                raise ValueError(f"Custom recurring task needs days_of_week: {spec.title}")
 
     def __post_init__(self) -> None:
         self.validate()
@@ -131,3 +141,14 @@ class PlannerConfig:
             "ужина": "dinner", "ужином": "dinner", "ужин": "dinner",
         }
         return self.anchors.get(aliases.get(name.strip().lower(), name.strip().lower()))
+
+
+    def recurring_applies_on(self, spec: RecurringTemplateSpec, day: date) -> bool:
+        weekday = day.weekday()
+        if spec.recurrence == "daily":
+            return True
+        if spec.recurrence == "weekdays":
+            return weekday < 5
+        if spec.recurrence == "weekends":
+            return weekday >= 5
+        return weekday in spec.days_of_week
