@@ -60,7 +60,7 @@ FULL_REVIEW_SCHEMA = {
                 "type": "object",
                 "properties": {
                     "plan_item_id": {"type": "integer"},
-                    "status": {"type": ["string", "null"], "enum": ["+", "-", "+-", null]},
+                    "status": {"type": ["string", "null"], "enum": ["+", "-", "+-", None]},
                     "activity": {"type": ["string", "null"]},
                     "feelings": {"type": "array", "items": {"type": "string"}},
                     "missed_reason": {"type": ["string", "null"]},
