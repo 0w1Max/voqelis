@@ -23,7 +23,7 @@ def planner_keyboard() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text="📅 Планирование дня")],
             [KeyboardButton(text="📋 План на завтра"), KeyboardButton(text="🔎 Анализ сегодня")],
-            [KeyboardButton(text="✏️ Исправить анализ")],
+            [KeyboardButton(text="🎙️ Рассказать весь день")],\n            [KeyboardButton(text="✏️ Исправить анализ")],
             [KeyboardButton(text="⏹️ Выйти из режима")],
         ],
         resize_keyboard=True,
@@ -88,6 +88,12 @@ def planner_markup_for_state(
                 [InlineKeyboardButton(text="❌ Отмена", callback_data="pl:conf:no")]
             )
         return InlineKeyboardMarkup(inline_keyboard=rows)
+
+    if state == "review_full_confirm":
+        return InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Сохранить", callback_data="pl:full:yes"),
+            InlineKeyboardButton(text="❌ Отмена", callback_data="pl:full:no"),
+        ]])
 
     if state == "review_status":
         return review_keyboard()
@@ -197,6 +203,14 @@ def create_planner_router(
         if allowed(message):
             await message.answer(
                 await service.start_review(message.from_user.id, planner_today()),
+                reply_markup=planner_markup_for_state(service, message.from_user.id),
+            )
+
+    @router.message(F.text == "🎙️ Рассказать весь день")
+    async def on_full_review(message: Message) -> None:
+        if allowed(message):
+            await message.answer(
+                await service.start_full_review(message.from_user.id, planner_today()),
                 reply_markup=planner_markup_for_state(service, message.from_user.id),
             )
 
