@@ -112,6 +112,11 @@ class PlannerConfig:
         for spec in self.recurring_templates:
             if spec.duration_minutes <= 0:
                 raise ValueError(f"Invalid recurring duration: {spec.title}")
+            if (
+                spec.start_minute < self.plan_start_minute
+                or spec.start_minute + spec.duration_minutes > self.plan_end_minute
+            ):
+                raise ValueError(f"Recurring template is outside the planner window: {spec.title}")
             if spec.start_minute % self.slot_minutes or spec.duration_minutes % self.slot_minutes:
                 raise ValueError(f"Recurring template is not aligned to planner grid: {spec.title}")
             if spec.recurrence not in {"daily", "weekdays", "weekends", "custom"}:
