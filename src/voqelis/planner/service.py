@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from datetime import date, timedelta
 
-from .ai import PlannerAI, extract_review
+from .ai import PlannerAI
 from .config import PlannerConfig
 from .models import Conflict, ConflictProposal, PlanItem, ScheduleMove, ScheduleValidationError, TaskDraft, TaskKind
 from .parser import parse_voice
@@ -251,7 +251,7 @@ class PlannerService:
         item_id, status = int(payload["current_item_id"]), payload["status"]
         item = next(x for x in self.store.reviews(user_id, day) if x.plan_item.id == item_id)
         if self.ai is not None:
-            activity, feelings, reason = await extract_review(self.ai, text, task_title=item.plan_item.title)
+            activity, feelings, reason = await self.ai.extract_review(text, task_title=item.plan_item.title)
         else:
             activity, feelings, reason = text.strip(), (), None
         self.store.save_review(item_id, status, activity or None, feelings, reason)
