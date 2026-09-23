@@ -303,43 +303,61 @@ class PlannerService:
         return []
 
     async def handle_callback(self, user_id: int, callback_data: str, today: date) -> list[str]:
-        """Handle Planner inline-button actions without changing text-command semantics."""
-        if callback_data == "pl:conf:yes":
-            return await self._resolve_conflict(user_id, "да", today)
-        if callback_data == "pl:conf:no":
-            return await self._resolve_conflict(user_id, "нет", today)
+        """Handle inline Planner actions and reject stale buttons safely."""
+        session = self.store.session(user_id)
+        state = session["state"] if session else None
+
+        if callback_data.startswith("pl:conf:"):
+            if state != "planning_conflict":
+                return ["Эта кнопка больше не актуальна. Текущий конфликт уже изменён или закрыт."]
+            return await self._resolve_conflict(
+                user_id,
+                "да" if callback_data == "pl:conf:yes" else "нет",
+                today,
+            )
+
         if callback_data.startswith("pl:alt:"):
+            if state != "planning_conflict":
+                return ["Этот вариант времени больше не актуален."]
             value = callback_data.removeprefix("pl:alt:")
             if value.isdigit():
                 return await self._resolve_conflict(user_id, str(int(value) + 1), today)
             return ["Некорректный вариант времени."]
-        if callback_data == "pl:review:+": 
-            session = self.store.session(user_id)
+
+        if callback_data.startswith("pl:review:"):
+            if state != "review_status":
+                return ["Эта кнопка больше не актуальна. Текущий пункт анализа уже изменён."]
+            status = {
+                "pl:review:+": "+",
+                "pl:review:-": "-",
+                "pl:review:partial": "+-",
+            }.get(callback_data)
+            if status is None:
+                return ["Неизвестное действие анализа."]
             day = date.fromisoformat(session["target_day"]) if session and session["target_day"] else today
-            return await self._review_status(user_id, "+", day)
-        if callback_data == "pl:review:-":
-            session = self.store.session(user_id)
-            day = date.fromisoformat(session["target_day"]) if session and session["target_day"] else today
-            return await self._review_status(user_id, "-", day)
-        if callback_data == "pl:review:partial":
-            session = self.store.session(user_id)
-            day = date.fromisoformat(session["target_day"]) if session and session["target_day"] else today
-            return await self._review_status(user_id, "+-", day)
+            return await self._review_status(user_id, status, day)
+
         if callback_data.startswith("pl:edit:"):
+            if state != "review_edit_select":
+                return ["Эта кнопка больше не актуальна. Снова открой «Исправить анализ»."]
             value = callback_data.removeprefix("pl:edit:")
             if value.isdigit():
-                session = self.store.session(user_id)
                 day = date.fromisoformat(session["target_day"]) if session and session["target_day"] else today
                 return await self._review_edit_select(user_id, str(int(value) + 1), day)
             return ["Некорректный номер задачи."]
+
         if callback_data == "pl:skip:final1":
-            session = self.store.session(user_id)
+            if state != "review_final1":
+                return ["Эта кнопка больше не актуальна."]
             day = date.fromisoformat(session["target_day"]) if session and session["target_day"] else today
             return await self._review_final1(user_id, "пропустить", day)
+
         if callback_data == "pl:skip:final2":
-            session = self.store.session(user_id)
+            if state != "review_final2":
+                return ["Эта кнопка больше не актуальна."]
             day = date.fromisoformat(session["target_day"]) if session and session["target_day"] else today
             return await self._review_final2(user_id, "пропустить", day)
+
         return ["Эта кнопка больше не актуальна. Повтори действие из текущего сообщения."]
 
     async def show_plan(self, user_id: int, day: date) -> str:
