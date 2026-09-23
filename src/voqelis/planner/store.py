@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from .config import PlannerConfig
@@ -104,7 +104,7 @@ class PlannerStore:
             return {}
 
     def set_session(self, user_id: int, state: str, target_day: date | None, payload: dict | None = None) -> None:
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(UTC).isoformat()
         self.db.execute(
             "INSERT INTO planner_sessions(user_id,mode,state,target_day,payload,updated_at) VALUES(?,?,?,?,?,?) "
             "ON CONFLICT(user_id) DO UPDATE SET mode=excluded.mode,state=excluded.state,"
@@ -151,7 +151,7 @@ class PlannerStore:
             "INSERT INTO plan_items(user_id,day,title,why,start_minute,end_minute,kind,recurring_template_id,urgent,source_text,created_at) "
             "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
             (item.user_id, item.day.isoformat(), item.title, item.why, item.start_minute, item.end_minute,
-             item.kind.value, item.recurring_template_id, int(item.urgent), item.source_text, datetime.utcnow().isoformat()),
+             item.kind.value, item.recurring_template_id, int(item.urgent), item.source_text, datetime.now(UTC).isoformat()),
         )
         self.db.commit()
         return int(cur.lastrowid)
@@ -224,7 +224,7 @@ class PlannerStore:
                 "INSERT INTO plan_items(user_id,day,title,why,start_minute,end_minute,kind,recurring_template_id,urgent,source_text,created_at) "
                 "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                 (item.user_id, item.day.isoformat(), item.title, item.why, item.start_minute, item.end_minute,
-                 item.kind.value, item.recurring_template_id, int(item.urgent), item.source_text, datetime.utcnow().isoformat()),
+                 item.kind.value, item.recurring_template_id, int(item.urgent), item.source_text, datetime.now(UTC).isoformat()),
             )
             self.db.commit()
             return int(cur.lastrowid)
@@ -240,13 +240,17 @@ class PlannerStore:
             self.db.execute("BEGIN IMMEDIATE")
 
             existing = self.plan_items(user_id, day)
-            if existing:
-                self.db.commit()
-                return existing
 
             self.seed_defaults(user_id, config)
             rows = self.recurring(user_id)
+            materialized_template_ids = {
+                item.recurring_template_id
+                for item in existing
+                if item.kind == TaskKind.RECURRING and item.recurring_template_id is not None
+            }
             for row in rows:
+                if int(row["id"]) in materialized_template_ids:
+                    continue
                 start = int(row["start_minute"])
                 end = start + int(row["duration_minutes"])
                 self.db.execute(
@@ -254,7 +258,7 @@ class PlannerStore:
                     "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         user_id, day.isoformat(), row["title"], row["why"], start, end,
-                        TaskKind.RECURRING.value, row["id"], 0, None, datetime.utcnow().isoformat(),
+                        TaskKind.RECURRING.value, row["id"], 0, None, datetime.now(UTC).isoformat(),
                     ),
                 )
             self.db.commit()
@@ -268,7 +272,7 @@ class PlannerStore:
             "INSERT INTO task_reviews(plan_item_id,status,activity,feelings,missed_reason,updated_at) VALUES(?,?,?,?,?,?) "
             "ON CONFLICT(plan_item_id) DO UPDATE SET status=excluded.status,activity=excluded.activity,"
             "feelings=excluded.feelings,missed_reason=excluded.missed_reason,updated_at=excluded.updated_at",
-            (plan_item_id, status, activity, json.dumps(feelings, ensure_ascii=False), reason, datetime.utcnow().isoformat()),
+            (plan_item_id, status, activity, json.dumps(feelings, ensure_ascii=False), reason, datetime.now(UTC).isoformat()),
         )
         self.db.commit()
 
@@ -292,7 +296,7 @@ class PlannerStore:
             "INSERT INTO day_reviews(user_id,day,what_would_change,relapse_signs,completed,updated_at) VALUES(?,?,?,?,?,?) "
             "ON CONFLICT(user_id,day) DO UPDATE SET what_would_change=excluded.what_would_change,"
             "relapse_signs=excluded.relapse_signs,completed=excluded.completed,updated_at=excluded.updated_at",
-            (user_id, day.isoformat(), what, json.dumps(signs, ensure_ascii=False), int(completed), datetime.utcnow().isoformat()),
+            (user_id, day.isoformat(), what, json.dumps(signs, ensure_ascii=False), int(completed), datetime.now(UTC).isoformat()),
         )
         self.db.commit()
 
