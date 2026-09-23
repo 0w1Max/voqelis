@@ -282,3 +282,35 @@ def test_review_status_callback_sets_detail_state(tmp_path: Path):
     assert session["state"] == "review_detail"
     assert service.store.session_payload(1)["status"] == "+-"
     store.close()
+
+
+def test_review_can_resume_final_questions(tmp_path: Path):
+    import asyncio
+    from voqelis.planner.service import PlannerService
+
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    store.ensure_daily_plan(1, day)
+    service = PlannerService(store, PlannerConfig())
+    asyncio.run(service._review_final1(1, "стал лучше планировать", day))
+    assert store.session(1)["state"] == "review_final2"
+    resumed = asyncio.run(service.start_review(1, day))
+    assert "признаки срыва" in resumed.lower()
+    assert store.session(1)["state"] == "review_final2"
+    store.close()
+
+
+def test_review_resume_after_all_items_without_day_review(tmp_path: Path):
+    import asyncio
+    from voqelis.planner.service import PlannerService
+
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    items = store.ensure_daily_plan(1, day)
+    service = PlannerService(store, PlannerConfig())
+    for item in items:
+        store.save_review(item.id, "+", "сделал", (), None)
+    resumed = asyncio.run(service.start_review(1, day))
+    assert "оздоровлению" in resumed
+    assert store.session(1)["state"] == "review_final1"
+    store.close()
