@@ -1,3 +1,43 @@
+def planner_markup_for_state(service: PlannerService, user_id: int) -> InlineKeyboardMarkup | ReplyKeyboardMarkup:
+session = service.store.session(user_id)
+if not session:
+return planner_keyboard()
+state = session["state"]
+payload = service.store.session_payload(user_id)
+if state == "planning_conflict":
+rows = []
+if payload.get("moves"):
+rows.append([InlineKeyboardButton(text="✅ Перенести и добавить", callback_data="pl:conf:yes")])
+rows.append([InlineKeyboardButton(text="❌ Не переносить", callback_data="pl:conf:no")])
+else:
+for index, pair in enumerate(payload.get("alternatives", [])[:3]):
+rows.append([InlineKeyboardButton(
+text=f"🕐 {pair[0] // 60:02d}:{pair[0] % 60:02d}–{pair[1] // 60:02d}:{pair[1] % 60:02d}",
+callback_data=f"pl:alt:{index}",
+)])
+rows.append([InlineKeyboardButton(text="❌ Отмена", callback_data="pl:conf:no")])
+return InlineKeyboardMarkup(inline_keyboard=rows)
+if state == "review_status":
+return review_keyboard()
+if state == "review_edit_select":
+target_day = date.fromisoformat(session["target_day"])
+items = [x for x in service.store.reviews(user_id, target_day) if x.status is not None]
+rows = [
+[InlineKeyboardButton(
+text=f"{index + 1}. {item.plan_item.title[:35]}",
+callback_data=f"pl:edit:{index}",
+)]
+for index, item in enumerate(items)
+]
+return InlineKeyboardMarkup(inline_keyboard=rows) if rows else planner_keyboard()
+if state == "review_final1":
+return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⏭ Пропустить", callback_data="pl:skip:final1")]])
+if state == "review_final2":
+return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⏭ Пропустить", callback_data="pl:skip:final2")]])
+return planner_keyboard()
+
+
+
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
@@ -43,44 +83,6 @@ def create_planner_router(*, service: PlannerService, allowed_user_ids: frozense
     router = Router(name="planner")
 
 
-    def planner_markup_for_state(user_id: int) -> InlineKeyboardMarkup | ReplyKeyboardMarkup:
-        session = service.store.session(user_id)
-        if not session:
-            return planner_keyboard()
-        state = session["state"]
-        payload = service.store.session_payload(user_id)
-        if state == "planning_conflict":
-            rows = []
-            if payload.get("moves"):
-                rows.append([InlineKeyboardButton(text="✅ Перенести и добавить", callback_data="pl:conf:yes")])
-                rows.append([InlineKeyboardButton(text="❌ Не переносить", callback_data="pl:conf:no")])
-            else:
-                for index, pair in enumerate(payload.get("alternatives", [])[:3]):
-                    rows.append([InlineKeyboardButton(
-                        text=f"🕐 {pair[0] // 60:02d}:{pair[0] % 60:02d}–{pair[1] // 60:02d}:{pair[1] % 60:02d}",
-                        callback_data=f"pl:alt:{index}",
-                    )])
-                rows.append([InlineKeyboardButton(text="❌ Отмена", callback_data="pl:conf:no")])
-            return InlineKeyboardMarkup(inline_keyboard=rows)
-        if state == "review_status":
-            return review_keyboard()
-        if state == "review_edit_select":
-            target_day = date.fromisoformat(session["target_day"])
-            items = [x for x in service.store.reviews(user_id, target_day) if x.status is not None]
-            rows = [
-                [InlineKeyboardButton(
-                    text=f"{index + 1}. {item.plan_item.title[:35]}",
-                    callback_data=f"pl:edit:{index}",
-                )]
-                for index, item in enumerate(items)
-            ]
-            return InlineKeyboardMarkup(inline_keyboard=rows) if rows else planner_keyboard()
-        if state == "review_final1":
-            return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⏭ Пропустить", callback_data="pl:skip:final1")]])
-        if state == "review_final2":
-            return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⏭ Пропустить", callback_data="pl:skip:final2")]])
-        return planner_keyboard()
-
     def allowed(message: Message) -> bool:
         return (
             message.chat.type == ChatType.PRIVATE
@@ -101,7 +103,7 @@ def create_planner_router(*, service: PlannerService, allowed_user_ids: frozense
         if allowed(message):
             await message.answer(
                 await service.start_review(message.from_user.id, planner_today()),
-                reply_markup=planner_markup_for_state(message.from_user.id),
+                reply_markup=planner_markup_for_state(service, message.from_user.id),
             )
 
     @router.message(F.text == "📅 Планирование дня")
@@ -133,7 +135,7 @@ def create_planner_router(*, service: PlannerService, allowed_user_ids: frozense
         if allowed(message):
             await message.answer(
                 await service.start_review_edit(message.from_user.id, planner_today()),
-                reply_markup=planner_keyboard(),
+                reply_markup=planner_markup_for_state(service, message.from_user.id),
             )
 
     @router.message(F.text == "⏹️ Выйти из режима")
@@ -154,7 +156,7 @@ def create_planner_router(*, service: PlannerService, allowed_user_ids: frozense
             for reply in replies:
                 await callback.message.answer(
                     reply,
-                    reply_markup=planner_markup_for_state(callback.from_user.id),
+                    reply_markup=planner_markup_for_state(service, callback.from_user.id),
                 )
 
     @router.message(lambda message: message.text is not None and message.from_user is not None and service.store.session(message.from_user.id) is not None)
@@ -164,7 +166,7 @@ def create_planner_router(*, service: PlannerService, allowed_user_ids: frozense
         replies = await service.handle_text(message.from_user.id, message.text, planner_today())
         session = service.store.session(message.from_user.id)
         current_state = session["state"] if session else None
-        markup = planner_markup_for_state(message.from_user.id)
+        markup = planner_markup_for_state(service, message.from_user.id)
         for reply in replies:
             await message.answer(reply, reply_markup=markup)
 
