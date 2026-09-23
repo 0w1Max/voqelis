@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
     start_minute INTEGER NOT NULL,
     duration_minutes INTEGER NOT NULL,
     recurrence TEXT NOT NULL DEFAULT 'daily',
+    recurrence_days TEXT NOT NULL DEFAULT '[]',
     active INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS plan_items (
@@ -73,6 +74,7 @@ class PlannerStore:
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
         self._migrate_sessions()
+        self._migrate_recurring_templates()
         self.db.commit()
 
     def _migrate_sessions(self) -> None:
@@ -88,6 +90,20 @@ class PlannerStore:
         if "updated_at" not in columns:
             self.db.execute("ALTER TABLE planner_sessions ADD COLUMN updated_at TEXT")
         self.db.execute("UPDATE planner_sessions SET state=mode WHERE state IS NULL OR state=''")
+
+    def _migrate_recurring_templates(self) -> None:
+        columns = {
+            row["name"]
+            for row in self.db.execute("PRAGMA table_info(recurring_templates)")
+        }
+        if "recurrence" not in columns:
+            self.db.execute(
+                "ALTER TABLE recurring_templates ADD COLUMN recurrence TEXT NOT NULL DEFAULT 'daily'"
+            )
+        if "recurrence_days" not in columns:
+            self.db.execute(
+                "ALTER TABLE recurring_templates ADD COLUMN recurrence_days TEXT NOT NULL DEFAULT '[]'"
+            )
 
     def close(self) -> None:
         self.db.close()
@@ -128,7 +144,7 @@ class PlannerStore:
         if self.recurring(user_id):
             return
         self.db.executemany(
-            "INSERT INTO recurring_templates(user_id,title,why,start_minute,duration_minutes) VALUES(?,?,?,?,?)",
+            "INSERT INTO recurring_templates(user_id,title,why,start_minute,duration_minutes,recurrence,recurrence_days) VALUES(?,?,?,?,?,?,?)",
             [
                 (
                     user_id,
@@ -136,6 +152,8 @@ class PlannerStore:
                     x.why,
                     x.start_minute,
                     x.duration_minutes,
+                    x.recurrence,
+                    json.dumps(x.days_of_week),
                 )
                 for x in config.recurring_templates
             ],
@@ -261,6 +279,7 @@ class PlannerStore:
                         start_minute=int(row["start_minute"]),
                         duration_minutes=int(row["duration_minutes"]),
                         recurrence=row["recurrence"],
+                        days_of_week=tuple(json.loads(row["recurrence_days"] or "[]")),
                     ),
                     day,
                 )
