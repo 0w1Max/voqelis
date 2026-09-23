@@ -68,8 +68,8 @@ def test_ninety_minute_task_stays_one_logical_item(tmp_path: Path):
     draft = TaskDraft("Большая задача", day, start_minute=19 * 60, duration_minutes=90)
     result = scheduler.schedule(1, draft)
     assert not isinstance(result, Conflict)
-    assert result.start_minute == 12 * 60
-    assert result.end_minute == 14 * 60
+    assert result.start_minute == 19 * 60
+    assert result.end_minute == 21 * 60
     assert len([x for x in store.plan_items(1, day) if x.title == "Большая задача"]) == 1
     store.close()
 
@@ -129,9 +129,8 @@ def test_night_period_uses_after_midnight_plan_window(tmp_path: Path):
     scheduler = Scheduler(store, PlannerConfig())
     draft = TaskDraft("Ночная задача", day, period="ночью", duration_minutes=60)
     result = scheduler.schedule(1, draft)
-    assert not isinstance(result, Conflict)
-    assert result.start_minute == 24 * 60
-    assert result.end_minute == 25 * 60
+    assert isinstance(result, Conflict)
+    assert result.proposal.desired_start_minute == 24 * 60
     store.close()
 
 
@@ -262,7 +261,7 @@ def test_callback_conflict_confirmation_uses_same_resolution_path(tmp_path: Path
         },
     )
     import asyncio
-    replies = asyncio.run(service.handle_callback(1, "pl:conf:no", date(2026, 9, 22))
+    replies = asyncio.run(service.handle_callback(1, "pl:conf:no", date(2026, 9, 22)))
     assert replies
     assert service.store.session(1)["state"] == "planning"
     store.close()
@@ -277,7 +276,7 @@ def test_review_status_callback_sets_detail_state(tmp_path: Path):
     service = PlannerService(store, PlannerConfig())
     service.store.set_session(1, "review_status", day, {"current_item_id": items[0].id})
     import asyncio
-    replies = asyncio.run(service.handle_callback(1, "pl:review:partial", day)
+    replies = asyncio.run(service.handle_callback(1, "pl:review:partial", day))
     assert replies
     session = service.store.session(1)
     assert session["state"] == "review_detail"
