@@ -330,9 +330,14 @@ class PlannerService:
         self.store.set_session(
             user_id, "review_full_confirm", day,
             {"items": [
-                {"plan_item_id": item_id, "status": status, "activity": activity,
-                 "feelings": list(feelings), "reason": reason}
-                for item_id, status, activity, feelings, reason in proposal
+                {
+                    "plan_item_id": item.plan_item.id,
+                    "status": status,
+                    "activity": activity,
+                    "feelings": list(feelings),
+                    "reason": reason,
+                }
+                for item, status, activity, feelings, reason in normalized
             ]},
         )
         return [render_full_review_proposal(normalized)]
@@ -415,8 +420,15 @@ class PlannerService:
         if status is None:
             return ["Выбери +, - или +-. Можно также написать «да», «нет» или «частично»."]
         current_payload = self.store.session_payload(user_id)
-        item_id = int(current_payload["current_item_id"])
-        item = next(x for x in self.store.reviews(user_id, day) if x.plan_item.id == item_id)
+        try:
+            item_id = int(current_payload["current_item_id"])
+        except (KeyError, TypeError, ValueError):
+            self.store.clear_session(user_id)
+            return ["Сессия анализа устарела. Открой «🔎 Анализ сегодня» заново."]
+        item = next((x for x in self.store.reviews(user_id, day) if x.plan_item.id == item_id), None)
+        if item is None:
+            self.store.clear_session(user_id)
+            return ["Эта задача больше недоступна. Открой «🔎 Анализ сегодня» заново."]
         self.store.set_session(
             user_id, "review_detail", day,
             {"current_item_id": item_id, "status": status, "editing": bool(current_payload.get("editing"))},
@@ -426,8 +438,15 @@ class PlannerService:
 
     async def _review_detail(self, user_id: int, text: str, day: date) -> list[str]:
         payload = self.store.session_payload(user_id)
-        item_id, status = int(payload["current_item_id"]), payload["status"]
-        item = next(x for x in self.store.reviews(user_id, day) if x.plan_item.id == item_id)
+        try:
+            item_id, status = int(payload["current_item_id"]), str(payload["status"])
+        except (KeyError, TypeError, ValueError):
+            self.store.clear_session(user_id)
+            return ["Сессия анализа устарела. Открой «🔎 Анализ сегодня» заново."]
+        item = next((x for x in self.store.reviews(user_id, day) if x.plan_item.id == item_id), None)
+        if item is None:
+            self.store.clear_session(user_id)
+            return ["Эта задача больше недоступна. Открой «🔎 Анализ сегодня» заново."]
         try:
             if self.ai is not None:
                 activity, feelings, reason = await self.ai.extract_review(
