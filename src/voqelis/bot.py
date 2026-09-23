@@ -21,6 +21,7 @@ from .domain import AudioJob
 from .queue import JobQueue
 from .text import chunk_text
 from .planner.service import PlannerService
+from .planner.bot import planner_markup_for_state
 from .transcription import Transcriber
 
 
@@ -237,6 +238,7 @@ async def run_worker(
                             part,
                             reply_to_message_id=job.reply_to_message_id,
                             parse_mode=None,
+                            reply_markup=planner_markup_for_state(planner, job.user_id),
                         )
                 else:
                     await bot.send_message(
