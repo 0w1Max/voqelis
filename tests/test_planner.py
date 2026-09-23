@@ -223,3 +223,66 @@ def test_confirmed_move_is_rejected_if_target_becomes_occupied(tmp_path: Path):
     )
     assert not any(x.title == "Срочная встреча" for x in store.plan_items(1, day))
     store.close()
+
+
+import pytest
+
+
+@pytest.mark.asyncio
+async def test_callback_conflict_confirmation_uses_same_resolution_path(tmp_path: Path):
+    from voqelis.planner.service import PlannerService
+
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    store.ensure_daily_plan(1, day)
+    service = PlannerService(store, PlannerConfig())
+    service.store.set_session(
+        1,
+        "planning_conflict",
+        day,
+        {
+            "draft": {
+                "title": "Срочная встреча",
+                "day": day.isoformat(),
+                "start_minute": 10 * 60,
+                "duration_minutes": 60,
+                "why": None,
+                "urgent": True,
+                "source_text": "",
+            },
+            "desired": [10 * 60, 11 * 60],
+            "conflicts": [
+                {
+                    "id": store.plan_items(1, day)[0].id,
+                    "title": store.plan_items(1, day)[0].title,
+                    "start": store.plan_items(1, day)[0].start_minute,
+                    "end": store.plan_items(1, day)[0].end_minute,
+                    "kind": TaskKind.RECURRING.value,
+                }
+            ],
+            "alternatives": [],
+            "moves": [],
+            "pending": [],
+        },
+    )
+    replies = await service.handle_callback(1, "pl:conf:no", date(2026, 9, 22))
+    assert replies
+    assert service.store.session(1)["state"] == "planning"
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_review_status_callback_sets_detail_state(tmp_path: Path):
+    from voqelis.planner.service import PlannerService
+
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    items = store.ensure_daily_plan(1, day)
+    service = PlannerService(store, PlannerConfig())
+    service.store.set_session(1, "review_status", day, {"current_item_id": items[0].id})
+    replies = await service.handle_callback(1, "pl:review:partial", day)
+    assert replies
+    session = service.store.session(1)
+    assert session["state"] == "review_detail"
+    assert service.store.session_payload(1)["status"] == "+-"
+    store.close()
