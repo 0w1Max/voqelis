@@ -44,7 +44,7 @@ def build_docx(user_id: int, day: date, store: PlannerStore, config: PlannerConf
     for start, end, item in rows:
         cells = table.add_row().cells
         review = reviews.get(item.id) if item else None
-        cells[0].text = review.status if review else ""
+        cells[0].text = (review.status if review else "") or ""
         cells[1].text = f"{fmt_time(start)}–{fmt_time(end)}"
         cells[2].text = item.title if item else ""
         cells[3].text = item.why if item else ""
@@ -109,7 +109,7 @@ def build_pdf(user_id: int, day: date, store: PlannerStore, config: PlannerConfi
     for start, end, item in rows:
         review = reviews.get(item.id) if item else None
         data.append([
-            Paragraph(review.status if review else "", body),
+            Paragraph((review.status if review else "") or "", body),
             Paragraph(f"{fmt_time(start)}–{fmt_time(end)}", body),
             Paragraph(item.title if item else "", body),
             Paragraph(item.why if item else "", body),
