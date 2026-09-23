@@ -382,7 +382,7 @@ class PlannerService:
             value = callback_data.removeprefix("pl:edit:")
             if value.isdigit():
                 day = date.fromisoformat(session["target_day"]) if session and session["target_day"] else today
-                return await self._review_edit_select(user_id, str(int(value) + 1), day)
+                return await self._review_edit_select(user_id, value, day)
             return ["Некорректный номер задачи."]
 
         if callback_data == "pl:skip:final1":
