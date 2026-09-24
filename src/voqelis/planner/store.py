@@ -198,6 +198,41 @@ class PlannerStore:
         self.db.commit()
         return int(cur.lastrowid)
 
+    def add_item_if_free(self, item: PlanItem) -> int | None:
+        try:
+            self.db.execute("BEGIN IMMEDIATE")
+            occupied = self.db.execute(
+                "SELECT 1 FROM plan_items "
+                "WHERE user_id=? AND day=? AND start_minute < ? AND end_minute > ? LIMIT 1",
+                (item.user_id, item.day.isoformat(), item.end_minute, item.start_minute),
+            ).fetchone()
+            if occupied is not None:
+                self.db.rollback()
+                return None
+
+            cur = self.db.execute(
+                "INSERT INTO plan_items(user_id,day,title,why,start_minute,end_minute,kind,recurring_template_id,urgent,source_text,created_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    item.user_id,
+                    item.day.isoformat(),
+                    item.title,
+                    item.why,
+                    item.start_minute,
+                    item.end_minute,
+                    item.kind.value,
+                    item.recurring_template_id,
+                    int(item.urgent),
+                    item.source_text,
+                    datetime.now(UTC).isoformat(),
+                ),
+            )
+            self.db.commit()
+            return int(cur.lastrowid)
+        except sqlite3.Error:
+            self.db.rollback()
+            raise
+
     def apply_moves_and_add(self, *, moves: tuple[ScheduleMove, ...], item: PlanItem) -> int:
         try:
             self.db.execute("BEGIN IMMEDIATE")
