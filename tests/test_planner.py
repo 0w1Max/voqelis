@@ -31,6 +31,16 @@ def test_period_and_duration_extraction():
     assert drafts[0].end_minute == 15 * 60
 
 
+def test_parser_does_not_treat_exact_hour_as_duration():
+    draft = parse_voice(
+        "завтра в 14 часов заниматься проектом",
+        today=date(2026, 9, 24),
+        config=PlannerConfig(recurring_templates=()),
+    )[0]
+    assert draft.start_minute == 14 * 60
+    assert draft.duration_minutes == 60
+
+
 def test_parser_supports_minute_and_mixed_durations():
     config = PlannerConfig()
     minute = parse_voice("завтра делать проект 90 минут", today=date(2026, 9, 22), config=config)[0]
