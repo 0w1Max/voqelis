@@ -27,8 +27,6 @@ from .queue import JobQueue
 from .text import chunk_text
 from .transcription import Transcriber
 
-
-
 logger = logging.getLogger(__name__)
 
 
