@@ -8,6 +8,7 @@ from aiogram.enums import ChatType
 from aiogram.filters import Command
 from aiogram.types import (
     CallbackQuery,
+    FSInputFile,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     KeyboardButton,
@@ -25,6 +26,7 @@ def planner_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text="📋 План на завтра"), KeyboardButton(text="🔎 Анализ сегодня")],
             [KeyboardButton(text="🎙️ Рассказать весь день")],
             [KeyboardButton(text="✏️ Исправить анализ")],
+            [KeyboardButton(text="📄 DOCX"), KeyboardButton(text="📕 PDF")],
             [KeyboardButton(text="⏹️ Выйти из режима")],
         ],
         resize_keyboard=True,
@@ -177,7 +179,7 @@ def create_planner_router(
     async def on_plan(message: Message) -> None:
         if allowed(message):
             await message.answer(
-                service.start_planning(
+                await service.start_planning(
                     message.from_user.id, planner_today() + timedelta(days=1)
                 ),
                 reply_markup=planner_keyboard(),
@@ -235,17 +237,46 @@ def create_planner_router(
                 reply_markup=planner_markup_for_state(service, message.from_user.id),
             )
 
+    async def _send_export(message: Message, fmt: str) -> None:
+        if not allowed(message):
+            return
+        day = planner_today()
+        try:
+            output = await service.export_day(message.from_user.id, day, fmt)
+        except (ImportError, OSError, RuntimeError, ValueError):
+            await message.answer("⚠️ Не удалось сформировать файл экспорта. Попробуй ещё раз.")
+            return
+        try:
+            await message.answer_document(
+                FSInputFile(output),
+                caption=f"План на {day.strftime('%d.%m.%Y')} — {fmt.upper()}",
+            )
+        finally:
+            output.unlink(missing_ok=True)
+
+    @router.message(F.text == "📄 DOCX")
+    async def on_docx(message: Message) -> None:
+        await _send_export(message, "docx")
+
+    @router.message(F.text == "📕 PDF")
+    async def on_pdf(message: Message) -> None:
+        await _send_export(message, "pdf")
+
     @router.message(F.text == "⏹️ Выйти из режима")
     async def on_stop(message: Message) -> None:
         if allowed(message):
-            service.stop(message.from_user.id)
+            await service.stop(message.from_user.id)
             await message.answer(
                 "Режим планирования завершён.", reply_markup=planner_keyboard()
             )
 
     @router.callback_query(lambda callback: callback.data is not None and callback.data.startswith("pl:"))
     async def on_planner_callback(callback: CallbackQuery) -> None:
-        if callback.from_user.id not in allowed_user_ids:
+        if (
+            callback.from_user.id not in allowed_user_ids
+            or callback.message is None
+            or callback.message.chat.type != ChatType.PRIVATE
+        ):
             await callback.answer()
             return
 
