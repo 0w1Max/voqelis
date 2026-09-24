@@ -135,6 +135,18 @@ class Scheduler:
         if not self._valid(*desired):
             raise ScheduleValidationError("Задача выходит за границы планировочной таблицы.")
 
+        # Without an exact start/end, choose the earliest candidate that is
+        # actually free. Periods/relations are search windows, not reasons to
+        # force a conflict at the first occupied slot.
+        if draft.start_minute is None:
+            for candidate in candidates:
+                if not any(
+                    self._overlap(candidate, (x.start_minute, x.end_minute))
+                    for x in occupied
+                ):
+                    desired = candidate
+                    break
+
         conflicts = [x for x in occupied if self._overlap(desired, (x.start_minute, x.end_minute))]
         if not conflicts:
             item_id = self.store.add_item(
