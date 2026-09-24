@@ -92,18 +92,19 @@ def test_only_three_core_recurring_tasks_are_created(tmp_path: Path):
 
 def test_legacy_thirteen_recurring_tasks_are_migrated(tmp_path: Path):
     store = PlannerStore(tmp_path / "planner.sqlite3")
-    legacy = (
-        RecurringTemplateSpec("old-1", "why", 540, 60),
-        RecurringTemplateSpec("old-2", "why", 600, 60),
+    legacy = tuple(
+        RecurringTemplateSpec(f"old-{index}", "why", 540 + index * 60, 60)
+        for index in range(13)
     )
     legacy_config = PlannerConfig(recurring_templates=legacy)
     first = store.ensure_daily_plan(1, date(2026, 9, 23), legacy_config)
-    assert len(first) == 2
+    assert len(first) == 13
 
     current = PlannerConfig()
     migrated = store.ensure_daily_plan(1, date(2026, 9, 24), current)
-    assert len(migrated) == 2
-    # A custom two-item seed is not treated as the original 13-item built-in seed.
+    assert len(migrated) == 3
+    assert len(store.recurring(1)) == 3
+    assert len(store.plan_items(1, date(2026, 9, 23))) == 3
     store.close()
 
 
