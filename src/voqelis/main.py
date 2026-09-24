@@ -62,7 +62,7 @@ async def async_main() -> None:
 
     dp = Dispatcher()
     dp.include_router(create_planner_router(service=planner, allowed_user_ids=settings.allowed_user_ids))
-    dp.include_router(create_router(settings=settings, queue=queue))
+    dp.include_router(create_router(settings=settings, queue=queue, planner=planner))
 
     async with Bot(
         token=settings.bot_token,
