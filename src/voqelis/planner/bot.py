@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -17,6 +18,9 @@ from aiogram.types import (
 )
 
 from .service import PlannerService
+
+
+logger = logging.getLogger(__name__)
 
 
 def planner_keyboard() -> ReplyKeyboardMarkup:
@@ -261,18 +265,32 @@ def create_planner_router(
             if session and session.get("target_day")
             else planner_today()
         )
+        output = None
         try:
             output = await service.export_day(message.from_user.id, day, fmt)
-        except (ImportError, OSError, RuntimeError, ValueError):
-            await message.answer("⚠️ Не удалось сформировать файл экспорта. Попробуй ещё раз.")
-            return
-        try:
+            logger.info(
+                "PLANNER_EXPORT user=%s day=%s format=%s path=%s size=%s",
+                message.from_user.id,
+                day,
+                fmt,
+                output,
+                output.stat().st_size,
+            )
             await message.answer_document(
                 FSInputFile(output),
                 caption=f"План на {day.strftime('%d.%m.%Y')} — {fmt.upper()}",
             )
+        except (ImportError, OSError, RuntimeError, ValueError):
+            logger.exception(
+                "PLANNER_EXPORT_FAILED user=%s day=%s format=%s",
+                message.from_user.id,
+                day,
+                fmt,
+            )
+            await message.answer("⚠️ Не удалось сформировать или отправить файл экспорта. Ошибка записана в журнал.")
         finally:
-            output.unlink(missing_ok=True)
+            if output is not None:
+                output.unlink(missing_ok=True)
 
     @router.message(F.text == "📄 DOCX")
     async def on_docx(message: Message) -> None:
