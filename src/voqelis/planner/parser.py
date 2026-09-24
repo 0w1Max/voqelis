@@ -7,12 +7,22 @@ from .config import PlannerConfig
 from .models import TaskDraft
 
 
-_TIME = re.compile(r"(?<!\d)(\d{1,2})(?::(\d{2}))?(?:\s*(?:час(?:а|ов)?|ч))?")
-_RANGE = re.compile(r"с\s+(\d{1,2})(?::(\d{2}))?\s*(?:до|-)\s*(\d{1,2})(?::(\d{2}))?", re.IGNORECASE)
-_DURATION = re.compile(r"(\d+(?:[.,]\d+)?)\s*(?:час(?:а|ов)?|ч)", re.IGNORECASE)
-_DURATION_MINUTES = re.compile(r"(\d+)\s*(?:минут(?:а|ы)?|мин\b)", re.IGNORECASE)
+_TIME_CONTEXT = re.compile(
+    r"\b(?:в|к)\s+(\d{1,2})(?::(\d{2}))?\s*(?:час(?:а|ов)?|ч)?\b",
+    re.IGNORECASE,
+)
+_TIME_BARE = re.compile(r"\b(\d{1,2}):(\d{2})\b")
+_RANGE = re.compile(
+    r"\bс\s+(\d{1,2})(?::(\d{2}))?\s*(?:до|-)\s*(\d{1,2})(?::(\d{2}))?\b",
+    re.IGNORECASE,
+)
+_DURATION = re.compile(r"\b(\d+(?:[.,]\d+)?)\s*(?:час(?:а|ов)?|ч)\b", re.IGNORECASE)
+_DURATION_MINUTES = re.compile(
+    r"\b(\d+)\s*(?:минут(?:а|ы)?|мин\b)", re.IGNORECASE
+)
 _DURATION_HOURS_AND_MINUTES = re.compile(
-    r"(\d+(?:[.,]\d+)?)\s*(?:час(?:а|ов)?|ч)\s*(?:и\s*)?(\d+)\s*(?:минут(?:а|ы)?|мин\b)",
+    r"\b(\d+(?:[.,]\d+)?)\s*(?:час(?:а|ов)?|ч)\s*(?:и\s*)?"
+    r"(\d+)\s*(?:минут(?:а|ы)?|мин\b)",
     re.IGNORECASE,
 )
 
@@ -22,88 +32,200 @@ def _minute(hour: str, minute: str | None = None) -> int:
 
 
 def _date(text: str, today: date) -> date:
-    t = text.lower()
-    if "послезавтра" in t:
+    normalized = text.casefold()
+    if "послезавтра" in normalized:
         return today + timedelta(days=2)
-    if "завтра" in t:
+    if "завтра" in normalized:
         return today + timedelta(days=1)
+    if "сегодня" in normalized:
+        return today
     return today + timedelta(days=1)
 
 
 def _period(text: str) -> str | None:
-    for x in ("утром", "утро", "днём", "днем", "день", "вечером", "вечер", "ночью", "ночь"):
-        if x in text.lower():
-            return x
+    normalized = text.casefold()
+    for value in (
+        "утром",
+        "утро",
+        "днём",
+        "днем",
+        "день",
+        "вечером",
+        "вечер",
+        "ночью",
+        "ночь",
+    ):
+        if re.search(rf"\b{re.escape(value)}\b", normalized):
+            return value
     return None
 
 
 def _why(text: str) -> str | None:
-    m = re.search(r"\b(?:чтобы|для того чтобы|для)\s+(.+)$", text, re.IGNORECASE)
-    return f"{m.group(1).strip().rstrip('.')}" if m else None
+    match = re.search(
+        r"\b(?:чтобы|для того чтобы|для)\s+(.+)$",
+        text,
+        re.IGNORECASE,
+    )
+    return match.group(1).strip().rstrip(".") if match else None
+
+
+def _time_match(text: str) -> re.Match[str] | None:
+    match = _TIME_CONTEXT.search(text)
+    if match:
+        return match
+    return _TIME_BARE.search(text)
 
 
 def parse_voice(text: str, *, today: date, config: PlannerConfig) -> list[TaskDraft]:
-    # V1 deliberately keeps extraction deterministic. The parser is a replaceable
-    # boundary for a future LLM provider; scheduling remains deterministic.
-    chunks = [c.strip(" ,;") for c in re.split(r"\s+(?:также|потом|ещё|еще|а также)\s+|[.!?]+", text, flags=re.IGNORECASE) if c.strip()]
+    # V1 fallback extractor. AI providers can replace this boundary without
+    # changing the deterministic scheduling layer.
+    chunks = [
+        chunk.strip(" ,;")
+        for chunk in re.split(
+            r"[.!?]+|,\s*(?=(?:а\s+)?(?:также|потом|ещё|еще|утром|днём|днем|вечером|вечер)\b)",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if chunk.strip()
+    ]
+
     drafts: list[TaskDraft] = []
     for chunk in chunks:
         day = _date(chunk, today)
-        rng = _RANGE.search(chunk)
+        range_match = _RANGE.search(chunk)
         start = end = None
-        if rng:
-            start = _minute(rng.group(1), rng.group(2))
-            end = _minute(rng.group(3), rng.group(4))
+
+        if range_match:
+            start = _minute(range_match.group(1), range_match.group(2))
+            end = _minute(range_match.group(3), range_match.group(4))
+            if not (0 <= start < end <= 24 * 60):
+                raise ValueError("Временной диапазон задачи некорректен.")
         else:
-            tm = _TIME.search(chunk)
-            if tm:
-                start = _minute(tm.group(1), tm.group(2))
+            time_match = _time_match(chunk)
+            if time_match:
+                start = _minute(time_match.group(1), time_match.group(2))
+                if start >= 24 * 60:
+                    raise ValueError("Время задачи должно быть от 00:00 до 23:59.")
+
         duration = config.default_duration_minutes
-        dm = _DURATION_HOURS_AND_MINUTES.search(chunk)
-        if dm:
-            duration = int(float(dm.group(1).replace(",", ".")) * 60) + int(dm.group(2))
+        duration_match = _DURATION_HOURS_AND_MINUTES.search(chunk)
+        if duration_match:
+            duration = (
+                int(float(duration_match.group(1).replace(",", ".")) * 60)
+                + int(duration_match.group(2))
+            )
         else:
-            dm = _DURATION_MINUTES.search(chunk)
-            if dm:
-                duration = int(dm.group(1))
+            duration_match = _DURATION_MINUTES.search(chunk)
+            if duration_match:
+                duration = int(duration_match.group(1))
             else:
-                dm = _DURATION.search(chunk)
-                if dm:
-                    duration = int(float(dm.group(1).replace(",", ".")) * 60)
-                if "полтора" in chunk.lower():
+                duration_match = _DURATION.search(chunk)
+                if duration_match:
+                    duration = int(float(duration_match.group(1).replace(",", ".")) * 60)
+                elif "полтора" in chunk.casefold():
                     duration = 90
 
         period = _period(chunk)
+
         preferred = None
-        m_pref = re.search(r"(?:ближе|примерно|около)\s+(\d{1,2})(?::(\d{2}))?", chunk, re.IGNORECASE)
-        if m_pref:
-            preferred = _minute(m_pref.group(1), m_pref.group(2))
+        preferred_match = re.search(
+            r"(?:ближе|примерно|около)\s+(?:в\s+)?(\d{1,2})(?::(\d{2}))?",
+            chunk,
+            re.IGNORECASE,
+        )
+        if preferred_match:
+            preferred = _minute(
+                preferred_match.group(1),
+                preferred_match.group(2),
+            )
 
         relation = None
         anchor = None
-        m_after = re.search(r"после\s+(завтрака|обеда|ужина)", chunk, re.IGNORECASE)
-        m_before = re.search(r"до\s+(завтрака|обеда|ужина)", chunk, re.IGNORECASE)
-        if m_after:
-            relation, anchor = "after", m_after.group(1).lower()
-        elif m_before:
-            relation, anchor = "before", m_before.group(1).lower()
+        after_match = re.search(
+            r"после\s+(завтрака|обеда|ужина)",
+            chunk,
+            re.IGNORECASE,
+        )
+        before_match = re.search(
+            r"до\s+(завтрака|обеда|ужина)",
+            chunk,
+            re.IGNORECASE,
+        )
+        if after_match:
+            relation, anchor = "after", after_match.group(1).casefold()
+        elif before_match:
+            relation, anchor = "before", before_match.group(1).casefold()
 
-        cleaned = re.sub(r"^(?:завтра|послезавтра)\s*", "", chunk, flags=re.IGNORECASE)
-        cleaned = re.sub(r"(?:утром|утро|днём|днем|день|вечером|вечер|ночью|ночь)", "", cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(r"с\s+\d{1,2}(?::\d{2})?\s*(?:до|-)\s*\d{1,2}(?::\d{2})?", "", cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(r"\bв\s+\d{1,2}(?::\d{2})?", "", cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(r"\b(?:срочно|желательно|примерно|около|пожалуйста)\b", "", cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(r"\b(?:на|мне надо|мне нужно|надо|нужно|планирую|буду)\b", "", cleaned, flags=re.IGNORECASE)
-        title = cleaned.strip(" ,:-")
+        cleaned = re.sub(
+            r"^(?:сегодня|завтра|послезавтра)\s*",
+            "",
+            chunk,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(
+            r"^\s*(?:а|и|также|потом)\s+",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(
+            r"\b(?:утром|утро|днём|днем|день|вечером|вечер|ночью|ночь)\b",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(_RANGE, "", cleaned)
+        cleaned = re.sub(_TIME_CONTEXT, "", cleaned)
+        cleaned = re.sub(_TIME_BARE, "", cleaned)
+        cleaned = re.sub(_DURATION_HOURS_AND_MINUTES, "", cleaned)
+        cleaned = re.sub(
+            r"\bполтора\s+час(?:а|ов)?\b",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(_DURATION_MINUTES, "", cleaned)
+        cleaned = re.sub(_DURATION, "", cleaned)
+        cleaned = re.sub(
+            r"\b(?:срочно|желательно|примерно|около|пожалуйста)\b",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(
+            r"\b(?:мне надо|мне нужно|надо|нужно|планирую|буду)\b",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+
+        title = re.sub(r"\s{2,}", " ", cleaned).strip(" ,:-")
         why = _why(chunk)
         if why:
-            title = re.split(r"\b(?:чтобы|для того чтобы|для)\b", title, maxsplit=1, flags=re.IGNORECASE)[0].strip(" ,:-")
+            title = re.split(
+                r"\b(?:чтобы|для того чтобы|для)\b",
+                title,
+                maxsplit=1,
+                flags=re.IGNORECASE,
+            )[0].strip(" ,:-")
         if not title:
             continue
-        urgent = "срочно" in chunk.lower()
-        drafts.append(TaskDraft(
-            title=title, day=day, start_minute=start, end_minute=end,
-            duration_minutes=duration, period=period, preferred_minute=preferred,
-            relation=relation, anchor=anchor, why=why, urgent=urgent, source_text=chunk,
-        ))
+
+        drafts.append(
+            TaskDraft(
+                title=title,
+                day=day,
+                start_minute=start,
+                end_minute=end,
+                duration_minutes=duration,
+                period=period,
+                preferred_minute=preferred,
+                relation=relation,
+                anchor=anchor,
+                why=why,
+                urgent="срочно" in chunk.casefold(),
+                source_text=chunk,
+            )
+        )
+
     return drafts
