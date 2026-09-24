@@ -7,7 +7,6 @@ from .config import PlannerConfig
 from .models import TaskDraft
 
 
-
 _TIME_CONTEXT = re.compile(
     r"\b(?:в|к)\s+(\d{1,2})(?::(\d{2}))?\s*(?:час(?:а|ов)?|ч)?\b",
     re.IGNORECASE,
@@ -101,6 +100,13 @@ def parse_voice(text: str, *, today: date, config: PlannerConfig) -> list[TaskDr
             end = _minute(range_match.group(3), range_match.group(4))
             if not (0 <= start < end <= 24 * 60):
                 raise ValueError("Временной диапазон задачи некорректен.")
+
+        time_match = None if range_match else _time_match(chunk)
+        if time_match:
+            start = _minute(time_match.group(1), time_match.group(2))
+            if not 0 <= start < 24 * 60:
+                raise ValueError("Время задачи должно быть от 00:00 до 23:59.")
+
         duration = config.default_duration_minutes
         duration_match = _DURATION_HOURS_AND_MINUTES.search(chunk)
         if duration_match and not (
