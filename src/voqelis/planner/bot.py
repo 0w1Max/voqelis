@@ -240,7 +240,12 @@ def create_planner_router(
     async def _send_export(message: Message, fmt: str) -> None:
         if not allowed(message):
             return
-        day = planner_today()
+        session = service.store.session(message.from_user.id)
+        day = (
+            date.fromisoformat(session["target_day"])
+            if session and session.get("target_day")
+            else planner_today()
+        )
         try:
             output = await service.export_day(message.from_user.id, day, fmt)
         except (ImportError, OSError, RuntimeError, ValueError):
