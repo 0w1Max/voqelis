@@ -179,7 +179,7 @@ def create_planner_router(
     async def on_plan(message: Message) -> None:
         if allowed(message):
             await message.answer(
-                await service.start_planning(
+                service.start_planning(
                     message.from_user.id, planner_today() + timedelta(days=1)
                 ),
                 reply_markup=planner_keyboard(),
