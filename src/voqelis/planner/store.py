@@ -140,45 +140,52 @@ class PlannerStore:
 
     def seed_defaults(self, user_id: int, config: PlannerConfig) -> None:
         existing = self.recurring(user_id)
-        legacy_specs = {
-            (title.casefold(), start_minute, duration_minutes)
-            for title, start_minute, duration_minutes in (
-                ("Проснуться + молитва + умыться + зарядка (КД)", 540, 60),
-                ("Завтрак + душ (КД)", 600, 60),
-                ("Послушать спикерскую + заниматься проектами", 660, 60),
-                ("Читать книгу", 780, 60),
-                ("Переделать резюме", 840, 60),
-                ("Обед + отдых", 900, 60),
-                ("Делать домашку по психотерапии", 960, 60),
-                ("Собираться на группу", 1020, 60),
-                ("Дорога на группу + собрание + прогулка", 1080, 60),
-                ("Дорога домой + ужин", 1260, 60),
-                ("Делать домашку по шагам", 1320, 60),
-                ("Читать книгу", 1380, 60),
-                ("Подготовка ко сну + дневник успеха + молитва + благодарности за день", 1440, 60),
-            )
-        }
-        for row in existing:
-            key = (
+        legacy_defs = (
+            ("Проснуться + молитва + умыться + зарядка (КД)", 540, 60),
+            ("Завтрак + душ (КД)", 600, 60),
+            ("Послушать спикерскую + заниматься проектами", 660, 60),
+            ("Читать книгу", 780, 60),
+            ("Переделать резюме", 840, 60),
+            ("Обед + отдых", 900, 60),
+            ("Делать домашку по психотерапии", 960, 60),
+            ("Собираться на группу", 1020, 60),
+            ("Дорога на группу + собрание + прогулка", 1080, 60),
+            ("Дорога домой + ужин", 1260, 60),
+            ("Делать домашку по шагам", 1320, 60),
+            ("Читать книгу", 1380, 60),
+            ("Подготовка ко сну + дневник успеха + молитва + благодарности за день", 1440, 60),
+        )
+        legacy_keys = {(title.casefold(), start, duration) for title, start, duration in legacy_defs}
+        legacy_rows = [
+            row
+            for row in existing
+            if (
+                str(row["title"]).casefold(),
+                int(row["start_minute"]),
+                int(row["duration_minutes"]),
+            ) in legacy_keys
+        ]
+
+        # Migrate only when all 13 original built-in templates are present.
+        # The current V1 defaults intentionally reuse three of those titles/slots.
+        if len({
+            (
                 str(row["title"]).casefold(),
                 int(row["start_minute"]),
                 int(row["duration_minutes"]),
             )
-            if key in legacy_specs and int(row["active"]) == 1:
+            for row in legacy_rows
+        }) == len(legacy_defs):
+            for row in legacy_rows:
                 template_id = int(row["id"])
                 self.db.execute(
                     "UPDATE recurring_templates SET active=0 WHERE id=?",
                     (template_id,),
                 )
                 self.db.execute(
-                    "DELETE FROM plan_items WHERE user_id=? AND kind='recurring' "
-                    "AND title=? AND start_minute=? AND end_minute=?",
-                    (
-                        user_id,
-                        row["title"],
-                        int(row["start_minute"]),
-                        int(row["start_minute"]) + int(row["duration_minutes"]),
-                    ),
+                    "DELETE FROM plan_items "
+                    "WHERE user_id=? AND kind=? AND recurring_template_id=?",
+                    (user_id, TaskKind.RECURRING.value, template_id),
                 )
 
         current_keys = {
@@ -190,13 +197,15 @@ class PlannerStore:
             for row in self.recurring(user_id)
         }
         missing = [
-            x for x in config.recurring_templates
+            x
+            for x in config.recurring_templates
             if (x.title.casefold(), x.start_minute, x.duration_minutes) not in current_keys
         ]
         if missing:
             self.db.executemany(
-                "INSERT INTO recurring_templates(user_id,title,why,start_minute,duration_minutes,recurrence,recurrence_days) "
-                "VALUES(?,?,?,?,?,?,?)",
+                "INSERT INTO recurring_templates("
+                "user_id,title,why,start_minute,duration_minutes,recurrence,recurrence_days"
+                ") VALUES(?,?,?,?,?,?,?)",
                 [
                     (
                         user_id,
