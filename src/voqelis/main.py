@@ -9,13 +9,13 @@ from aiogram.client.default import DefaultBotProperties
 
 from .bot import cleanup_temp_dir, create_router, run_worker
 from .config import load_settings
+from .planner.ai import GeminiPlannerAI
+from .planner.bot import create_planner_router
+from .planner.config import PlannerConfig
+from .planner.service import PlannerService
+from .planner.store import PlannerStore
 from .queue import JobQueue
 from .transcription import Transcriber
-from .planner.bot import create_planner_router
-from .planner.service import PlannerService
-from .planner.ai import GeminiPlannerAI
-from .planner.store import PlannerStore
-from .planner.config import PlannerConfig
 
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,15 @@ async def async_main() -> None:
         if settings.planner_config_path.exists()
         else PlannerConfig()
     )
-    planner_ai = GeminiPlannerAI(settings.gemini_api_key, model=settings.gemini_model, timeout_seconds=settings.planner_ai_timeout_seconds) if settings.gemini_api_key else None
+    planner_ai = (
+        GeminiPlannerAI(
+            settings.gemini_api_key,
+            model=settings.gemini_model,
+            timeout_seconds=settings.planner_ai_timeout_seconds,
+        )
+        if settings.gemini_api_key
+        else None
+    )
     planner = PlannerService(planner_store, config=planner_config, ai=planner_ai)
 
     queue = JobQueue(
