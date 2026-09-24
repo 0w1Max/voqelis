@@ -53,6 +53,7 @@ async def async_main() -> None:
         config=planner_config,
         ai=planner_ai,
         export_dir=settings.temp_dir,
+        log_content=settings.planner_log_content,
     )
 
     queue = JobQueue(
