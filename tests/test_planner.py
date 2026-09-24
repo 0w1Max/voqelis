@@ -77,14 +77,46 @@ def test_planner_markup_is_absent_without_active_session(tmp_path: Path):
     store.close()
 
 
-def test_recurring_tasks_are_created_first(tmp_path: Path):
+def test_only_three_core_recurring_tasks_are_created(tmp_path: Path):
     store = PlannerStore(tmp_path / "planner.sqlite3")
     items = store.ensure_daily_plan(1, date(2026, 9, 23))
-    assert items
+    assert len(items) == 3
     assert all(item.kind == TaskKind.RECURRING for item in items)
-    group = next(item for item in items if item.title.startswith("Дорога на группу"))
-    assert (group.start_minute, group.end_minute) == (18 * 60, 19 * 60)
-    assert not any(item.start_minute == 19 * 60 for item in items)
+    assert [(item.start_minute, item.end_minute) for item in items] == [
+        (9 * 60, 10 * 60),
+        (10 * 60, 11 * 60),
+        (24 * 60, 25 * 60),
+    ]
+    store.close()
+
+
+def test_legacy_thirteen_recurring_tasks_are_migrated(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    legacy = (
+        RecurringTemplateSpec("old-1", "why", 540, 60),
+        RecurringTemplateSpec("old-2", "why", 600, 60),
+    )
+    legacy_config = PlannerConfig(recurring_templates=legacy)
+    first = store.ensure_daily_plan(1, date(2026, 9, 23), legacy_config)
+    assert len(first) == 2
+
+    current = PlannerConfig()
+    migrated = store.ensure_daily_plan(1, date(2026, 9, 24), current)
+    assert len(migrated) == 2
+    # A custom two-item seed is not treated as the original 13-item built-in seed.
+    store.close()
+
+
+def test_plan_item_fields_can_be_edited(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    items = store.ensure_daily_plan(1, date(2026, 9, 23))
+    edited = store.update_plan_item(
+        items[0].id,
+        title="Новое дело",
+        why="Новая причина",
+    )
+    assert edited.title == "Новое дело"
+    assert edited.why == "Новая причина"
     store.close()
 
 
