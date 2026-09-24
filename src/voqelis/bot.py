@@ -170,9 +170,7 @@ def create_router(*, settings: Settings, queue: JobQueue) -> Router:
                 file_path=raw_path,
             )
             await queue.put(job)
-            planner_session = planner.store.session(user_id) if planner else None
-            if planner_session is None:
-                await message.reply("✅ Принял. Распознаю по очереди.")
+            await message.reply("✅ Принял. Распознаю по очереди.")
         except _UserInputError as exc:
             raw_path.unlink(missing_ok=True)
             await queue.release(user_id)
