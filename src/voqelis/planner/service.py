@@ -557,7 +557,6 @@ class PlannerService:
             return "\n".join(lines)
 
     async def _plan_edit_select(self, user_id: int, text: str, day: date) -> list[str]:
-        session = self.store.session(user_id)
         items = self.store.plan_items(user_id, day)
         value = text.strip()
         if not value.isdigit():
@@ -573,8 +572,10 @@ class PlannerService:
             {"item_id": item.id},
         )
         return [
-            f"Выбрано: {fmt_time(item.start_minute)}–{fmt_time(item.end_minute)} — {item.title}\n"
-            "Что изменить: напиши «дело» или «зачем»?"
+            (
+                f"Выбрано: {fmt_time(item.start_minute)}–{fmt_time(item.end_minute)} — {item.title}\n"
+                "Что изменить: напиши «дело» или «зачем»?"
+            )
         ]
 
     async def _plan_edit_field(self, user_id: int, text: str, day: date) -> list[str]:
