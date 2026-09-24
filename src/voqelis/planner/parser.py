@@ -107,8 +107,8 @@ def parse_voice(text: str, *, today: date, config: PlannerConfig) -> list[TaskDr
         start = end = None
 
         if range_match:
-            start = _minute(range_match.group(1), range_match.group(2), range_match.group(5))
-            end = _minute(range_match.group(3), range_match.group(4), range_match.group(7))
+            start = _minute(range_match.group(1), range_match.group(2), range_match.group(3))
+            end = _minute(range_match.group(4), range_match.group(5), range_match.group(6))
             if not (0 <= start < end <= 24 * 60):
                 raise ValueError("Временной диапазон задачи некорректен.")
 
