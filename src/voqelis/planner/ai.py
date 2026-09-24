@@ -179,7 +179,6 @@ class GeminiPlannerAI:
             "Dates must be YYYY-MM-DD and times HH:MM.\n\nUser message:\n" + text
         )
         result = await self._json_call(prompt, TASK_SCHEMA)
-        drafts: list[TaskDraft] = []
         raw_tasks = result.get("tasks")
         if not isinstance(raw_tasks, list):
             raise PlannerAIInvalidResponse("Gemini tasks field is not an array")
