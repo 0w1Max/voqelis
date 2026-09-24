@@ -33,9 +33,7 @@ _DURATION_HOURS_AND_MINUTES = re.compile(
 def _minute(hour: str, minute: str | None = None, part: str | None = None) -> int:
     value = int(hour) * 60 + int(minute or 0)
     normalized = (part or "").casefold()
-    if normalized == "дня" and 1 <= int(hour) < 12:
-        value += 12 * 60
-    elif normalized == "вечера" and 1 <= int(hour) < 12:
+    if (normalized == "дня" or normalized == "вечера") and 1 <= int(hour) < 12:
         value += 12 * 60
     elif normalized == "ночи" and int(hour) == 12:
         value = int(minute or 0)
