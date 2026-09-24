@@ -20,6 +20,26 @@ from voqelis.planner.service import PlannerService
 from voqelis.planner.store import PlannerStore
 
 
+def test_parser_understands_evening_clock_and_range():
+    config = PlannerConfig(recurring_templates=())
+    single = parse_voice(
+        "завтра в 8 вечера читать книгу",
+        today=date(2026, 9, 24),
+        config=config,
+    )[0]
+    assert single.start_minute == 20 * 60
+    assert single.duration_minutes == 60
+
+    ranged = parse_voice(
+        "завтра с 8 вечера до 9 вечера читать книгу",
+        today=date(2026, 9, 24),
+        config=config,
+    )[0]
+    assert ranged.start_minute == 20 * 60
+    assert ranged.end_minute == 21 * 60
+    assert ranged.duration_minutes == 60
+
+
 def test_period_and_duration_extraction():
     drafts = parse_voice(
         "Завтра днем с 12 до 15 заниматься проектом",
