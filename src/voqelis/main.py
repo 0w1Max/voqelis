@@ -49,7 +49,12 @@ async def async_main() -> None:
         if settings.gemini_api_key
         else None
     )
-    planner = PlannerService(planner_store, config=planner_config, ai=planner_ai)
+    planner = PlannerService(
+        planner_store,
+        config=planner_config,
+        ai=planner_ai,
+        export_dir=settings.temp_dir,
+    )
 
     queue = JobQueue(
         max_pending_jobs=settings.max_pending_jobs,
