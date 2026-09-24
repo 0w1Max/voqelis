@@ -10,7 +10,6 @@ from .ai import PlannerAI
 from .config import PlannerConfig
 from .export import build_docx, build_pdf
 from .models import (
-    PlannerAIError,
     Conflict,
     ConflictProposal,
     PlanItem,
