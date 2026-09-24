@@ -75,6 +75,7 @@ async def async_main() -> None:
                 transcriber=transcriber,
                 settings=settings,
                 planner=planner,
+                log_content=settings.planner_log_content,
             ),
             name="transcription-worker",
         )
