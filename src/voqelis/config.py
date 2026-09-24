@@ -181,7 +181,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
     settings.model_cache_dir.mkdir(parents=True, exist_ok=True)
 
     if not isinstance(getattr(logging, settings.log_level, None), int):
-        raise ValueError(f"Unsupported LOG_LEVEL: {settings.log_level!r}")
+        raise TypeError(f"Unsupported LOG_LEVEL: {settings.log_level!r}")
 
     logging.basicConfig(
         level=settings.log_level,
