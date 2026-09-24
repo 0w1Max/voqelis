@@ -92,10 +92,17 @@ class PlannerService:
             lines.append("Подходящего свободного окна нет.")
         return "\n".join(lines)
 
-    async def _add_drafts(self, user_id: int, drafts: list[TaskDraft], today: date) -> list[str]:
+    async def _add_drafts(
+        self,
+        user_id: int,
+        drafts: list[TaskDraft],
+        today: date,
+        *,
+        allow_missing_reason_for_first: bool = False,
+    ) -> list[str]:
         replies: list[str] = []
         for index, draft in enumerate(drafts):
-            if not draft.why:
+            if not draft.why and not (allow_missing_reason_for_first and index == 0):
                 suggested = self.store.previous_why(user_id, draft.title)
                 self.store.set_session(
                     user_id,
@@ -172,7 +179,12 @@ class PlannerService:
         draft = replace(draft, why=why)
         pending = [self._draft(x) for x in payload.get("pending", [])]
         self.store.set_session(user_id, "planning", draft.day, {})
-        replies = await self._add_drafts(user_id, [draft, *pending], today)
+        replies = await self._add_drafts(
+            user_id,
+            [draft, *pending],
+            today,
+            allow_missing_reason_for_first=True,
+        )
         return replies
 
     async def add_from_text(self, user_id: int, text: str, today: date) -> list[str]:
