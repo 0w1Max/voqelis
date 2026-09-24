@@ -30,7 +30,7 @@ from .transcription import Transcriber
 logger = logging.getLogger(__name__)
 
 
-def create_router(*, settings: Settings, queue: JobQueue) -> Router:
+def create_router(*, settings: Settings, queue: JobQueue, planner: PlannerService | None = None) -> Router:
     router = Router(name="audio")
 
     def is_allowed(message: Message) -> bool:
@@ -170,7 +170,9 @@ def create_router(*, settings: Settings, queue: JobQueue) -> Router:
                 file_path=raw_path,
             )
             await queue.put(job)
-            await message.reply("✅ Принял. Распознаю по очереди.")
+            planner_session = planner.store.session(user_id) if planner else None
+            if planner_session is None:
+                await message.reply("✅ Принял. Распознаю по очереди.")
         except _UserInputError as exc:
             raw_path.unlink(missing_ok=True)
             await queue.release(user_id)
