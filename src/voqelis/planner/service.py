@@ -331,7 +331,7 @@ class PlannerService:
             user_id, "review_full_confirm", day,
             {"items": [
                 {
-                    "plan_item_id": item.plan_item.id,
+                    "plan_item_id": item.id,
                     "status": status,
                     "activity": activity,
                     "feelings": list(feelings),
