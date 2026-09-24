@@ -262,7 +262,7 @@ def create_planner_router(
         session = service.store.session(message.from_user.id)
         day = (
             date.fromisoformat(session["target_day"])
-            if session and session.get("target_day")
+            if session is not None and session["target_day"]
             else planner_today()
         )
         output = None
