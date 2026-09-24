@@ -1,12 +1,25 @@
+import asyncio
+import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
 
-from voqelis.planner.config import PlannerConfig
-from voqelis.planner.models import Conflict, PlanItem, TaskDraft, TaskKind
-from voqelis.planner.service import PlannerService
+import pytest
+
+from voqelis.planner.ai import GeminiPlannerAI
+from voqelis.planner.config import PlannerConfig, RecurringTemplateSpec
+from voqelis.planner.models import (
+    Conflict,
+    PlanItem,
+    PlannerAIInvalidResponse,
+    ScheduleValidationError,
+    TaskDraft,
+    TaskKind,
+)
 from voqelis.planner.parser import parse_voice
 from voqelis.planner.scheduler import Scheduler
+from voqelis.planner.service import PlannerService
 from voqelis.planner.store import PlannerStore
+
 
 
 def test_period_and_duration_extraction():
@@ -172,8 +185,6 @@ def test_night_period_uses_after_midnight_plan_window(tmp_path: Path):
 
 
 def test_planner_config_rejects_invalid_timezone():
-    from voqelis.planner.config import PlannerConfig
-    import pytest
     with pytest.raises(ValueError, match="Invalid planner timezone"):
         PlannerConfig(timezone="Not/AZone")
 
@@ -245,12 +256,8 @@ def test_confirmed_move_is_rejected_if_target_becomes_occupied(tmp_path: Path):
         )
     )
 
-    try:
+    with pytest.raises(ScheduleValidationError):
         scheduler.apply_proposal(1, result.proposal)
-    except Exception as exc:
-        assert "collides" in str(exc).lower() or "overlap" in str(exc).lower()
-    else:
-        raise AssertionError("A stale move must not be applied")
 
     unchanged = store.get_plan_item(blocker.id)
     assert (unchanged.start_minute, unchanged.end_minute) == (
@@ -322,8 +329,6 @@ def test_review_status_callback_sets_detail_state(tmp_path: Path):
 
 
 def test_review_can_resume_final_questions(tmp_path: Path):
-    import asyncio
-    from voqelis.planner.service import PlannerService
 
     store = PlannerStore(tmp_path / "planner.sqlite3")
     day = date(2026, 9, 23)
@@ -340,8 +345,6 @@ def test_review_can_resume_final_questions(tmp_path: Path):
 
 
 def test_review_resume_after_all_items_without_day_review(tmp_path: Path):
-    import asyncio
-    from voqelis.planner.service import PlannerService
 
     store = PlannerStore(tmp_path / "planner.sqlite3")
     day = date(2026, 9, 23)
@@ -356,8 +359,6 @@ def test_review_resume_after_all_items_without_day_review(tmp_path: Path):
 
 
 def test_full_review_requires_confirmation_and_then_continues_unmatched_tasks(tmp_path: Path):
-    import asyncio
-    from voqelis.planner.service import PlannerService
 
     class FakeAI:
         async def extract_tasks(self, text, *, today, target_day, config):
@@ -377,7 +378,7 @@ def test_full_review_requires_confirmation_and_then_continues_unmatched_tasks(tm
 
     store = PlannerStore(tmp_path / "planner.sqlite3")
     day = date(2026, 9, 23)
-    items = store.ensure_daily_plan(1, day)
+    store.ensure_daily_plan(1, day)
     service = PlannerService(store, PlannerConfig(), ai=FakeAI())
 
     prompt = asyncio.run(service.start_full_review(1, day))
@@ -397,8 +398,6 @@ def test_full_review_requires_confirmation_and_then_continues_unmatched_tasks(tm
 
 
 def test_full_review_cancel_does_not_write_results(tmp_path: Path):
-    import asyncio
-    from voqelis.planner.service import PlannerService
 
     class FakeAI:
         async def extract_tasks(self, text, *, today, target_day, config):
@@ -432,7 +431,6 @@ def test_full_review_cancel_does_not_write_results(tmp_path: Path):
 
 
 def test_recurring_rules_materialize_only_on_matching_days(tmp_path: Path):
-    from voqelis.planner.config import RecurringTemplateSpec
 
     config = PlannerConfig(
         recurring_templates=(
@@ -479,7 +477,6 @@ def test_recurring_rules_materialize_only_on_matching_days(tmp_path: Path):
 
 
 def test_recurring_rule_migration_preserves_existing_daily_templates(tmp_path: Path):
-    import sqlite3
 
     db_path = tmp_path / "legacy.sqlite3"
     db = sqlite3.connect(db_path)
