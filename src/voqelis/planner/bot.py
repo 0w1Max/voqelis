@@ -23,8 +23,9 @@ def planner_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="📅 Планирование дня")],
-            [KeyboardButton(text="📋 План на завтра"), KeyboardButton(text="🔎 Анализ сегодня")],
+            [KeyboardButton(text="📋 Текущий план"), KeyboardButton(text="🔎 Анализ сегодня")],
             [KeyboardButton(text="🎙️ Рассказать весь день")],
+            [KeyboardButton(text="✏️ Редактировать план")],
             [KeyboardButton(text="✏️ Исправить анализ")],
             [KeyboardButton(text="📄 DOCX"), KeyboardButton(text="📕 PDF")],
             [KeyboardButton(text="⏹️ Выйти из режима")],
@@ -203,11 +204,21 @@ def create_planner_router(
                 reply_markup=planner_keyboard(),
             )
 
-    @router.message(F.text == "📋 План на завтра")
+    @router.message(F.text == "📋 Текущий план")
     async def on_plan_tomorrow(message: Message) -> None:
         if allowed(message):
             await message.answer(
                 await service.show_plan(
+                    message.from_user.id, planner_today() + timedelta(days=1)
+                ),
+                reply_markup=planner_keyboard(),
+            )
+
+    @router.message(F.text == "✏️ Редактировать план")
+    async def on_plan_edit(message: Message) -> None:
+        if allowed(message):
+            await message.answer(
+                await service.start_plan_edit(
                     message.from_user.id, planner_today() + timedelta(days=1)
                 ),
                 reply_markup=planner_keyboard(),
