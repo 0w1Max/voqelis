@@ -31,6 +31,19 @@ def test_period_and_duration_extraction():
     assert drafts[0].end_minute == 15 * 60
 
 
+def test_parser_supports_natural_daytime_range_without_duration_bug():
+    drafts = parse_voice(
+        "завтра 12 часов дня до 4 дня заниматься своими проектами",
+        today=date(2026, 9, 24),
+        config=PlannerConfig(recurring_templates=()),
+    )
+    assert len(drafts) == 1
+    assert drafts[0].start_minute == 12 * 60
+    assert drafts[0].end_minute == 16 * 60
+    assert drafts[0].duration_minutes == 60
+    assert drafts[0].title == "заниматься своими проектами"
+
+
 def test_parser_does_not_treat_exact_hour_as_duration():
     draft = parse_voice(
         "завтра в 14 часов заниматься проектом",
