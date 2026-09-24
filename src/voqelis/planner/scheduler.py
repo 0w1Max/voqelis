@@ -147,9 +147,24 @@ class Scheduler:
 
         conflicts = [x for x in occupied if self._overlap(desired, (x.start_minute, x.end_minute))]
         if not conflicts:
-            item_id = self.store.add_item(
-                PlanItem(0, user_id, draft.day, draft.title, draft.why, *desired, TaskKind.ORDINARY, None, draft.urgent, draft.source_text)
+            item_id = self.store.add_item_if_free(
+                PlanItem(
+                    0,
+                    user_id,
+                    draft.day,
+                    draft.title,
+                    draft.why,
+                    *desired,
+                    TaskKind.ORDINARY,
+                    None,
+                    draft.urgent,
+                    draft.source_text,
+                )
             )
+            if item_id is None:
+                raise ScheduleValidationError(
+                    "План изменился во время добавления задачи. Повтори попытку."
+                )
             return self.store.get_plan_item(item_id)
 
         if draft.start_minute is not None:
