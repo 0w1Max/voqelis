@@ -74,6 +74,7 @@ class Settings:
     gemini_api_key: str
     gemini_model: str
     planner_ai_timeout_seconds: int
+    planner_log_content: bool
 
 
 def load_settings(env_file: Path | None = None) -> Settings:
@@ -172,8 +173,12 @@ def load_settings(env_file: Path | None = None) -> Settings:
         planner_db_path=Path(os.environ.get("PLANNER_DB_PATH", "./data/planner.sqlite3")).expanduser(),
         planner_config_path=Path(os.environ.get("PLANNER_CONFIG_PATH", "./config/planner.json")).expanduser(),
         gemini_api_key=os.environ.get("GEMINI_API_KEY", "").strip(),
-        gemini_model=os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite").strip(),
+        gemini_model=os.environ.get("GEMINI_MODEL", "gemini-3.8-flash").strip(),
         planner_ai_timeout_seconds=_positive_int(os.environ.get("PLANNER_AI_TIMEOUT_SECONDS", "30"), name="PLANNER_AI_TIMEOUT_SECONDS", minimum=5),
+        planner_log_content=_parse_bool(
+            os.environ.get("PLANNER_LOG_CONTENT", "false"),
+            name="PLANNER_LOG_CONTENT",
+        ),
     )
 
     settings.temp_dir.mkdir(parents=True, exist_ok=True)
