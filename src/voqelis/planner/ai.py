@@ -180,7 +180,6 @@ class GeminiPlannerAI:
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
-                "temperature": 0,
                 "responseMimeType": "application/json",
                 "responseSchema": schema,
             },
