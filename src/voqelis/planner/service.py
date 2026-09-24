@@ -10,6 +10,7 @@ from .ai import PlannerAI
 from .config import PlannerConfig
 from .export import build_docx, build_pdf
 from .models import (
+    PlannerAIError,
     Conflict,
     ConflictProposal,
     PlanItem,
@@ -22,6 +23,7 @@ from .parser import parse_voice
 from .render import render_full_review_proposal, render_plan_text, render_review_prompt
 from .scheduler import Scheduler, fmt_time
 from .store import PlannerStore
+
 
 class PlannerService:
     def __init__(
