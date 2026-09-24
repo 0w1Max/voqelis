@@ -116,7 +116,7 @@ def parse_voice(text: str, *, today: date, config: PlannerConfig) -> list[TaskDr
             if not 0 <= start < 24 * 60:
                 raise ValueError("Время задачи должно быть от 00:00 до 23:59.")
 
-        duration = config.default_duration_minutes
+        duration = None if range_match else config.default_duration_minutes
         duration_match = None if range_match else _DURATION_HOURS_AND_MINUTES.search(chunk)
         if duration_match and not (
             time_match
