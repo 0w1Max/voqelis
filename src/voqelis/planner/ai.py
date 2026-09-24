@@ -84,6 +84,10 @@ class PlannerAI(Protocol):
 
 
 def _parse_time(value: str | None) -> int | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise PlannerAIInvalidResponse("AI returned non-string time")
     if not value:
         return None
     parts = value.split(":", 1)
@@ -241,7 +245,10 @@ class GeminiPlannerAI:
             f"Plan items: {json.dumps(items, ensure_ascii=False)}\nUser review:\n{text}"
         )
         result = await self._json_call(prompt, FULL_REVIEW_SCHEMA)
-        return result.get("items", [])
+        items = result.get("items")
+        if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+            raise PlannerAIInvalidResponse("Gemini returned invalid full-review items")
+        return items
 
 
 class FallbackPlannerAI:
