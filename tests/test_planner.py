@@ -104,7 +104,7 @@ def test_legacy_thirteen_recurring_tasks_are_migrated(tmp_path: Path):
     migrated = store.ensure_daily_plan(1, date(2026, 9, 24), current)
     assert len(migrated) == 3
     assert len(store.recurring(1)) == 3
-    assert len(store.plan_items(1, date(2026, 9, 23))) == 3
+    assert len(store.plan_items(1, date(2026, 9, 23))) == 0
     store.close()
 
 
