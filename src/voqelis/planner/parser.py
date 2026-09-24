@@ -118,7 +118,7 @@ def parse_voice(text: str, *, today: date, config: PlannerConfig) -> list[TaskDr
 
         duration = config.default_duration_minutes
         duration_match = None if range_match else _DURATION_HOURS_AND_MINUTES.search(chunk)
-        if duration_match and not (
+        if not range_match and duration_match and not (
             time_match
             and duration_match.start() < time_match.end()
             and time_match.start() < duration_match.end()
