@@ -227,6 +227,35 @@ class PlannerStore:
                 return str(row["why"])
         return None
 
+    def update_plan_item(
+        self,
+        item_id: int,
+        *,
+        title: str | None = None,
+        why: str | None = None,
+    ) -> PlanItem:
+        current = self.get_plan_item(item_id)
+        fields: list[str] = []
+        values: list[object] = []
+        if title is not None:
+            cleaned = title.strip()
+            if not cleaned:
+                raise ValueError("Plan item title cannot be empty")
+            fields.append("title=?")
+            values.append(cleaned)
+        if why is not None:
+            fields.append("why=?")
+            values.append(why.strip() or None)
+        if not fields:
+            return current
+        values.append(item_id)
+        self.db.execute(
+            f"UPDATE plan_items SET {','.join(fields)} WHERE id=?",
+            tuple(values),
+        )
+        self.db.commit()
+        return self.get_plan_item(item_id)
+
     def add_item(self, item: PlanItem) -> int:
         cur = self.db.execute(
             "INSERT INTO plan_items(user_id,day,title,why,start_minute,end_minute,kind,recurring_template_id,urgent,source_text,created_at) "
