@@ -5,12 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from voqelis.planner.ai import GeminiPlannerAI
 from voqelis.planner.config import PlannerConfig, RecurringTemplateSpec
+from voqelis.planner.export import build_docx, build_pdf
 from voqelis.planner.models import (
     Conflict,
     PlanItem,
-    PlannerAIInvalidResponse,
     ScheduleValidationError,
     TaskDraft,
     TaskKind,
@@ -19,6 +18,7 @@ from voqelis.planner.parser import parse_voice
 from voqelis.planner.scheduler import Scheduler
 from voqelis.planner.service import PlannerService
 from voqelis.planner.store import PlannerStore
+
 
 def test_period_and_duration_extraction():
     drafts = parse_voice(
