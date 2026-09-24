@@ -2,26 +2,29 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import shutil
 import uuid
-from datetime import datetime
-from zoneinfo import ZoneInfo
 from contextlib import suppress
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
-from aiogram import Bot, Router, F
+from aiogram import Bot, F, Router
 from aiogram.enums import ChatAction, ChatType
-from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError, TelegramRetryAfter
+from aiogram.exceptions import (
+    TelegramBadRequest,
+    TelegramNetworkError,
+    TelegramRetryAfter,
+)
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 
 from .audio import AudioProcessingError, is_audio_document, probe_duration_seconds
 from .config import Settings
 from .domain import AudioJob
+from .planner.bot import planner_markup_for_state
+from .planner.service import PlannerService
 from .queue import JobQueue
 from .text import chunk_text
-from .planner.service import PlannerService
-from .planner.bot import planner_markup_for_state
 from .transcription import Transcriber
 
 
