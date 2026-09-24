@@ -141,11 +141,7 @@ class PlannerStore:
     def seed_defaults(self, user_id: int, config: PlannerConfig) -> None:
         existing = self.recurring(user_id)
         legacy_specs = {
-            (
-                title.casefold(),
-                start_minute,
-                duration_minutes,
-            )
+            (title.casefold(), start_minute, duration_minutes)
             for title, start_minute, duration_minutes in (
                 ("Проснуться + молитва + умыться + зарядка (КД)", 540, 60),
                 ("Завтрак + душ (КД)", 600, 60),
@@ -161,7 +157,7 @@ class PlannerStore:
                 ("Читать книгу", 1380, 60),
                 ("Подготовка ко сну + дневник успеха + молитва + благодарности за день", 1440, 60),
             )
-        )
+        }
         for row in existing:
             key = (
                 str(row["title"]).casefold(),
@@ -169,9 +165,20 @@ class PlannerStore:
                 int(row["duration_minutes"]),
             )
             if key in legacy_specs and int(row["active"]) == 1:
+                template_id = int(row["id"])
                 self.db.execute(
                     "UPDATE recurring_templates SET active=0 WHERE id=?",
-                    (int(row["id"]),),
+                    (template_id,),
+                )
+                self.db.execute(
+                    "DELETE FROM plan_items WHERE user_id=? AND kind='recurring' "
+                    "AND title=? AND start_minute=? AND end_minute=?",
+                    (
+                        user_id,
+                        row["title"],
+                        int(row["start_minute"]),
+                        int(row["start_minute"]) + int(row["duration_minutes"]),
+                    ),
                 )
 
         current_keys = {
@@ -186,23 +193,23 @@ class PlannerStore:
             x for x in config.recurring_templates
             if (x.title.casefold(), x.start_minute, x.duration_minutes) not in current_keys
         ]
-        if not missing:
-            return
-        self.db.executemany(
-            "INSERT INTO recurring_templates(user_id,title,why,start_minute,duration_minutes,recurrence,recurrence_days) VALUES(?,?,?,?,?,?,?)",
-            [
-                (
-                    user_id,
-                    x.title,
-                    x.why,
-                    x.start_minute,
-                    x.duration_minutes,
-                    x.recurrence,
-                    json.dumps(x.days_of_week),
-                )
-                for x in missing
-            ],
-        )
+        if missing:
+            self.db.executemany(
+                "INSERT INTO recurring_templates(user_id,title,why,start_minute,duration_minutes,recurrence,recurrence_days) "
+                "VALUES(?,?,?,?,?,?,?)",
+                [
+                    (
+                        user_id,
+                        x.title,
+                        x.why,
+                        x.start_minute,
+                        x.duration_minutes,
+                        x.recurrence,
+                        json.dumps(x.days_of_week),
+                    )
+                    for x in missing
+                ],
+            )
 
     def plan_items(self, user_id: int, day: date) -> list[PlanItem]:
         rows = self.db.execute(
