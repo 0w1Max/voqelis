@@ -526,3 +526,16 @@ def test_planning_prompts_for_missing_reason_and_reuses_previous_reason(tmp_path
     item = store.plan_items(1, day + timedelta(days=1))[-1]
     assert item.why is None
     store.close()
+
+
+def test_previous_why_is_case_insensitive_for_cyrillic_titles(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    store.add_item(
+        PlanItem(
+            0, 1, day, "Позвонить Клиенту",
+            "Чтобы закрыть вопрос", 9 * 60, 10 * 60, TaskKind.ORDINARY,
+        )
+    )
+    assert store.previous_why(1, "позвонить клиенту") == "Чтобы закрыть вопрос"
+    store.close()
