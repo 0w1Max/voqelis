@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import asdict, replace
 from datetime import date, timedelta
 from pathlib import Path
@@ -25,6 +26,9 @@ from .scheduler import Scheduler, fmt_time
 from .store import PlannerStore
 
 
+logger = logging.getLogger(__name__)
+
+
 class PlannerService:
     def __init__(
         self,
@@ -32,32 +36,39 @@ class PlannerService:
         config: PlannerConfig | None = None,
         ai: PlannerAI | None = None,
         export_dir: Path | None = None,
+        log_content: bool = False,
     ):
         self.store = store
         self.config = config or PlannerConfig()
         self.scheduler = Scheduler(store, self.config)
         self.ai = ai
         self.export_dir = export_dir
+        self.log_content = log_content
         self._user_locks: dict[int, asyncio.Lock] = {}
 
     async def start_planning(self, user_id: int, day: date) -> str:
         async with self._user_lock(user_id):
             items = self.store.ensure_daily_plan(user_id, day, self.config)
             self.store.set_session(user_id, "planning", day, {})
-            recurring = sum(item.kind == TaskKind.RECURRING for item in items)
-            return (
-                f"📅 Планирование включено. План на {day.strftime('%d.%m.%Y')}.\n"
-                f"КД сформированы первыми: {recurring}.\n"
-                "Присылай задачи голосом или текстом."
-            )
+            return ""
 
     async def _extract(self, text: str, user_id: int, today: date) -> list[TaskDraft]:
         session = self.store.session(user_id)
         target = date.fromisoformat(session["target_day"]) if session and session["target_day"] else today + timedelta(days=1)
         if self.ai is not None:
-            return await self.ai.extract_tasks(text, today=today, target_day=target, config=self.config)
-        # Explicit fallback for development/tests. It is never presented as AI.
-        return parse_voice(text, today=today, config=self.config)
+            drafts = await self.ai.extract_tasks(
+                text, today=today, target_day=target, config=self.config
+            )
+        else:
+            # Explicit fallback remains available to unit tests/local development.
+            drafts = parse_voice(text, today=today, config=self.config)
+        if self.log_content:
+            logger.info(
+                "PLANNER_DRAFTS user=%s drafts=%r",
+                user_id,
+                [asdict(draft) for draft in drafts],
+            )
+        return drafts
 
     @staticmethod
     def _proposal_payload(proposal: Conflict, pending: list[TaskDraft]) -> dict:
