@@ -166,27 +166,32 @@ class PlannerStore:
             ) in legacy_keys
         ]
 
-        # Migrate only when all 13 original built-in templates are present.
-        # The current V1 defaults intentionally reuse three of those titles/slots.
-        if len({
-            (
+        # The V1 built-in set is intentionally limited to the current config.
+        # Remove obsolete built-in templates even if an older database contains
+        # only a subset of the original 13-task set.
+        current_config_keys = {
+            (item.title.casefold(), item.start_minute, item.duration_minutes)
+            for item in config.recurring_templates
+        }
+        obsolete = [
+            row for row in legacy_rows
+            if (
                 str(row["title"]).casefold(),
                 int(row["start_minute"]),
                 int(row["duration_minutes"]),
+            ) not in current_config_keys
+        ]
+        for row in obsolete:
+            template_id = int(row["id"])
+            self.db.execute(
+                "UPDATE recurring_templates SET active=0 WHERE id=?",
+                (template_id,),
             )
-            for row in legacy_rows
-        }) == len(legacy_defs):
-            for row in legacy_rows:
-                template_id = int(row["id"])
-                self.db.execute(
-                    "UPDATE recurring_templates SET active=0 WHERE id=?",
-                    (template_id,),
-                )
-                self.db.execute(
-                    "DELETE FROM plan_items "
-                    "WHERE user_id=? AND kind=? AND recurring_template_id=?",
-                    (user_id, TaskKind.RECURRING.value, template_id),
-                )
+            self.db.execute(
+                "DELETE FROM plan_items "
+                "WHERE user_id=? AND kind=? AND recurring_template_id=?",
+                (user_id, TaskKind.RECURRING.value, template_id),
+            )
 
         current_keys = {
             (
