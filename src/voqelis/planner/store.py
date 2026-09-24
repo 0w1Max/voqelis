@@ -139,25 +139,50 @@ class PlannerStore:
         ))
 
     def seed_defaults(self, user_id: int, config: PlannerConfig) -> None:
-        if self.recurring(user_id):
+        existing = self.recurring(user_id)
+        if not existing:
+            self.db.executemany(
+                "INSERT INTO recurring_templates(user_id,title,why,start_minute,duration_minutes,recurrence,recurrence_days) VALUES(?,?,?,?,?,?,?)",
+                [
+                    (
+                        user_id,
+                        x.title,
+                        x.why,
+                        x.start_minute,
+                        x.duration_minutes,
+                        x.recurrence,
+                        json.dumps(x.days_of_week),
+                    )
+                    for x in config.recurring_templates
+                ],
+            )
             return
-        self.db.executemany(
-            "INSERT INTO recurring_templates(user_id,title,why,start_minute,duration_minutes,recurrence,recurrence_days) VALUES(?,?,?,?,?,?,?)",
-            [
-                (
-                    user_id,
-                    x.title,
-                    x.why,
-                    x.start_minute,
-                    x.duration_minutes,
-                    x.recurrence,
-                    json.dumps(x.days_of_week),
-                )
-                for x in config.recurring_templates
-            ],
-        )
-        if not self.db.in_transaction:
-            self.db.commit()
+
+        # Migrate the original V1 built-in seed (13 entries) to the current
+        # three core daily anchors. User-created recurring tasks are untouched.
+        if len(existing) == 13:
+            old_ids = [int(row["id"]) for row in existing]
+            self.db.execute(
+                "DELETE FROM recurring_templates WHERE user_id=? AND id IN (%s)"
+                % ",".join("?" for _ in old_ids),
+                (user_id, *old_ids),
+            )
+            self.db.executemany(
+                "INSERT INTO recurring_templates(user_id,title,why,start_minute,duration_minutes,recurrence,recurrence_days) VALUES(?,?,?,?,?,?,?)",
+                [
+                    (
+                        user_id,
+                        x.title,
+                        x.why,
+                        x.start_minute,
+                        x.duration_minutes,
+                        x.recurrence,
+                        json.dumps(x.days_of_week),
+                    )
+                    for x in config.recurring_templates
+                ],
+            )
+
 
     def plan_items(self, user_id: int, day: date) -> list[PlanItem]:
         rows = self.db.execute(
