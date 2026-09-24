@@ -113,8 +113,22 @@ def test_only_three_core_recurring_tasks_are_created(tmp_path: Path):
 def test_legacy_thirteen_recurring_tasks_are_migrated(tmp_path: Path):
     store = PlannerStore(tmp_path / "planner.sqlite3")
     legacy = tuple(
-        RecurringTemplateSpec(f"old-{index}", "why", 540 + index * 60, 60)
-        for index in range(13)
+        RecurringTemplateSpec(title, "why", start, 60)
+        for title, start in (
+            ("Проснуться + молитва + умыться + зарядка (КД)", 540),
+            ("Завтрак + душ (КД)", 600),
+            ("Послушать спикерскую + заниматься проектами", 660),
+            ("Читать книгу", 780),
+            ("Переделать резюме", 840),
+            ("Обед + отдых", 900),
+            ("Делать домашку по психотерапии", 960),
+            ("Собираться на группу", 1020),
+            ("Дорога на группу + собрание + прогулка", 1080),
+            ("Дорога домой + ужин", 1260),
+            ("Делать домашку по шагам", 1320),
+            ("Читать книгу", 1380),
+            ("Подготовка ко сну + дневник успеха + молитва + благодарности за день", 1440),
+        )
     )
     legacy_config = PlannerConfig(recurring_templates=legacy)
     first = store.ensure_daily_plan(1, date(2026, 9, 23), legacy_config)
