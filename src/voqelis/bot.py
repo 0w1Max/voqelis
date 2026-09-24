@@ -21,7 +21,7 @@ from aiogram.types import Message
 from .audio import AudioProcessingError, is_audio_document, probe_duration_seconds
 from .config import Settings
 from .domain import AudioJob
-from .planner.bot import planner_markup_for_state
+from .planner.bot import planner_keyboard, planner_markup_for_state
 from .planner.service import PlannerService
 from .queue import JobQueue
 from .text import chunk_text
@@ -61,7 +61,8 @@ def create_router(*, settings: Settings, queue: JobQueue) -> Router:
 
         await message.answer(
             "🎙️ Пришли голосовое сообщение или аудиофайл.\n"
-            "Я расшифрую его локально и верну текст."
+            "Я расшифрую его локально и верну текст.",
+            reply_markup=planner_keyboard(),
         )
 
     @router.message(Command("status"))
