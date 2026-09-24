@@ -130,6 +130,23 @@ def test_exports_create_files_with_merged_multihour_item(tmp_path: Path):
     store.close()
 
 
+def test_flexible_task_uses_first_free_slot(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    store.add_item(
+        PlanItem(
+            0, 1, day, "Первая задача", None,
+            9 * 60, 10 * 60, TaskKind.ORDINARY,
+        )
+    )
+    scheduler = Scheduler(store, PlannerConfig())
+    draft = TaskDraft("Вторая задача", day)
+    result = scheduler.schedule(1, draft)
+    assert not isinstance(result, Conflict)
+    assert (result.start_minute, result.end_minute) == (10 * 60, 11 * 60)
+    store.close()
+
+
 def test_exact_conflict_suggests_nearest_free_slots(tmp_path: Path):
     store = PlannerStore(tmp_path / "planner.sqlite3")
     day = date(2026, 9, 23)
