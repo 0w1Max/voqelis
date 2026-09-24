@@ -7,12 +7,16 @@ from .config import PlannerConfig
 from .models import TaskDraft
 
 _TIME_CONTEXT = re.compile(
-    r"\b(?:в|к)\s+(\d{1,2})(?::(\d{2}))?\s*(?:час(?:а|ов)?|ч)?\b",
+    r"\b(?:в|к)\s+(\d{1,2})(?::(\d{2}))?\s*"
+    r"(?:час(?:а|ов)?|ч)?\s*(?:утра|дня|вечера|ночи)?\b",
     re.IGNORECASE,
 )
 _TIME_BARE = re.compile(r"\b(\d{1,2}):(\d{2})\b")
 _RANGE = re.compile(
-    r"\bс\s+(\d{1,2})(?::(\d{2}))?\s*(?:до|-)\s*(\d{1,2})(?::(\d{2}))?\b",
+    r"\b(?:с\s+)?(\d{1,2})(?::(\d{2}))?\s*"
+    r"(?:час(?:а|ов)?|ч)?\s*(?:утра|дня|вечера|ночи)?\s*"
+    r"(?:до|-)\s*(\d{1,2})(?::(\d{2}))?\s*"
+    r"(?:час(?:а|ов)?|ч)?\s*(?:утра|дня|вечера|ночи)?\b",
     re.IGNORECASE,
 )
 _DURATION = re.compile(r"\b(\d+(?:[.,]\d+)?)\s*(?:час(?:а|ов)?|ч)\b", re.IGNORECASE)
@@ -26,8 +30,16 @@ _DURATION_HOURS_AND_MINUTES = re.compile(
 )
 
 
-def _minute(hour: str, minute: str | None = None) -> int:
-    return int(hour) * 60 + int(minute or 0)
+def _minute(hour: str, minute: str | None = None, part: str | None = None) -> int:
+    value = int(hour) * 60 + int(minute or 0)
+    normalized = (part or "").casefold()
+    if normalized == "дня" and 1 <= int(hour) < 12:
+        value += 12 * 60
+    elif normalized == "вечера" and 1 <= int(hour) < 12:
+        value += 12 * 60
+    elif normalized == "ночи" and int(hour) == 12:
+        value = int(minute or 0)
+    return value
 
 
 def _date(text: str, today: date) -> date:
@@ -95,19 +107,19 @@ def parse_voice(text: str, *, today: date, config: PlannerConfig) -> list[TaskDr
         start = end = None
 
         if range_match:
-            start = _minute(range_match.group(1), range_match.group(2))
-            end = _minute(range_match.group(3), range_match.group(4))
+            start = _minute(range_match.group(1), range_match.group(2), range_match.group(5))
+            end = _minute(range_match.group(3), range_match.group(4), range_match.group(7))
             if not (0 <= start < end <= 24 * 60):
                 raise ValueError("Временной диапазон задачи некорректен.")
 
         time_match = None if range_match else _time_match(chunk)
         if time_match:
-            start = _minute(time_match.group(1), time_match.group(2))
+            start = _minute(time_match.group(1), time_match.group(2), time_match.group(3))
             if not 0 <= start < 24 * 60:
                 raise ValueError("Время задачи должно быть от 00:00 до 23:59.")
 
         duration = config.default_duration_minutes
-        duration_match = _DURATION_HOURS_AND_MINUTES.search(chunk)
+        duration_match = None if range_match else _DURATION_HOURS_AND_MINUTES.search(chunk)
         if duration_match and not (
             time_match
             and duration_match.start() < time_match.end()
