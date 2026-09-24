@@ -174,13 +174,19 @@ class PlannerStore:
         return self._item(row)
 
     def previous_why(self, user_id: int, title: str) -> str | None:
-        row = self.db.execute(
-            "SELECT why FROM plan_items "
-            "WHERE user_id=? AND lower(title)=lower(?) AND why IS NOT NULL AND trim(why)<>'' "
-            "ORDER BY day DESC, start_minute DESC, id DESC LIMIT 1",
-            (user_id, title),
-        ).fetchone()
-        return str(row["why"]) if row else None
+        # SQLite LOWER() is not reliable for Unicode/Cyrillic case folding.
+        # Fetch recent candidates and compare normalized titles in Python.
+        rows = self.db.execute(
+            "SELECT title, why FROM plan_items "
+            "WHERE user_id=? AND why IS NOT NULL AND trim(why)<>'' "
+            "ORDER BY day DESC, start_minute DESC, id DESC",
+            (user_id,),
+        ).fetchall()
+        wanted = title.strip().casefold()
+        for row in rows:
+            if str(row["title"]).strip().casefold() == wanted:
+                return str(row["why"])
+        return None
 
     def add_item(self, item: PlanItem) -> int:
         cur = self.db.execute(
