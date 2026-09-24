@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,7 +59,7 @@ class PlannerConfig:
     ))
 
     @classmethod
-    def from_json_file(cls, path: Path) -> "PlannerConfig":
+    def from_json_file(cls, path: Path) -> PlannerConfig:
         data = json.loads(path.read_text(encoding="utf-8"))
         periods = tuple(
             Period(str(x["name"]), int(x["start"]), int(x["end"]))
@@ -95,7 +96,7 @@ class PlannerConfig:
     def validate(self) -> None:
         try:
             ZoneInfo(self.timezone)
-        except Exception as exc:
+        except ZoneInfoNotFoundError as exc:
             raise ValueError(f"Invalid planner timezone: {self.timezone}") from exc
         if self.default_duration_minutes <= 0:
             raise ValueError("Planner default duration must be positive")
