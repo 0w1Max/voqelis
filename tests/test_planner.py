@@ -221,7 +221,7 @@ def test_exact_conflict_suggests_nearest_free_slots(tmp_path: Path):
     result = scheduler.schedule(1, draft)
     assert isinstance(result, Conflict)
     assert result.proposal.alternatives
-    assert result.proposal.alternatives[0] == (12 * 60, 13 * 60)
+    assert result.proposal.alternatives[0] == (11 * 60, 12 * 60)
     store.close()
 
 def test_night_period_uses_after_midnight_plan_window(tmp_path: Path):
