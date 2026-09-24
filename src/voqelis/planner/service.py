@@ -48,7 +48,7 @@ class PlannerService:
 
     async def start_planning(self, user_id: int, day: date) -> str:
         async with self._user_lock(user_id):
-            items = self.store.ensure_daily_plan(user_id, day, self.config)
+            self.store.ensure_daily_plan(user_id, day, self.config)
             self.store.set_session(user_id, "planning", day, {})
             return ""
 
