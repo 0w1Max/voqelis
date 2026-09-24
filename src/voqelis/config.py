@@ -8,6 +8,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
+
 ALLOWED_MODEL_SIZES = {
     "tiny", "tiny.en", "base", "base.en", "small", "small.en",
     "medium", "medium.en", "large-v1", "large-v2", "large-v3",
