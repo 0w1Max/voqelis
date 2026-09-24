@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import asdict, replace
 from datetime import date, timedelta
 
 from .ai import PlannerAI
+from .models import PlannerAIError
 from .config import PlannerConfig
 from .models import (
     Conflict,
@@ -31,6 +33,7 @@ class PlannerService:
         self.config = config or PlannerConfig()
         self.scheduler = Scheduler(store, self.config)
         self.ai = ai
+        self._user_locks: dict[int, asyncio.Lock] = {}
 
     def start_planning(self, user_id: int, day: date) -> str:
         items = self.store.ensure_daily_plan(user_id, day, self.config)
@@ -195,10 +198,13 @@ class PlannerService:
         )
         return replies
 
+    def _user_lock(self, user_id: int) -> asyncio.Lock:
+        return self._user_locks.setdefault(user_id, asyncio.Lock())
+
     async def add_from_text(self, user_id: int, text: str, today: date) -> list[str]:
         try:
             drafts = await self._extract(text, user_id, today)
-        except Exception:
+        except (PlannerAIError, ValueError, TypeError):
             return ["⚠️ Не удалось разобрать задачу. Попробуй ещё раз."]
         if not drafts:
             return ["Не удалось выделить задачу. Назови дело и, если важно, время или период."]
@@ -323,7 +329,7 @@ class PlannerService:
         ]
         try:
             extracted = await self.ai.extract_full_review(text, items=payload)
-        except Exception:
+        except (PlannerAIError, ValueError, TypeError):
             return ["⚠️ Не удалось разобрать общий обзор дня. Попробуй ещё раз."]
         by_id = {x.plan_item.id: x.plan_item for x in items}
         proposal = []
@@ -519,7 +525,7 @@ class PlannerService:
         self.store.clear_session(user_id)
         return ["✅ Анализ дня завершён.\n\n" + render_plan_text(day, self.store.plan_items(user_id, day), self.config)]
 
-    async def handle_text(self, user_id: int, text: str, today: date) -> list[str]:
+    async def _handle_text(self, user_id: int, text: str, today: date) -> list[str]:
         session = self.store.session(user_id)
         if not session:
             return []
@@ -547,7 +553,11 @@ class PlannerService:
             return await self._review_final2(user_id, text, day)
         return []
 
-    async def handle_callback(self, user_id: int, callback_data: str, today: date) -> list[str]:
+    async def handle_text(self, user_id: int, text: str, today: date) -> list[str]:
+        async with self._user_lock(user_id):
+            return await self._handle_text(user_id, text, today)
+
+    async def _handle_callback(self, user_id: int, callback_data: str, today: date) -> list[str]:
         """Handle inline Planner actions and reject stale buttons safely."""
         session = self.store.session(user_id)
         state = session["state"] if session else None
@@ -642,3 +652,6 @@ class PlannerService:
 
     def stop(self, user_id: int) -> None:
         self.store.clear_session(user_id)
+    async def handle_callback(self, user_id: int, callback_data: str, today: date) -> list[str]:
+        async with self._user_lock(user_id):
+            return await self._handle_callback(user_id, callback_data, today)
