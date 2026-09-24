@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import date, timedelta
 from typing import Protocol
 
@@ -126,8 +127,6 @@ def _validate_task_draft(draft: TaskDraft, *, today: date) -> None:
     if draft.anchor not in {None, "breakfast", "lunch", "dinner"}:
         raise PlannerAIInvalidResponse("AI returned an invalid anchor")
 
-
-import re
 
 
 def _optional_string(value: object, field: str) -> str | None:
