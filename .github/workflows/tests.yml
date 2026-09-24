@@ -16,4 +16,5 @@ jobs:
       - run: python -m pip install -r requirements.txt
       - run: python -m pip install -r requirements-dev.txt
       - run: python -m compileall -q src tests
+      - run: ruff check --isolated src tests
       - run: pytest -q
