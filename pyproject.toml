@@ -27,6 +27,13 @@ where = ["src"]
 line-length = 100
 target-version = "py312"
 
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "BLE"]
+[tool.ruff.lint.isort]
+known-first-party = ["voqelis"]
+lines-after-imports = 2
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
