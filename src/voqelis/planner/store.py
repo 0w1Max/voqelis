@@ -9,6 +9,7 @@ from .config import PlannerConfig, RecurringTemplateSpec
 from .models import DayReview, PlanItem, ReviewItem, ScheduleMove, TaskKind
 
 
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS recurring_templates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
