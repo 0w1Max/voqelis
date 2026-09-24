@@ -83,9 +83,9 @@ def build_pdf(user_id: int, day: date, store: PlannerStore, config: PlannerConfi
     from reportlab.lib.enums import TA_CENTER
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Table, TableStyle
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Table, TableStyle
 
     font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
     font_name = "Helvetica"
