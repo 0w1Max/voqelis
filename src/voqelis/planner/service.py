@@ -541,6 +541,81 @@ class PlannerService:
         self.store.clear_session(user_id)
         return ["✅ Анализ дня завершён.\n\n" + render_plan_text(day, self.store.plan_items(user_id, day), self.config)]
 
+    async def start_plan_edit(self, user_id: int, day: date) -> str:
+        async with self._user_lock(user_id):
+            items = self.store.ensure_daily_plan(user_id, day, self.config)
+            if not items:
+                return "На этот день пока нет задач для редактирования."
+            self.store.set_session(user_id, "plan_edit_select", day, {})
+            lines = ["✏️ Что изменить? Пришли номер задачи из плана."]
+            for index, item in enumerate(items, 1):
+                lines.append(
+                    f"{index}. {fmt_time(item.start_minute)}–{fmt_time(item.end_minute)} — {item.title}"
+                )
+            lines.append("")
+            lines.append("После номера выберем: «дело» или «зачем».")
+            return "\n".join(lines)
+
+    async def _plan_edit_select(self, user_id: int, text: str, day: date) -> list[str]:
+        session = self.store.session(user_id)
+        items = self.store.plan_items(user_id, day)
+        value = text.strip()
+        if not value.isdigit():
+            return ["Напиши номер задачи из текущего плана."]
+        index = int(value) - 1
+        if index < 0 or index >= len(items):
+            return ["Такого номера нет в текущем плане."]
+        item = items[index]
+        self.store.set_session(
+            user_id,
+            "plan_edit_field",
+            day,
+            {"item_id": item.id},
+        )
+        return [
+            f"Выбрано: {fmt_time(item.start_minute)}–{fmt_time(item.end_minute)} — {item.title}\n"
+            "Что изменить: напиши «дело» или «зачем»?"
+        ]
+
+    async def _plan_edit_field(self, user_id: int, text: str, day: date) -> list[str]:
+        session = self.store.session(user_id)
+        payload = self.store.session_payload(user_id)
+        if not session or not payload.get("item_id"):
+            return ["Редактирование больше не актуально."]
+        field = text.strip().casefold()
+        if field in {"дело", "название", "задача", "активность"}:
+            payload["field"] = "title"
+            self.store.set_session(user_id, "plan_edit_value", day, payload)
+            return ["Хорошо. Напиши или продиктуй новое запланированное дело."]
+        if field in {"зачем", "причина", "почему"}:
+            payload["field"] = "why"
+            self.store.set_session(user_id, "plan_edit_value", day, payload)
+            return ["Хорошо. Напиши или продиктуй новую причину."]
+        return ["Напиши «дело» или «зачем»."]
+
+    async def _plan_edit_value(self, user_id: int, text: str, day: date) -> list[str]:
+        session = self.store.session(user_id)
+        payload = self.store.session_payload(user_id)
+        if not session or not payload.get("item_id") or payload.get("field") not in {"title", "why"}:
+            return ["Редактирование больше не актуально."]
+        item_id = int(payload["item_id"])
+        field = payload["field"]
+        try:
+            item = self.store.update_plan_item(
+                item_id,
+                title=text if field == "title" else None,
+                why=text if field == "why" else None,
+            )
+        except (KeyError, ValueError):
+            self.store.set_session(user_id, "planning", day, {})
+            return ["Не удалось изменить эту задачу. Возвращаюсь к планированию."]
+        self.store.set_session(user_id, "planning", day, {})
+        label = "дело" if field == "title" else "причину"
+        return [
+            f"✅ Изменил {label}: {fmt_time(item.start_minute)}–{fmt_time(item.end_minute)} — {item.title}"
+            + (f"\nЗачем: {item.why}" if item.why else "")
+        ]
+
     async def _handle_text(self, user_id: int, text: str, today: date) -> list[str]:
         session = self.store.session(user_id)
         if not session:
@@ -549,6 +624,12 @@ class PlannerService:
         day = date.fromisoformat(session["target_day"]) if session["target_day"] else today
         if state == "planning":
             return await self.add_from_text(user_id, text, today)
+        if state == "plan_edit_select":
+            return await self._plan_edit_select(user_id, text, day)
+        if state == "plan_edit_field":
+            return await self._plan_edit_field(user_id, text, day)
+        if state == "plan_edit_value":
+            return await self._plan_edit_value(user_id, text, day)
         if state == "planning_why":
             return await self._resolve_why(user_id, text, today)
         if state == "planning_conflict":
