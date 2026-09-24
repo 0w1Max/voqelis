@@ -8,12 +8,12 @@ from .models import TaskDraft
 
 
 _TIME = re.compile(r"(?<!\d)(\d{1,2})(?::(\d{2}))?(?:\s*(?:час(?:а|ов)?|ч))?")
-_RANGE = re.compile(r"с\s+(\d{1,2})(?::(\d{2}))?\s*(?:до|-)\s*(\d{1,2})(?::(\d{2}))?", re.I)
-_DURATION = re.compile(r"(\d+(?:[.,]\d+)?)\s*(?:час(?:а|ов)?|ч)", re.I)
-_DURATION_MINUTES = re.compile(r"(\d+)\s*(?:минут(?:а|ы)?|мин\b)", re.I)
+_RANGE = re.compile(r"с\s+(\d{1,2})(?::(\d{2}))?\s*(?:до|-)\s*(\d{1,2})(?::(\d{2}))?", re.IGNORECASE)
+_DURATION = re.compile(r"(\d+(?:[.,]\d+)?)\s*(?:час(?:а|ов)?|ч)", re.IGNORECASE)
+_DURATION_MINUTES = re.compile(r"(\d+)\s*(?:минут(?:а|ы)?|мин\b)", re.IGNORECASE)
 _DURATION_HOURS_AND_MINUTES = re.compile(
     r"(\d+(?:[.,]\d+)?)\s*(?:час(?:а|ов)?|ч)\s*(?:и\s*)?(\d+)\s*(?:минут(?:а|ы)?|мин\b)",
-    re.I,
+    re.IGNORECASE,
 )
 
 
@@ -38,14 +38,14 @@ def _period(text: str) -> str | None:
 
 
 def _why(text: str) -> str | None:
-    m = re.search(r"\b(?:чтобы|для того чтобы|для)\s+(.+)$", text, re.I)
+    m = re.search(r"\b(?:чтобы|для того чтобы|для)\s+(.+)$", text, re.IGNORECASE)
     return f"{m.group(1).strip().rstrip('.')}" if m else None
 
 
 def parse_voice(text: str, *, today: date, config: PlannerConfig) -> list[TaskDraft]:
     # V1 deliberately keeps extraction deterministic. The parser is a replaceable
     # boundary for a future LLM provider; scheduling remains deterministic.
-    chunks = [c.strip(" ,;") for c in re.split(r"\s+(?:также|потом|ещё|еще|а также)\s+|[.!?]+", text, flags=re.I) if c.strip()]
+    chunks = [c.strip(" ,;") for c in re.split(r"\s+(?:также|потом|ещё|еще|а также)\s+|[.!?]+", text, flags=re.IGNORECASE) if c.strip()]
     drafts: list[TaskDraft] = []
     for chunk in chunks:
         day = _date(chunk, today)
@@ -75,29 +75,29 @@ def parse_voice(text: str, *, today: date, config: PlannerConfig) -> list[TaskDr
 
         period = _period(chunk)
         preferred = None
-        m_pref = re.search(r"(?:ближе|примерно|около)\s+(\d{1,2})(?::(\d{2}))?", chunk, re.I)
+        m_pref = re.search(r"(?:ближе|примерно|около)\s+(\d{1,2})(?::(\d{2}))?", chunk, re.IGNORECASE)
         if m_pref:
             preferred = _minute(m_pref.group(1), m_pref.group(2))
 
         relation = None
         anchor = None
-        m_after = re.search(r"после\s+(завтрака|обеда|ужина)", chunk, re.I)
-        m_before = re.search(r"до\s+(завтрака|обеда|ужина)", chunk, re.I)
+        m_after = re.search(r"после\s+(завтрака|обеда|ужина)", chunk, re.IGNORECASE)
+        m_before = re.search(r"до\s+(завтрака|обеда|ужина)", chunk, re.IGNORECASE)
         if m_after:
             relation, anchor = "after", m_after.group(1).lower()
         elif m_before:
             relation, anchor = "before", m_before.group(1).lower()
 
-        cleaned = re.sub(r"^(?:завтра|послезавтра)\s*", "", chunk, flags=re.I)
-        cleaned = re.sub(r"(?:утром|утро|днём|днем|день|вечером|вечер|ночью|ночь)", "", cleaned, flags=re.I)
-        cleaned = re.sub(r"с\s+\d{1,2}(?::\d{2})?\s*(?:до|-)\s*\d{1,2}(?::\d{2})?", "", cleaned, flags=re.I)
-        cleaned = re.sub(r"\bв\s+\d{1,2}(?::\d{2})?", "", cleaned, flags=re.I)
-        cleaned = re.sub(r"\b(?:срочно|желательно|примерно|около|пожалуйста)\b", "", cleaned, flags=re.I)
-        cleaned = re.sub(r"\b(?:на|мне надо|мне нужно|надо|нужно|планирую|буду)\b", "", cleaned, flags=re.I)
+        cleaned = re.sub(r"^(?:завтра|послезавтра)\s*", "", chunk, flags=re.IGNORECASE)
+        cleaned = re.sub(r"(?:утром|утро|днём|днем|день|вечером|вечер|ночью|ночь)", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"с\s+\d{1,2}(?::\d{2})?\s*(?:до|-)\s*\d{1,2}(?::\d{2})?", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\bв\s+\d{1,2}(?::\d{2})?", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\b(?:срочно|желательно|примерно|около|пожалуйста)\b", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\b(?:на|мне надо|мне нужно|надо|нужно|планирую|буду)\b", "", cleaned, flags=re.IGNORECASE)
         title = cleaned.strip(" ,:-")
         why = _why(chunk)
         if why:
-            title = re.split(r"\b(?:чтобы|для того чтобы|для)\b", title, maxsplit=1, flags=re.I)[0].strip(" ,:-")
+            title = re.split(r"\b(?:чтобы|для того чтобы|для)\b", title, maxsplit=1, flags=re.IGNORECASE)[0].strip(" ,:-")
         if not title:
             continue
         urgent = "срочно" in chunk.lower()
