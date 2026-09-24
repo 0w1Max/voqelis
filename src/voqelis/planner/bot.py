@@ -185,12 +185,11 @@ def create_planner_router(
     @router.message(Command("plan"))
     async def on_plan(message: Message) -> None:
         if allowed(message):
-            await message.answer(
-                await service.start_planning(
-                    message.from_user.id, planner_today() + timedelta(days=1)
-                ),
-                reply_markup=planner_keyboard(),
+            response = await service.start_planning(
+                message.from_user.id, planner_today() + timedelta(days=1)
             )
+            if response:
+                await message.answer(response, reply_markup=planner_keyboard())
 
     @router.message(Command("review"))
     async def on_review_command(message: Message) -> None:
@@ -203,12 +202,11 @@ def create_planner_router(
     @router.message(F.text == "📅 Планирование дня")
     async def on_planning(message: Message) -> None:
         if allowed(message):
-            await message.answer(
-                await service.start_planning(
-                    message.from_user.id, planner_today() + timedelta(days=1)
-                ),
-                reply_markup=planner_keyboard(),
+            response = await service.start_planning(
+                message.from_user.id, planner_today() + timedelta(days=1)
             )
+            if response:
+                await message.answer(response, reply_markup=planner_keyboard())
 
     @router.message(F.text == "📋 Текущий план")
     async def on_plan_tomorrow(message: Message) -> None:
