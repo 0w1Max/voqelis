@@ -162,9 +162,24 @@ class PlannerStore:
         # three core daily anchors. User-created recurring tasks are untouched.
         if len(existing) == 13:
             old_ids = [int(row["id"]) for row in existing]
+            placeholders = ",".join("?" for _ in old_ids)
+            old_item_rows = self.db.execute(
+                f"SELECT id FROM plan_items WHERE user_id=? AND recurring_template_id IN ({placeholders})",
+                (user_id, *old_ids),
+            ).fetchall()
+            old_item_ids = [int(row["id"]) for row in old_item_rows]
+            if old_item_ids:
+                item_placeholders = ",".join("?" for _ in old_item_ids)
+                self.db.execute(
+                    f"DELETE FROM task_reviews WHERE plan_item_id IN ({item_placeholders})",
+                    tuple(old_item_ids),
+                )
+                self.db.execute(
+                    f"DELETE FROM plan_items WHERE id IN ({item_placeholders})",
+                    tuple(old_item_ids),
+                )
             self.db.execute(
-                "DELETE FROM recurring_templates WHERE user_id=? AND id IN (%s)"
-                % ",".join("?" for _ in old_ids),
+                f"DELETE FROM recurring_templates WHERE user_id=? AND id IN ({placeholders})",
                 (user_id, *old_ids),
             )
             self.db.executemany(
