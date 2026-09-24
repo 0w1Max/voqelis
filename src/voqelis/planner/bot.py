@@ -169,6 +169,12 @@ def create_planner_router(
 
     router = Router(name="planner")
 
+    def active_planner_day(user_id: int) -> date:
+        session = service.store.session(user_id)
+        if session and session["target_day"]:
+            return date.fromisoformat(session["target_day"])
+        return planner_today() + timedelta(days=1)
+
     def allowed(message: Message) -> bool:
         return (
             message.chat.type == ChatType.PRIVATE
@@ -209,7 +215,7 @@ def create_planner_router(
         if allowed(message):
             await message.answer(
                 await service.show_plan(
-                    message.from_user.id, planner_today() + timedelta(days=1)
+                    message.from_user.id, active_planner_day(message.from_user.id)
                 ),
                 reply_markup=planner_keyboard(),
             )
@@ -219,7 +225,7 @@ def create_planner_router(
         if allowed(message):
             await message.answer(
                 await service.start_plan_edit(
-                    message.from_user.id, planner_today() + timedelta(days=1)
+                    message.from_user.id, active_planner_day(message.from_user.id)
                 ),
                 reply_markup=planner_keyboard(),
             )
