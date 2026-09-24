@@ -48,7 +48,6 @@ def test_default_duration_is_one_hour():
 
 def test_planner_markup_is_absent_without_active_session(tmp_path: Path):
     from voqelis.planner.bot import planner_markup_for_state
-    from voqelis.planner.service import PlannerService
 
     store = PlannerStore(tmp_path / "planner.sqlite3")
     service = PlannerService(store, PlannerConfig())
@@ -126,7 +125,6 @@ def test_urgent_task_can_propose_one_day_kd_move(tmp_path: Path):
 
 
 def test_exports_create_files_with_merged_multihour_item(tmp_path: Path):
-    from voqelis.planner.export import build_docx, build_pdf
 
     store = PlannerStore(tmp_path / "planner.sqlite3")
     day = date(2026, 9, 23)
@@ -190,7 +188,6 @@ def test_planner_config_rejects_invalid_timezone():
 
 
 def test_planner_config_default_timezone_is_explicit():
-    from voqelis.planner.config import PlannerConfig
     assert PlannerConfig().timezone == "Europe/Moscow"
 
 
@@ -269,7 +266,6 @@ def test_confirmed_move_is_rejected_if_target_becomes_occupied(tmp_path: Path):
 
 
 def test_callback_conflict_confirmation_uses_same_resolution_path(tmp_path: Path):
-    from voqelis.planner.service import PlannerService
 
     store = PlannerStore(tmp_path / "planner.sqlite3")
     day = date(2026, 9, 23)
@@ -304,7 +300,6 @@ def test_callback_conflict_confirmation_uses_same_resolution_path(tmp_path: Path
             "pending": [],
         },
     )
-    import asyncio
     replies = asyncio.run(service.handle_callback(1, "pl:conf:no", date(2026, 9, 22)))
     assert replies
     assert service.store.session(1)["state"] == "planning"
@@ -312,14 +307,12 @@ def test_callback_conflict_confirmation_uses_same_resolution_path(tmp_path: Path
 
 
 def test_review_status_callback_sets_detail_state(tmp_path: Path):
-    from voqelis.planner.service import PlannerService
 
     store = PlannerStore(tmp_path / "planner.sqlite3")
     day = date(2026, 9, 23)
     items = store.ensure_daily_plan(1, day)
     service = PlannerService(store, PlannerConfig())
     service.store.set_session(1, "review_status", day, {"current_item_id": items[0].id})
-    import asyncio
     replies = asyncio.run(service.handle_callback(1, "pl:review:partial", day))
     assert replies
     session = service.store.session(1)
@@ -508,7 +501,6 @@ def test_recurring_rule_migration_preserves_existing_daily_templates(tmp_path: P
 
 
 def test_planning_prompts_for_missing_reason_and_reuses_previous_reason(tmp_path: Path):
-    import asyncio
 
     store = PlannerStore(tmp_path / "planner.sqlite3")
     day = date(2026, 9, 23)
