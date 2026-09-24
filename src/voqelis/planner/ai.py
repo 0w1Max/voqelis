@@ -127,12 +127,42 @@ def _validate_task_draft(draft: TaskDraft, *, today: date) -> None:
         raise PlannerAIInvalidResponse("AI returned an invalid anchor")
 
 
+import re
+
+
 def _optional_string(value: object, field: str) -> str | None:
     if value is None:
         return None
     if not isinstance(value, str):
         raise PlannerAIInvalidResponse(f"AI returned non-string {field}")
     return value.strip() or None
+
+
+def _clean_task_title(value: str) -> str:
+    title = re.sub(r"\s{2,}", " ", value.strip())
+    title = re.sub(
+        r"^(?:мне\s+)?(?:на\s+)?(?:сегодня|завтра|послезавтра)\s+"
+        r"(?:(?:мне\s+)?(?:надо|нужно|хочу|планирую)\s+)?"
+        r"(?:запланировать|запланирую|поставить)\s+",
+        "",
+        title,
+        flags=re.IGNORECASE,
+    )
+    title = re.sub(
+        r"^(?:мне\s+)?(?:надо|нужно|хочу|планирую|буду)\s+",
+        "",
+        title,
+        flags=re.IGNORECASE,
+    )
+    title = re.sub(r"\s{2,}", " ", title).strip(" ,:-")
+    if re.search(r"\b(?:чтобы|для того чтобы)\b", title, re.IGNORECASE):
+        title = re.split(
+            r"\b(?:чтобы|для того чтобы)\b",
+            title,
+            maxsplit=1,
+            flags=re.IGNORECASE,
+        )[0].strip(" ,:-")
+    return title
 
 
 class GeminiPlannerAI:
@@ -174,14 +204,28 @@ class GeminiPlannerAI:
 
     async def extract_tasks(self, text: str, *, today: date, target_day: date, config: PlannerConfig) -> list[TaskDraft]:
         prompt = (
-            "You are Voqelis Planner task extractor. Extract every distinct task. "
-            "Do not schedule or invent missing details. Preserve wording. "
-            "Use duration_minutes only when explicitly stated; otherwise null. "
-            "Exact interval fills start_time and end_time. Exact start fills start_time only. "
-            "Use period for morning/day/evening/night, preferred_time for approximate time, "
-            "and relation+anchor for before/after breakfast/lunch/dinner. "
+            "You are the structured task extractor for Voqelis Planner. "
+            "Convert natural Russian speech into clean task records, not a transcript. "
+            "Extract every distinct user-intended task and remove conversational filler. "
+            "A task title must be a short action phrase such as 'читать книгу' or "
+            "'заниматься своими проектами', not 'мне на завтра надо запланировать читать книгу'. "
+            "Never put planning instructions, greetings, dictation filler, or the user's reason inside title. "
+            "Put the purpose after 'чтобы', 'для', or equivalent into why. "
+            "Use duration_minutes only when the user explicitly gives a duration. "
+            "For an explicit interval, set both start_time and end_time and set duration_minutes to null. "
+            "For an exact start, set only start_time and leave end_time null. "
+            "Normalize colloquial Russian clock expressions to 24-hour HH:MM: "
+            "'8 вечера' = '20:00', '9 вечера' = '21:00', "
+            "'8 утра' = '08:00', '12 часов дня' = '12:00', "
+            "'12 ночи' = '00:00'. "
+            "For ranges, normalize both endpoints: 'с 8 вечера до 9 вечера' = 20:00–21:00. "
+            "Do not interpret a clock expression such as 'в 14 часов' or '12 часов дня' as duration. "
+            "Resolve relative dates from the supplied today date. "
+            "If no exact time, duration, period, or relation is stated, keep those fields null. "
+            "Do not invent a reason, urgency, or schedule. "
             f"Today is {today.isoformat()}; default planning day is {target_day.isoformat()}. "
-            "Dates must be YYYY-MM-DD and times HH:MM.\n\nUser message:\n" + text
+            "Dates must be YYYY-MM-DD and times HH:MM. "
+            "\n\nUser message:\n" + text
         )
         result = await self._json_call(prompt, TASK_SCHEMA)
         raw_tasks = result.get("tasks")
@@ -204,7 +248,7 @@ class GeminiPlannerAI:
                 if duration is not None and (isinstance(duration, bool) or not isinstance(duration, int)):
                     raise PlannerAIInvalidResponse("Gemini returned invalid duration")
                 draft = TaskDraft(
-                    title=title.strip(),
+                    title=_clean_task_title(title),
                     day=date.fromisoformat(day_value),
                     start_minute=_parse_time(raw.get("start_time")),
                     end_minute=_parse_time(raw.get("end_time")),
