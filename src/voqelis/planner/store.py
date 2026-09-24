@@ -140,64 +140,69 @@ class PlannerStore:
 
     def seed_defaults(self, user_id: int, config: PlannerConfig) -> None:
         existing = self.recurring(user_id)
-        if not existing:
-            self.db.executemany(
-                "INSERT INTO recurring_templates(user_id,title,why,start_minute,duration_minutes,recurrence,recurrence_days) VALUES(?,?,?,?,?,?,?)",
-                [
-                    (
-                        user_id,
-                        x.title,
-                        x.why,
-                        x.start_minute,
-                        x.duration_minutes,
-                        x.recurrence,
-                        json.dumps(x.days_of_week),
-                    )
-                    for x in config.recurring_templates
-                ],
+        legacy_specs = {
+            (
+                title.casefold(),
+                start_minute,
+                duration_minutes,
             )
+            for title, start_minute, duration_minutes in (
+                ("Проснуться + молитва + умыться + зарядка (КД)", 540, 60),
+                ("Завтрак + душ (КД)", 600, 60),
+                ("Послушать спикерскую + заниматься проектами", 660, 60),
+                ("Читать книгу", 780, 60),
+                ("Переделать резюме", 840, 60),
+                ("Обед + отдых", 900, 60),
+                ("Делать домашку по психотерапии", 960, 60),
+                ("Собираться на группу", 1020, 60),
+                ("Дорога на группу + собрание + прогулка", 1080, 60),
+                ("Дорога домой + ужин", 1260, 60),
+                ("Делать домашку по шагам", 1320, 60),
+                ("Читать книгу", 1380, 60),
+                ("Подготовка ко сну + дневник успеха + молитва + благодарности за день", 1440, 60),
+            )
+        )
+        for row in existing:
+            key = (
+                str(row["title"]).casefold(),
+                int(row["start_minute"]),
+                int(row["duration_minutes"]),
+            )
+            if key in legacy_specs and int(row["active"]) == 1:
+                self.db.execute(
+                    "UPDATE recurring_templates SET active=0 WHERE id=?",
+                    (int(row["id"]),),
+                )
+
+        current_keys = {
+            (
+                str(row["title"]).casefold(),
+                int(row["start_minute"]),
+                int(row["duration_minutes"]),
+            )
+            for row in self.recurring(user_id)
+        }
+        missing = [
+            x for x in config.recurring_templates
+            if (x.title.casefold(), x.start_minute, x.duration_minutes) not in current_keys
+        ]
+        if not missing:
             return
-
-        # Migrate the original V1 built-in seed (13 entries) to the current
-        # three core daily anchors. User-created recurring tasks are untouched.
-        if len(existing) == 13:
-            old_ids = [int(row["id"]) for row in existing]
-            placeholders = ",".join("?" for _ in old_ids)
-            old_item_rows = self.db.execute(
-                f"SELECT id FROM plan_items WHERE user_id=? AND recurring_template_id IN ({placeholders})",
-                (user_id, *old_ids),
-            ).fetchall()
-            old_item_ids = [int(row["id"]) for row in old_item_rows]
-            if old_item_ids:
-                item_placeholders = ",".join("?" for _ in old_item_ids)
-                self.db.execute(
-                    f"DELETE FROM task_reviews WHERE plan_item_id IN ({item_placeholders})",
-                    tuple(old_item_ids),
+        self.db.executemany(
+            "INSERT INTO recurring_templates(user_id,title,why,start_minute,duration_minutes,recurrence,recurrence_days) VALUES(?,?,?,?,?,?,?)",
+            [
+                (
+                    user_id,
+                    x.title,
+                    x.why,
+                    x.start_minute,
+                    x.duration_minutes,
+                    x.recurrence,
+                    json.dumps(x.days_of_week),
                 )
-                self.db.execute(
-                    f"DELETE FROM plan_items WHERE id IN ({item_placeholders})",
-                    tuple(old_item_ids),
-                )
-            self.db.execute(
-                f"DELETE FROM recurring_templates WHERE user_id=? AND id IN ({placeholders})",
-                (user_id, *old_ids),
-            )
-            self.db.executemany(
-                "INSERT INTO recurring_templates(user_id,title,why,start_minute,duration_minutes,recurrence,recurrence_days) VALUES(?,?,?,?,?,?,?)",
-                [
-                    (
-                        user_id,
-                        x.title,
-                        x.why,
-                        x.start_minute,
-                        x.duration_minutes,
-                        x.recurrence,
-                        json.dumps(x.days_of_week),
-                    )
-                    for x in config.recurring_templates
-                ],
-            )
-
+                for x in missing
+            ],
+        )
 
     def plan_items(self, user_id: int, day: date) -> list[PlanItem]:
         rows = self.db.execute(
