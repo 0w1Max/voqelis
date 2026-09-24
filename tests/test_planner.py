@@ -60,7 +60,7 @@ def test_parser_supports_natural_daytime_range_without_duration_bug():
     assert len(drafts) == 1
     assert drafts[0].start_minute == 12 * 60
     assert drafts[0].end_minute == 16 * 60
-    assert drafts[0].duration_minutes == 60
+    assert drafts[0].duration_minutes == 4 * 60
     assert drafts[0].title == "заниматься своими проектами"
 
 
