@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, timedelta
 from typing import Protocol
 
 import httpx
@@ -95,12 +95,48 @@ def _parse_time(value: str | None) -> int | None:
     return hour * 60 + minute
 
 
+def _validate_task_draft(draft: TaskDraft, *, today: date) -> None:
+    if not draft.title.strip():
+        raise PlannerAIInvalidResponse("AI returned an empty task title")
+    if not today <= draft.day <= today + timedelta(days=2):
+        raise PlannerAIInvalidResponse("AI returned a task day outside V1 planning horizon")
+    if draft.start_minute is None and draft.end_minute is not None:
+        raise PlannerAIInvalidResponse("AI returned end_time without start_time")
+    if draft.start_minute is not None and not 0 <= draft.start_minute < 24 * 60:
+        raise PlannerAIInvalidResponse("AI returned an invalid start time")
+    if draft.end_minute is not None and not 0 <= draft.end_minute <= 24 * 60:
+        raise PlannerAIInvalidResponse("AI returned an invalid end time")
+    if draft.start_minute is not None and draft.end_minute is not None:
+        if draft.start_minute >= draft.end_minute:
+            raise PlannerAIInvalidResponse("AI returned an invalid time range")
+    if draft.duration_minutes is not None and draft.duration_minutes <= 0:
+        raise PlannerAIInvalidResponse("AI returned an invalid duration")
+    if draft.period not in {None, "morning", "day", "evening", "night"}:
+        raise PlannerAIInvalidResponse("AI returned an invalid period")
+    if (draft.relation is None) != (draft.anchor is None):
+        raise PlannerAIInvalidResponse("AI returned an incomplete relation/anchor pair")
+    if draft.relation not in {None, "before", "after"}:
+        raise PlannerAIInvalidResponse("AI returned an invalid relation")
+    if draft.anchor not in {None, "breakfast", "lunch", "dinner"}:
+        raise PlannerAIInvalidResponse("AI returned an invalid anchor")
+
+
+def _optional_string(value: object, field: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise PlannerAIInvalidResponse(f"AI returned non-string {field}")
+    return value.strip() or None
+
+
 class GeminiPlannerAI:
     def __init__(self, api_key: str, *, model: str, timeout_seconds: int = 30):
         if not api_key.strip():
             raise PlannerAIUnavailable("GEMINI_API_KEY is not configured")
         self.api_key = api_key.strip()
         self.model = model.strip()
+        if not self.model:
+            raise PlannerAIUnavailable("GEMINI_MODEL is not configured")
         self.timeout = httpx.Timeout(timeout_seconds)
 
     async def _json_call(self, prompt: str, schema: dict) -> dict:
@@ -143,22 +179,43 @@ class GeminiPlannerAI:
         )
         result = await self._json_call(prompt, TASK_SCHEMA)
         drafts: list[TaskDraft] = []
+        raw_tasks = result.get("tasks")
+        if not isinstance(raw_tasks, list):
+            raise PlannerAIInvalidResponse("Gemini tasks field is not an array")
+
+        drafts: list[TaskDraft] = []
         try:
-            for raw in result["tasks"]:
-                drafts.append(TaskDraft(
-                    title=str(raw["title"]).strip(),
-                    day=date.fromisoformat(raw["day"]),
+            for raw in raw_tasks:
+                if not isinstance(raw, dict):
+                    raise PlannerAIInvalidResponse("Gemini returned a non-object task")
+                title = raw.get("title")
+                day_value = raw.get("day")
+                urgent = raw.get("urgent")
+                duration = raw.get("duration_minutes")
+                if not isinstance(title, str) or not isinstance(day_value, str):
+                    raise PlannerAIInvalidResponse("Gemini returned invalid task identity fields")
+                if not isinstance(urgent, bool):
+                    raise PlannerAIInvalidResponse("Gemini returned invalid urgent flag")
+                if duration is not None and (isinstance(duration, bool) or not isinstance(duration, int)):
+                    raise PlannerAIInvalidResponse("Gemini returned invalid duration")
+                draft = TaskDraft(
+                    title=title.strip(),
+                    day=date.fromisoformat(day_value),
                     start_minute=_parse_time(raw.get("start_time")),
                     end_minute=_parse_time(raw.get("end_time")),
-                    duration_minutes=None if raw.get("duration_minutes") is None else int(raw["duration_minutes"]),
+                    duration_minutes=duration,
                     period=raw.get("period"),
                     preferred_minute=_parse_time(raw.get("preferred_time")),
                     relation=raw.get("relation"),
                     anchor=raw.get("anchor"),
-                    why=raw.get("why"),
-                    urgent=bool(raw.get("urgent")),
-                    source_text=str(raw.get("source_text") or text),
-                ))
+                    why=_optional_string(raw.get("why"), "why"),
+                    urgent=urgent,
+                    source_text=raw.get("source_text") if isinstance(raw.get("source_text"), str) else text,
+                )
+                _validate_task_draft(draft, today=today)
+                drafts.append(draft)
+        except PlannerAIInvalidResponse:
+            raise
         except (KeyError, TypeError, ValueError) as exc:
             raise PlannerAIInvalidResponse("Invalid task object returned by Gemini") from exc
         return [item for item in drafts if item.title]
@@ -169,11 +226,12 @@ class GeminiPlannerAI:
             f"Task: {task_title}\nUser text:\n{text}"
         )
         result = await self._json_call(prompt, REVIEW_SCHEMA)
-        return (
-            result.get("activity"),
-            tuple(str(x).strip() for x in result.get("feelings", []) if str(x).strip()),
-            result.get("missed_reason"),
-        )
+        activity = _optional_string(result.get("activity"), "activity")
+        missed_reason = _optional_string(result.get("missed_reason"), "missed_reason")
+        feelings_raw = result.get("feelings")
+        if not isinstance(feelings_raw, list) or any(not isinstance(value, str) for value in feelings_raw):
+            raise PlannerAIInvalidResponse("Gemini returned invalid feelings")
+        return activity, tuple(value.strip() for value in feelings_raw if value.strip()), missed_reason
 
     async def extract_full_review(self, text: str, *, items: list[dict]) -> list[dict]:
         prompt = (
