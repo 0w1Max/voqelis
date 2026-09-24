@@ -13,6 +13,7 @@ from .models import (
     Conflict,
     ConflictProposal,
     PlanItem,
+    PlannerAIError,
     ScheduleMove,
     ScheduleValidationError,
     TaskDraft,
