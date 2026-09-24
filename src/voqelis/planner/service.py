@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 from dataclasses import asdict, replace
 from datetime import date, timedelta
+from pathlib import Path
+from uuid import uuid4
 
 from .ai import PlannerAI
-from .models import PlannerAIError
 from .config import PlannerConfig
+from .export import build_docx, build_pdf
 from .models import (
     Conflict,
     ConflictProposal,
@@ -28,11 +30,13 @@ class PlannerService:
         store: PlannerStore,
         config: PlannerConfig | None = None,
         ai: PlannerAI | None = None,
+        export_dir: Path | None = None,
     ):
         self.store = store
         self.config = config or PlannerConfig()
         self.scheduler = Scheduler(store, self.config)
         self.ai = ai
+        self.export_dir = export_dir
         self._user_locks: dict[int, asyncio.Lock] = {}
 
     def start_planning(self, user_id: int, day: date) -> str:
@@ -264,9 +268,14 @@ class PlannerService:
             if index >= len(alternatives):
                 return ["Такого варианта нет."]
             start, end = alternatives[index]
-            self.store.add_item(
-                PlanItem(0, user_id, draft.day, draft.title, draft.why, start, end, TaskKind.ORDINARY, None, draft.urgent, draft.source_text)
+            item_id = self.store.add_item_if_free(
+                PlanItem(
+                    0, user_id, draft.day, draft.title, draft.why,
+                    start, end, TaskKind.ORDINARY, None, draft.urgent, draft.source_text,
+                )
             )
+            if item_id is None:
+                return ["⚠️ Выбранное время уже занято. Повтори согласование конфликта."]
             reply = f"✅ Добавил: {fmt_time(start)}–{fmt_time(end)} — {draft.title}"
 
         pending = [self._draft(x) for x in payload.get("pending", [])]
@@ -483,10 +492,12 @@ class PlannerService:
                 )
             else:
                 activity, feelings, reason = text.strip(), (), None
-        except Exception:
+        except (PlannerAIError, ValueError, TypeError):
             return [
-                f"⚠️ Не удалось разобрать ответ для «{item.plan_item.title}». "
-                "Попробуй ещё раз."
+                (
+                    f"⚠️ Не удалось разобрать ответ для «{item.plan_item.title}». "
+                    "Попробуй ещё раз."
+                )
             ]
         self.store.save_review(item_id, status, activity or None, feelings, reason)
 
@@ -648,10 +659,25 @@ class PlannerService:
         return ["Эта кнопка больше не актуальна. Повтори действие из текущего сообщения."]
 
     async def show_plan(self, user_id: int, day: date) -> str:
-        return render_plan_text(day, self.store.ensure_daily_plan(user_id, day, self.config), self.config)
+        async with self._user_lock(user_id):
+            items = self.store.ensure_daily_plan(user_id, day, self.config)
+            return render_plan_text(day, items, self.config)
 
-    def stop(self, user_id: int) -> None:
-        self.store.clear_session(user_id)
+    async def export_day(self, user_id: int, day: date, fmt: str) -> Path:
+        async with self._user_lock(user_id):
+            if self.export_dir is None:
+                raise RuntimeError("Planner export directory is not configured")
+            self.store.ensure_daily_plan(user_id, day, self.config)
+            if fmt not in {"docx", "pdf"}:
+                raise ValueError("Unsupported planner export format")
+            output = self.export_dir / f"planner-{uuid4().hex}.{fmt}"
+            if fmt == "docx":
+                return build_docx(user_id, day, self.store, self.config, output)
+            return build_pdf(user_id, day, self.store, self.config, output)
+
+    async def stop(self, user_id: int) -> None:
+        async with self._user_lock(user_id):
+            self.store.clear_session(user_id)
     async def handle_callback(self, user_id: int, callback_data: str, today: date) -> list[str]:
         async with self._user_lock(user_id):
             return await self._handle_callback(user_id, callback_data, today)
