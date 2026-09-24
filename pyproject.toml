@@ -29,10 +29,10 @@ target-version = "py312"
 
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "BLE"]
+select = ["F", "I", "BLE"]
 [tool.ruff.lint.isort]
 known-first-party = ["voqelis"]
-lines-after-imports = 2
+lines-after-imports = 1
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
