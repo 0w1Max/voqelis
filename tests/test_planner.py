@@ -20,8 +20,6 @@ from voqelis.planner.scheduler import Scheduler
 from voqelis.planner.service import PlannerService
 from voqelis.planner.store import PlannerStore
 
-
-
 def test_period_and_duration_extraction():
     drafts = parse_voice(
         "Завтра днем с 12 до 15 заниматься проектом",
