@@ -5,7 +5,15 @@ from datetime import date, timedelta
 
 from .ai import PlannerAI
 from .config import PlannerConfig
-from .models import Conflict, ConflictProposal, PlanItem, ScheduleMove, ScheduleValidationError, TaskDraft, TaskKind
+from .models import (
+    Conflict,
+    ConflictProposal,
+    PlanItem,
+    ScheduleMove,
+    ScheduleValidationError,
+    TaskDraft,
+    TaskKind,
+)
 from .parser import parse_voice
 from .render import render_full_review_proposal, render_plan_text, render_review_prompt
 from .scheduler import Scheduler, fmt_time
@@ -190,8 +198,8 @@ class PlannerService:
     async def add_from_text(self, user_id: int, text: str, today: date) -> list[str]:
         try:
             drafts = await self._extract(text, user_id, today)
-        except Exception as exc:
-            return [f"⚠️ Не удалось разобрать задачу: {exc}"]
+        except Exception:
+            return ["⚠️ Не удалось разобрать задачу. Попробуй ещё раз."]
         if not drafts:
             return ["Не удалось выделить задачу. Назови дело и, если важно, время или период."]
         return await self._add_drafts(user_id, drafts, today)
@@ -250,7 +258,7 @@ class PlannerService:
             if index >= len(alternatives):
                 return ["Такого варианта нет."]
             start, end = alternatives[index]
-            item_id = self.store.add_item(
+            self.store.add_item(
                 PlanItem(0, user_id, draft.day, draft.title, draft.why, start, end, TaskKind.ORDINARY, None, draft.urgent, draft.source_text)
             )
             reply = f"✅ Добавил: {fmt_time(start)}–{fmt_time(end)} — {draft.title}"
@@ -295,7 +303,6 @@ class PlannerService:
 
     async def start_full_review(self, user_id: int, day: date) -> str:
         self.store.ensure_daily_plan(user_id, day, self.config)
-        items = self.store.reviews(user_id, day)
         day_review = self.store.day_review(user_id, day)
         if day_review is not None and day_review.completed:
             return "Этот день уже полностью проанализирован. Для изменения используй «✏️ Исправить анализ»."
@@ -316,8 +323,8 @@ class PlannerService:
         ]
         try:
             extracted = await self.ai.extract_full_review(text, items=payload)
-        except Exception as exc:
-            return [f"⚠️ Не удалось разобрать общий обзор дня: {exc}\nПопробуй ещё раз."]
+        except Exception:
+            return ["⚠️ Не удалось разобрать общий обзор дня. Попробуй ещё раз."]
         by_id = {x.plan_item.id: x.plan_item for x in items}
         proposal = []
         for raw in extracted:
@@ -373,16 +380,20 @@ class PlannerService:
                 user_id, "review_status", day, {"current_item_id": next_item.plan_item.id}
             )
             return [
-                "✅ Общий разбор сохранён для уверенно сопоставленных задач.\n\n"
-                "Остались пункты, по которым AI не смог уверенно определить результат. "
-                "Проверим их по очереди.\n\n"
-                f"{render_review_prompt(next_item)}\n\nВыполнено?"
+                (
+                    "✅ Общий разбор сохранён для уверенно сопоставленных задач.\n\n"
+                    "Остались пункты, по которым AI не смог уверенно определить результат. "
+                    "Проверим их по очереди.\n\n"
+                    f"{render_review_prompt(next_item)}\n\nВыполнено?"
+                )
             ]
         self.store.set_session(user_id, "review_final1", day, {})
         return [
-            "✅ Общий разбор сохранён.\n\n"
-            "Все задачи сопоставлены.\n\n"
-            "Что бы ты изменил, если бы следовал рекомендации по оздоровлению?"
+            (
+                "✅ Общий разбор сохранён.\n\n"
+                "Все задачи сопоставлены.\n\n"
+                "Что бы ты изменил, если бы следовал рекомендации по оздоровлению?"
+            )
         ]
 
     async def start_review_edit(self, user_id: int, day: date) -> str:
@@ -466,9 +477,9 @@ class PlannerService:
                 )
             else:
                 activity, feelings, reason = text.strip(), (), None
-        except Exception as exc:
+        except Exception:
             return [
-                f"⚠️ Не удалось разобрать ответ для «{item.plan_item.title}». {exc}\n"
+                f"⚠️ Не удалось разобрать ответ для «{item.plan_item.title}». "
                 "Попробуй ещё раз."
             ]
         self.store.save_review(item_id, status, activity or None, feelings, reason)
@@ -489,8 +500,10 @@ class PlannerService:
 
         self.store.set_session(user_id, "review_final1", day, {})
         return [
-            "Все задачи обработаны.\n\n"
-            "Что бы ты изменил, если бы следовал рекомендации по оздоровлению?"
+            (
+                "Все задачи обработаны.\n\n"
+                "Что бы ты изменил, если бы следовал рекомендации по оздоровлению?"
+            )
         ]
 
     async def _review_final1(self, user_id: int, text: str, day: date) -> list[str]:
