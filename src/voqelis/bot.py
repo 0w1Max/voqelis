@@ -170,7 +170,9 @@ def create_router(*, settings: Settings, queue: JobQueue) -> Router:
                 file_path=raw_path,
             )
             await queue.put(job)
-            await message.reply("✅ Принял. Распознаю по очереди.")
+            planner_session = planner.store.session(user_id) if planner else None
+            if planner_session is None:
+                await message.reply("✅ Принял. Распознаю по очереди.")
         except _UserInputError as exc:
             raw_path.unlink(missing_ok=True)
             await queue.release(user_id)
@@ -204,6 +206,7 @@ async def run_worker(
     transcriber: Transcriber,
     settings: Settings,
     planner: PlannerService | None = None,
+    log_content: bool = False,
 ) -> None:
     planner_tz = ZoneInfo(planner.config.timezone) if planner else None
 
@@ -233,22 +236,24 @@ async def run_worker(
             session = planner.store.session(job.user_id) if planner else None
             if planner and session:
                 today = datetime.now(planner_tz).date()
+                if log_content:
+                    logger.info(
+                        "PLANNER_INPUT user=%s text=%r state=%s target_day=%s",
+                        job.user_id,
+                        result.text,
+                        session.get("state"),
+                        session.get("target_day"),
+                    )
                 replies = await planner.handle_text(job.user_id, result.text, today)
-                if replies:
-                    for part in replies:
-                        await bot.send_message(
-                            job.chat_id,
-                            part,
-                            reply_to_message_id=job.reply_to_message_id,
-                            parse_mode=None,
-                            reply_markup=planner_markup_for_state(planner, job.user_id),
-                        )
-                else:
+                if log_content:
+                    logger.info("PLANNER_OUTPUT user=%s replies=%r", job.user_id, replies)
+                for part in replies:
                     await bot.send_message(
                         job.chat_id,
-                        result.text,
+                        part,
                         reply_to_message_id=job.reply_to_message_id,
                         parse_mode=None,
+                        reply_markup=planner_markup_for_state(planner, job.user_id),
                     )
             else:
                 parts = chunk_text(result.text)
