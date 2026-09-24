@@ -9,6 +9,7 @@ import httpx
 from .config import PlannerConfig
 from .models import PlannerAIInvalidResponse, PlannerAIUnavailable, TaskDraft
 
+
 TASK_SCHEMA = {
     "type": "object",
     "properties": {
@@ -105,9 +106,12 @@ def _validate_task_draft(draft: TaskDraft, *, today: date) -> None:
         raise PlannerAIInvalidResponse("AI returned an invalid start time")
     if draft.end_minute is not None and not 0 <= draft.end_minute <= 24 * 60:
         raise PlannerAIInvalidResponse("AI returned an invalid end time")
-    if draft.start_minute is not None and draft.end_minute is not None:
-        if draft.start_minute >= draft.end_minute:
-            raise PlannerAIInvalidResponse("AI returned an invalid time range")
+    if (
+        draft.start_minute is not None
+        and draft.end_minute is not None
+        and draft.start_minute >= draft.end_minute
+    ):
+        raise PlannerAIInvalidResponse("AI returned an invalid time range")
     if draft.duration_minutes is not None and draft.duration_minutes <= 0:
         raise PlannerAIInvalidResponse("AI returned an invalid duration")
     if draft.period not in {None, "morning", "day", "evening", "night"}:
