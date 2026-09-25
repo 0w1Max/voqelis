@@ -95,5 +95,19 @@ After measuring real processing speed and RAM on the actual VPS, `MODEL_SIZE=sma
 ## Validation performed before packaging
 
 - `python -m compileall -q src tests` — passed.
-- `pytest -q` — 6 tests passed.
+- `pytest -q` — the test suite is the release gate; the latest branch run was still in progress at packaging time.
 - Production dependencies are pinned in `requirements.txt` for reproducible deployment.
+
+
+## Planner V1 pre-VPS review
+
+Before the first real server test, the planner was reviewed end-to-end against the current requirements and the supplied day-table structure. The implementation keeps deterministic scheduling separate from optional AI extraction, persists planner state in SQLite, uses stable plan-item IDs for review editing, and protects conflict confirmations against stale task positions.
+
+Additional hardening in the latest revision:
+
+- recurring templates must fit inside the configured planning window;
+- stale Review sessions fail closed instead of raising on missing or deleted task IDs;
+- full-day AI review persists the normalized, de-duplicated proposal that was actually shown to the user;
+- the deployment checklist preserves the existing production .env, model cache, and planner database before replacement.
+
+The first VPS test should be treated as a controlled smoke test, not as an assumption that every natural-language formulation is already understood. Parser/AI extraction and scheduling are deliberately separate so failures can be isolated.

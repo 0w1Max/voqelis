@@ -9,7 +9,6 @@ from faster_whisper import WhisperModel
 from .config import Settings
 from .domain import TranscriptionResult
 
-
 logger = logging.getLogger(__name__)
 
 

@@ -7,7 +7,6 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-
 ALLOWED_MODEL_SIZES = {
     "tiny", "tiny.en", "base", "base.en", "small", "small.en",
     "medium", "medium.en", "large-v1", "large-v2", "large-v3",
@@ -70,6 +69,14 @@ class Settings:
     temp_dir: Path
     model_cache_dir: Path
     log_level: str
+    planner_db_path: Path
+    planner_config_path: Path
+    groq_api_key: str
+    groq_model: str
+    gemini_api_key: str
+    gemini_model: str
+    planner_ai_timeout_seconds: int
+    planner_log_content: bool
 
 
 def load_settings(env_file: Path | None = None) -> Settings:
@@ -165,13 +172,24 @@ def load_settings(env_file: Path | None = None) -> Settings:
             os.environ.get("MODEL_CACHE_DIR", "./data/models")
         ).expanduser(),
         log_level=os.environ.get("LOG_LEVEL", "INFO").strip().upper(),
+        planner_db_path=Path(os.environ.get("PLANNER_DB_PATH", "./data/planner.sqlite3")).expanduser(),
+        planner_config_path=Path(os.environ.get("PLANNER_CONFIG_PATH", "./config/planner.json")).expanduser(),
+        groq_api_key=os.environ.get("GROQ_API_KEY", "").strip(),
+        groq_model=os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b").strip(),
+        gemini_api_key=os.environ.get("GEMINI_API_KEY", "").strip(),
+        gemini_model=os.environ.get("GEMINI_MODEL", "gemini-3.8-flash").strip(),
+        planner_ai_timeout_seconds=_positive_int(os.environ.get("PLANNER_AI_TIMEOUT_SECONDS", "30"), name="PLANNER_AI_TIMEOUT_SECONDS", minimum=5),
+        planner_log_content=_parse_bool(
+            os.environ.get("PLANNER_LOG_CONTENT", "false"),
+            name="PLANNER_LOG_CONTENT",
+        ),
     )
 
     settings.temp_dir.mkdir(parents=True, exist_ok=True)
     settings.model_cache_dir.mkdir(parents=True, exist_ok=True)
 
     if not isinstance(getattr(logging, settings.log_level, None), int):
-        raise ValueError(f"Unsupported LOG_LEVEL: {settings.log_level!r}")
+        raise TypeError(f"Unsupported LOG_LEVEL: {settings.log_level!r}")
 
     logging.basicConfig(
         level=settings.log_level,

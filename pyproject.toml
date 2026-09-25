@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "voqelis"
-version = "0.2.0"
+version = "0.3.0"
 description = "Local-first Telegram voice-to-text and AI-ready processing bot powered by faster-whisper"
 requires-python = ">=3.10,<3.15"
 dependencies = [
@@ -12,6 +12,9 @@ dependencies = [
     "av==18.1.0",
     "faster-whisper==1.2.1",
     "python-dotenv==1.2.3",
+    "python-docx==1.2.0",
+    "reportlab==5.0.1",
+    "httpx==0.28.1",
 ]
 
 [tool.setuptools]
@@ -23,6 +26,13 @@ where = ["src"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+
+[tool.ruff.lint]
+select = ["F", "I", "BLE"]
+[tool.ruff.lint.isort]
+known-first-party = ["voqelis"]
+lines-after-imports = 1
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

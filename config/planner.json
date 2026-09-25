@@ -1,0 +1,63 @@
+{
+  "timezone": "Europe/Moscow",
+  "default_duration_minutes": 60,
+  "slot_minutes": 60,
+  "plan_start_minute": 540,
+  "plan_end_minute": 1500,
+  "periods": [
+    {
+      "name": "morning",
+      "start": 360,
+      "end": 720
+    },
+    {
+      "name": "day",
+      "start": 720,
+      "end": 1020
+    },
+    {
+      "name": "evening",
+      "start": 1020,
+      "end": 1440
+    },
+    {
+      "name": "night",
+      "start": 0,
+      "end": 360
+    }
+  ],
+  "anchors": {
+    "breakfast": [
+      600,
+      660
+    ],
+    "lunch": [
+      900,
+      960
+    ],
+    "dinner": [
+      1260,
+      1320
+    ]
+  },
+  "recurring_templates": [
+    {
+      "title": "Проснуться + молитва + умыться + зарядка (КД)",
+      "why": "Настроиться на день, здоровье, бодрость.",
+      "start_minute": 540,
+      "duration_minutes": 60
+    },
+    {
+      "title": "Завтрак + душ (КД)",
+      "why": "Настроиться на день, здоровье, бодрость.",
+      "start_minute": 600,
+      "duration_minutes": 60
+    },
+    {
+      "title": "Подготовка ко сну + дневник успеха + благодарность + молитва (КД)",
+      "why": "Отдых, здоровье, рост, спокойствие, восстановление.",
+      "start_minute": 1440,
+      "duration_minutes": 60
+    }
+  ]
+}

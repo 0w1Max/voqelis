@@ -37,9 +37,7 @@ class JobQueue:
 
     async def release(self, user_id: int) -> None:
         async with self._lock:
-            self._reserved_total -= 1
-            if self._reserved_total < 0:
-                self._reserved_total = 0
+            self._reserved_total = max(self._reserved_total - 1, 0)
 
             self._reserved_by_user[user_id] -= 1
             if self._reserved_by_user[user_id] <= 0:

@@ -2,29 +2,35 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import shutil
 import uuid
 from contextlib import suppress
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
-from aiogram import Bot, Router, F
+from aiogram import Bot, F, Router
 from aiogram.enums import ChatAction, ChatType
-from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError, TelegramRetryAfter
+from aiogram.exceptions import (
+    TelegramBadRequest,
+    TelegramNetworkError,
+    TelegramRetryAfter,
+)
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 
 from .audio import AudioProcessingError, is_audio_document, probe_duration_seconds
 from .config import Settings
 from .domain import AudioJob
+from .planner.bot import planner_keyboard, planner_markup_for_state
+from .planner.service import PlannerService
 from .queue import JobQueue
 from .text import chunk_text
 from .transcription import Transcriber
 
-
 logger = logging.getLogger(__name__)
 
 
-def create_router(*, settings: Settings, queue: JobQueue) -> Router:
+def create_router(*, settings: Settings, queue: JobQueue, planner: PlannerService | None = None) -> Router:
     router = Router(name="audio")
 
     def is_allowed(message: Message) -> bool:
@@ -55,7 +61,8 @@ def create_router(*, settings: Settings, queue: JobQueue) -> Router:
 
         await message.answer(
             "🎙️ Пришли голосовое сообщение или аудиофайл.\n"
-            "Я расшифрую его локально и верну текст."
+            "Я расшифрую его локально и верну текст.",
+            reply_markup=planner_keyboard(),
         )
 
     @router.message(Command("status"))
@@ -163,7 +170,9 @@ def create_router(*, settings: Settings, queue: JobQueue) -> Router:
                 file_path=raw_path,
             )
             await queue.put(job)
-            await message.reply("✅ Принял. Распознаю по очереди.")
+            planner_session = planner.store.session(user_id) if planner else None
+            if planner_session is None:
+                await message.reply("✅ Принял. Распознаю по очереди.")
         except _UserInputError as exc:
             raw_path.unlink(missing_ok=True)
             await queue.release(user_id)
@@ -196,7 +205,11 @@ async def run_worker(
     queue: JobQueue,
     transcriber: Transcriber,
     settings: Settings,
+    planner: PlannerService | None = None,
+    log_content: bool = False,
 ) -> None:
+    planner_tz = ZoneInfo(planner.config.timezone) if planner else None
+
     while True:
         job = await queue.get()
         try:
@@ -220,17 +233,39 @@ async def run_worker(
                 )
                 continue
 
-            parts = chunk_text(result.text)
-            for index, part in enumerate(parts):
-                await bot.send_message(
-                    job.chat_id,
-                    part,
-                    reply_to_message_id=job.reply_to_message_id if index == 0 else None,
-                    parse_mode=None,
-                )
-                if index < len(parts) - 1:
-                    # Telegram recommends staying under one message/second per chat.
-                    await asyncio.sleep(1.05)
+            session = planner.store.session(job.user_id) if planner else None
+            if planner and session:
+                today = datetime.now(planner_tz).date()
+                if log_content:
+                    logger.info(
+                        "PLANNER_INPUT user=%s text=%r state=%s target_day=%s",
+                        job.user_id,
+                        result.text,
+                        session.get("state"),
+                        session.get("target_day"),
+                    )
+                replies = await planner.handle_text(job.user_id, result.text, today)
+                if log_content:
+                    logger.info("PLANNER_OUTPUT user=%s replies=%r", job.user_id, replies)
+                for part in replies:
+                    await bot.send_message(
+                        job.chat_id,
+                        part,
+                        reply_to_message_id=job.reply_to_message_id,
+                        parse_mode=None,
+                        reply_markup=planner_markup_for_state(planner, job.user_id),
+                    )
+            else:
+                parts = chunk_text(result.text)
+                for index, part in enumerate(parts):
+                    await bot.send_message(
+                        job.chat_id,
+                        part,
+                        reply_to_message_id=job.reply_to_message_id if index == 0 else None,
+                        parse_mode=None,
+                    )
+                    if index < len(parts) - 1:
+                        await asyncio.sleep(1.05)
 
             logger.info(
                 "Transcribed user=%s duration=%.1fs processing=%.1fs language=%s prob=%.3f",

@@ -9,9 +9,13 @@ from aiogram.client.default import DefaultBotProperties
 
 from .bot import cleanup_temp_dir, create_router, run_worker
 from .config import load_settings
+from .planner.ai import AIProviderRouter, GeminiPlannerAI, GroqPlannerAI
+from .planner.bot import create_planner_router
+from .planner.config import PlannerConfig
+from .planner.service import PlannerService
+from .planner.store import PlannerStore
 from .queue import JobQueue
 from .transcription import Transcriber
-
 
 logger = logging.getLogger(__name__)
 
@@ -29,13 +33,57 @@ async def async_main() -> None:
     # a bot that appears online but silently accumulates unusable jobs.
     await transcriber.start()
 
+    planner_store = PlannerStore(settings.planner_db_path)
+    planner_config = (
+        PlannerConfig.from_json_file(settings.planner_config_path)
+        if settings.planner_config_path.exists()
+        else PlannerConfig()
+    )
+    groq_ai = (
+        GroqPlannerAI(
+            settings.groq_api_key,
+            model=settings.groq_model,
+            timeout_seconds=settings.planner_ai_timeout_seconds,
+        )
+        if settings.groq_api_key
+        else None
+    )
+    gemini_ai = (
+        GeminiPlannerAI(
+            settings.gemini_api_key,
+            model=settings.gemini_model,
+            timeout_seconds=settings.planner_ai_timeout_seconds,
+        )
+        if settings.gemini_api_key
+        else None
+    )
+    planner_ai = (
+        AIProviderRouter(primary=groq_ai, fallback=gemini_ai)
+        if groq_ai or gemini_ai
+        else None
+    )
+    if planner_ai is not None:
+        logger.info(
+            "Planner AI configured: primary=%s fallback=%s",
+            getattr(groq_ai, "provider_name", "none") if groq_ai else "none",
+            getattr(gemini_ai, "provider_name", "none") if gemini_ai else "none",
+        )
+    planner = PlannerService(
+        planner_store,
+        config=planner_config,
+        ai=planner_ai,
+        export_dir=settings.temp_dir,
+        log_content=settings.planner_log_content,
+    )
+
     queue = JobQueue(
         max_pending_jobs=settings.max_pending_jobs,
         max_pending_per_user=settings.max_pending_per_user,
     )
 
     dp = Dispatcher()
-    dp.include_router(create_router(settings=settings, queue=queue))
+    dp.include_router(create_planner_router(service=planner, allowed_user_ids=settings.allowed_user_ids))
+    dp.include_router(create_router(settings=settings, queue=queue, planner=planner))
 
     async with Bot(
         token=settings.bot_token,
@@ -47,6 +95,8 @@ async def async_main() -> None:
                 queue=queue,
                 transcriber=transcriber,
                 settings=settings,
+                planner=planner,
+                log_content=settings.planner_log_content,
             ),
             name="transcription-worker",
         )
@@ -61,6 +111,7 @@ async def async_main() -> None:
             worker_task.cancel()
             with suppress(asyncio.CancelledError):
                 await worker_task
+            planner_store.close()
 
 
 def main() -> None:
