@@ -554,7 +554,7 @@ class PlannerService:
 
     async def start_plan_edit(self, user_id: int, day: date) -> str:
         async with self._user_lock(user_id):
-            items = self.store.ensure_daily_plan(user_id, day, self.config)
+            self.store.ensure_daily_plan(user_id, day, self.config)
             if not items:
                 return "На этот день пока нет задач для редактирования."
             self.store.set_session(user_id, "plan_edit_select", day, {})
