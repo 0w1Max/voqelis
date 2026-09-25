@@ -71,6 +71,8 @@ class Settings:
     log_level: str
     planner_db_path: Path
     planner_config_path: Path
+    groq_api_key: str
+    groq_model: str
     gemini_api_key: str
     gemini_model: str
     planner_ai_timeout_seconds: int
@@ -172,6 +174,8 @@ def load_settings(env_file: Path | None = None) -> Settings:
         log_level=os.environ.get("LOG_LEVEL", "INFO").strip().upper(),
         planner_db_path=Path(os.environ.get("PLANNER_DB_PATH", "./data/planner.sqlite3")).expanduser(),
         planner_config_path=Path(os.environ.get("PLANNER_CONFIG_PATH", "./config/planner.json")).expanduser(),
+        groq_api_key=os.environ.get("GROQ_API_KEY", "").strip(),
+        groq_model=os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b").strip(),
         gemini_api_key=os.environ.get("GEMINI_API_KEY", "").strip(),
         gemini_model=os.environ.get("GEMINI_MODEL", "gemini-3.8-flash").strip(),
         planner_ai_timeout_seconds=_positive_int(os.environ.get("PLANNER_AI_TIMEOUT_SECONDS", "30"), name="PLANNER_AI_TIMEOUT_SECONDS", minimum=5),
