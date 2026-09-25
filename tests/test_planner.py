@@ -138,7 +138,14 @@ def test_legacy_thirteen_recurring_tasks_are_migrated(tmp_path: Path):
     migrated = store.ensure_daily_plan(1, date(2026, 9, 24), current)
     assert len(migrated) == 3
     assert len(store.recurring(1)) == 3
-    assert len(store.plan_items(1, date(2026, 9, 23))) == 0
+    old_day_items = store.plan_items(1, date(2026, 9, 23))
+    assert {
+        (item.title, item.start_minute, item.end_minute)
+        for item in old_day_items
+    } == {
+        ("Проснуться + молитва + умыться + зарядка (КД)", 540, 600),
+        ("Завтрак + душ (КД)", 600, 660),
+    }
     store.close()
 
 
