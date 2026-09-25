@@ -116,39 +116,38 @@ def parse_voice(text: str, *, today: date, config: PlannerConfig) -> list[TaskDr
             if not 0 <= start < 24 * 60:
                 raise ValueError("Время задачи должно быть от 00:00 до 23:59.")
 
-        duration = (
-            end - start
-            if range_match and start is not None and end is not None
-            else config.default_duration_minutes
-        )
-        duration_match = None if range_match else _DURATION_HOURS_AND_MINUTES.search(chunk)
-        if not range_match and duration_match and not (
-            time_match
-            and duration_match.start() < time_match.end()
-            and time_match.start() < duration_match.end()
-        ):
-            duration = (
-                int(float(duration_match.group(1).replace(",", ".")) * 60)
-                + int(duration_match.group(2))
-            )
+        if range_match and start is not None and end is not None:
+            duration = end - start
         else:
-            duration_match = _DURATION_MINUTES.search(chunk)
+            duration = config.default_duration_minutes
+            duration_match = _DURATION_HOURS_AND_MINUTES.search(chunk)
             if duration_match and not (
                 time_match
                 and duration_match.start() < time_match.end()
                 and time_match.start() < duration_match.end()
             ):
-                duration = int(duration_match.group(1))
+                duration = (
+                    int(float(duration_match.group(1).replace(",", ".")) * 60)
+                    + int(duration_match.group(2))
+                )
             else:
-                duration_match = _DURATION.search(chunk)
+                duration_match = _DURATION_MINUTES.search(chunk)
                 if duration_match and not (
                     time_match
                     and duration_match.start() < time_match.end()
                     and time_match.start() < duration_match.end()
                 ):
-                    duration = int(float(duration_match.group(1).replace(",", ".")) * 60)
-                elif "полтора" in chunk.casefold():
-                    duration = 90
+                    duration = int(duration_match.group(1))
+                else:
+                    duration_match = _DURATION.search(chunk)
+                    if duration_match and not (
+                        time_match
+                        and duration_match.start() < time_match.end()
+                        and time_match.start() < duration_match.end()
+                    ):
+                        duration = int(float(duration_match.group(1).replace(",", ".")) * 60)
+                    elif "полтора" in chunk.casefold():
+                        duration = 90
 
         period = _period(chunk)
 
