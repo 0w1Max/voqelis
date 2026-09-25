@@ -4,9 +4,13 @@ from datetime import date
 
 import pytest
 
-from voqelis.planner.ai import AIProviderRouter, TASK_SCHEMA, _strict_schema
+from voqelis.planner.ai import TASK_SCHEMA, AIProviderRouter, _strict_schema
 from voqelis.planner.config import PlannerConfig
-from voqelis.planner.models import PlannerAIInvalidResponse, PlannerAIProviderError, TaskDraft
+from voqelis.planner.models import (
+    PlannerAIInvalidResponse,
+    PlannerAIProviderError,
+    TaskDraft,
+)
 
 
 class FakeProvider:
