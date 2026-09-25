@@ -19,7 +19,6 @@ from aiogram.types import (
 
 from .service import PlannerService
 
-
 logger = logging.getLogger(__name__)
 
 
