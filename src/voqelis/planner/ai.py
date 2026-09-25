@@ -1,14 +1,27 @@
 from __future__ import annotations
 
+import asyncio
+import copy
 import json
+import logging
 import re
+import time
 from datetime import date, timedelta
 from typing import Protocol
 
 import httpx
 
 from .config import PlannerConfig
-from .models import PlannerAIInvalidResponse, PlannerAIUnavailable, TaskDraft
+from .models import (
+    PlannerAIError,
+    PlannerAIInvalidResponse,
+    PlannerAIProviderError,
+    PlannerAIUnavailable,
+    TaskDraft,
+)
+
+logger = logging.getLogger(__name__)
+
 
 TASK_SCHEMA = {
     "type": "object",
@@ -291,6 +304,185 @@ class GeminiPlannerAI:
         if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
             raise PlannerAIInvalidResponse("Gemini returned invalid full-review items")
         return items
+
+
+
+def _strict_schema(schema: dict) -> dict:
+    result = copy.deepcopy(schema)
+
+    def visit(node: object) -> object:
+        if isinstance(node, dict):
+            for key, value in list(node.items()):
+                node[key] = visit(value)
+            if node.get("type") == "object":
+                node.setdefault("additionalProperties", False)
+            return node
+        if isinstance(node, list):
+            return [visit(value) for value in node]
+        return node
+
+    return visit(result)
+
+
+def _retry_after_seconds(response: httpx.Response) -> float | None:
+    value = response.headers.get("retry-after")
+    if not value:
+        return None
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        return None
+
+
+class GroqPlannerAI:
+    provider_name = "Groq"
+
+    def __init__(self, api_key: str, *, model: str, timeout_seconds: int = 30):
+        if not api_key.strip():
+            raise PlannerAIUnavailable("GROQ_API_KEY is not configured")
+        self.api_key = api_key.strip()
+        self.model = model.strip()
+        if not self.model:
+            raise PlannerAIUnavailable("GROQ_MODEL is not configured")
+        self.timeout = httpx.Timeout(timeout_seconds)
+
+    async def _json_call(self, prompt: str, schema: dict, *, schema_name: str) -> dict:
+        payload = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0,
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": schema_name,
+                    "strict": True,
+                    "schema": _strict_schema(schema),
+                },
+            },
+        }
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    json=payload,
+                )
+        except httpx.TimeoutException as exc:
+            raise PlannerAIProviderError("Groq request timed out", retryable=True) from exc
+        except httpx.HTTPError as exc:
+            raise PlannerAIProviderError("Groq request failed", retryable=True) from exc
+
+        if response.status_code >= 400:
+            raise PlannerAIProviderError(
+                f"Groq API returned HTTP {response.status_code}",
+                status_code=response.status_code,
+                retry_after_seconds=_retry_after_seconds(response),
+                retryable=response.status_code == 429 or response.status_code >= 500,
+            )
+
+        try:
+            raw = response.json()["choices"][0]["message"]["content"]
+            result = json.loads(raw)
+        except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+            raise PlannerAIInvalidResponse("Groq returned invalid structured JSON") from exc
+        if not isinstance(result, dict):
+            raise PlannerAIInvalidResponse("Groq returned non-object JSON")
+        return result
+
+    async def extract_tasks(self, text: str, *, today: date, target_day: date, config: PlannerConfig) -> list[TaskDraft]:
+        # Reuse Gemini's already-tested extraction/validation implementation.
+        result = await self._json_call(
+            (
+                "You are the structured task extractor for Voqelis Planner. "
+                "Convert natural Russian speech into clean task records, not a transcript. "
+                "Extract every distinct intended task. Keep title short and put purpose into why. "
+                "Use explicit intervals as start_time/end_time; use duration_minutes only for an "
+                "explicit duration. Normalize Russian clock expressions to HH:MM. Do not invent "
+                "reasons, urgency or schedule. Resolve relative dates from today. "
+                f"Today is {today.isoformat()}; default planning day is {target_day.isoformat()}. "
+                "Dates must be YYYY-MM-DD and times HH:MM.\n\nUser message:\n" + text
+            ),
+            TASK_SCHEMA,
+            schema_name="voqelis_tasks",
+        )
+        raw_tasks = result.get("tasks")
+        if not isinstance(raw_tasks, list):
+            raise PlannerAIInvalidResponse("Groq tasks field is not an array")
+        drafts=[]
+        for raw in raw_tasks:
+            if not isinstance(raw, dict):
+                raise PlannerAIInvalidResponse("Groq returned a non-object task")
+            try:
+                draft=TaskDraft(
+                    title=_clean_task_title(raw["title"]),
+                    day=date.fromisoformat(raw["day"]),
+                    start_minute=_parse_time(raw.get("start_time")),
+                    end_minute=_parse_time(raw.get("end_time")),
+                    duration_minutes=raw.get("duration_minutes"),
+                    period=raw.get("period"),
+                    preferred_minute=_parse_time(raw.get("preferred_time")),
+                    relation=raw.get("relation"),
+                    anchor=raw.get("anchor"),
+                    why=_optional_string(raw.get("why"), "why"),
+                    urgent=raw["urgent"],
+                    source_text=raw.get("source_text") or text,
+                )
+                _validate_task_draft(draft, today=today)
+            except PlannerAIInvalidResponse:
+                raise
+            except (KeyError, TypeError, ValueError) as exc:
+                raise PlannerAIInvalidResponse("Groq returned invalid task data") from exc
+            drafts.append(draft)
+        return [draft for draft in drafts if draft.title]
+
+    async def extract_review(self, text: str, *, task_title: str):
+        raise PlannerAIInvalidResponse("Groq review extraction is not enabled yet")
+
+    async def extract_full_review(self, text: str, *, items: list[dict]):
+        raise PlannerAIInvalidResponse("Groq full-review extraction is not enabled yet")
+
+
+class AIProviderRouter:
+    def __init__(self, *, primary: PlannerAI | None, fallback: PlannerAI | None):
+        if primary is None and fallback is None:
+            raise PlannerAIUnavailable("No planner AI provider is configured")
+        self.primary = primary
+        self.fallback = fallback
+        self._blocked_until = 0.0
+        self._lock = asyncio.Lock()
+
+    async def _available(self) -> bool:
+        async with self._lock:
+            return self.primary is not None and time.monotonic() >= self._blocked_until
+
+    async def _block(self, error: PlannerAIError) -> None:
+        cooldown = 60.0 if isinstance(error, PlannerAIProviderError) and error.status_code == 429 else 15.0
+        if isinstance(error, PlannerAIProviderError) and error.retry_after_seconds is not None:
+            cooldown = max(1.0, error.retry_after_seconds)
+        async with self._lock:
+            self._blocked_until = max(self._blocked_until, time.monotonic() + cooldown)
+
+    async def _call(self, method: str, *args, **kwargs):
+        if await self._available():
+            try:
+                return await getattr(self.primary, method)(*args, **kwargs)
+            except (PlannerAIProviderError, PlannerAIInvalidResponse, PlannerAIUnavailable) as exc:
+                await self._block(exc)
+                logger.warning("PLANNER_AI_FAILOVER primary=Groq fallback=Gemini reason=%s", exc)
+        if self.fallback is None:
+            raise PlannerAIUnavailable("Planner AI primary provider is unavailable")
+        result = await getattr(self.fallback, method)(*args, **kwargs)
+        logger.info("PLANNER_AI_PROVIDER provider=%s", getattr(self.fallback, "provider_name", "fallback"))
+        return result
+
+    async def extract_tasks(self, text: str, *, today: date, target_day: date, config: PlannerConfig):
+        return await self._call("extract_tasks", text, today=today, target_day=target_day, config=config)
+
+    async def extract_review(self, text: str, *, task_title: str):
+        return await self._call("extract_review", text, task_title=task_title)
+
+    async def extract_full_review(self, text: str, *, items: list[dict]):
+        return await self._call("extract_full_review", text, items=items)
 
 
 class FallbackPlannerAI:
