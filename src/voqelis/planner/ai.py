@@ -436,10 +436,57 @@ class GroqPlannerAI:
         return [draft for draft in drafts if draft.title]
 
     async def extract_review(self, text: str, *, task_title: str):
-        raise PlannerAIInvalidResponse("Groq review extraction is not enabled yet")
+        result = await self._json_call(
+            (
+                "Extract a personal daily review. Preserve wording closely and do not invent facts. "
+                f"Task: {task_title}\nUser text:\n{text}"
+            ),
+            REVIEW_SCHEMA,
+            schema_name="voqelis_review",
+        )
+        activity = _optional_string(result.get("activity"), "activity")
+        missed_reason = _optional_string(result.get("missed_reason"), "missed_reason")
+        feelings = result.get("feelings")
+        if not isinstance(feelings, list) or any(not isinstance(x, str) for x in feelings):
+            raise PlannerAIInvalidResponse("Groq returned invalid feelings")
+        return activity, tuple(x.strip() for x in feelings if x.strip()), missed_reason
 
     async def extract_full_review(self, text: str, *, items: list[dict]):
-        raise PlannerAIInvalidResponse("Groq full-review extraction is not enabled yet")
+        result = await self._json_call(
+            (
+                "Match a user's one-message full-day review to plan items. "
+                "Do not invent evidence; use null status when uncertain. "
+                "Preserve wording closely.\n"
+                f"Plan items: {json.dumps(items, ensure_ascii=False)}"
+                f"\nUser review:\n{text}"
+            ),
+            FULL_REVIEW_SCHEMA,
+            schema_name="voqelis_full_review",
+        )
+        raw_items = result.get("items")
+        if not isinstance(raw_items, list):
+            raise PlannerAIInvalidResponse("Groq returned invalid full-review items")
+        validated = []
+        for item in raw_items:
+            if not isinstance(item, dict):
+                raise PlannerAIInvalidResponse("Groq returned a non-object review item")
+            plan_item_id = item.get("plan_item_id")
+            status = item.get("status")
+            feelings = item.get("feelings")
+            if isinstance(plan_item_id, bool) or not isinstance(plan_item_id, int):
+                raise PlannerAIInvalidResponse("Groq returned invalid review item id")
+            if status not in {None, "+", "-", "+-"}:
+                raise PlannerAIInvalidResponse("Groq returned invalid review status")
+            if not isinstance(feelings, list) or any(not isinstance(x, str) for x in feelings):
+                raise PlannerAIInvalidResponse("Groq returned invalid review feelings")
+            validated.append({
+                "plan_item_id": plan_item_id,
+                "status": status,
+                "activity": _optional_string(item.get("activity"), "activity"),
+                "feelings": [x.strip() for x in feelings if x.strip()],
+                "missed_reason": _optional_string(item.get("missed_reason"), "missed_reason"),
+            })
+        return validated
 
 
 class AIProviderRouter:
