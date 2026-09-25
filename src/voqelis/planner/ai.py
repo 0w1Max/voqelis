@@ -102,11 +102,22 @@ def _parse_time(value: str | None) -> int | None:
         return None
     if not isinstance(value, str):
         raise PlannerAIInvalidResponse("AI returned non-string time")
+
+    value = value.strip()
     if not value:
         return None
-    parts = value.split(":", 1)
-    hour = int(parts[0])
-    minute = int(parts[1]) if len(parts) == 2 else 0
+
+    match = re.fullmatch(
+        r"(\\d{1,2}):(\\d{2})(?::\\d{2}(?:\\.\\d+)?)?(?:Z|[+-]\\d{2}:\\d{2})?",
+        value,
+    )
+    if match is None:
+        match = re.fullmatch(r"(\\d{1,2})", value)
+        if match is None:
+            raise ValueError("invalid time")
+
+    hour = int(match.group(1))
+    minute = int(match.group(2)) if match.lastindex and match.lastindex >= 2 else 0
     if not (0 <= hour <= 23 and 0 <= minute <= 59):
         raise ValueError("invalid time")
     return hour * 60 + minute
