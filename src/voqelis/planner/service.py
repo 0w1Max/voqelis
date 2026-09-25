@@ -25,7 +25,6 @@ from .render import render_full_review_proposal, render_plan_text, render_review
 from .scheduler import Scheduler, fmt_time
 from .store import PlannerStore
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -554,7 +553,7 @@ class PlannerService:
 
     async def start_plan_edit(self, user_id: int, day: date) -> str:
         async with self._user_lock(user_id):
-            self.store.ensure_daily_plan(user_id, day, self.config)
+            items = self.store.ensure_daily_plan(user_id, day, self.config)
             if not items:
                 return "На этот день пока нет задач для редактирования."
             self.store.set_session(user_id, "plan_edit_select", day, {})
