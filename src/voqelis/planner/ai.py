@@ -432,7 +432,7 @@ class _StructuredPlannerAI:
         config: PlannerConfig,
     ) -> list[TaskDraft]:
         del config
-        result = await self._json_call(_task_prompt(text, today=today, target_day=target_day), TASK_SCHEMA)
+        result = await self._json_call(\n            _task_prompt(text, today=today, target_day=target_day), TASK_SCHEMA\n        )
         return _parse_tasks_result(
             result,
             provider_name=self.provider_name,
