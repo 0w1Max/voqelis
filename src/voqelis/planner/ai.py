@@ -432,7 +432,7 @@ class _StructuredPlannerAI:
         config: PlannerConfig,
     ) -> list[TaskDraft]:
         del config
-        result = await self._json_call(text if False else _task_prompt(text, today=today, target_day=target_day), TASK_SCHEMA)
+        result = await self._json_call(_task_prompt(text, today=today, target_day=target_day), TASK_SCHEMA)
         return _parse_tasks_result(
             result,
             provider_name=self.provider_name,
@@ -635,10 +635,12 @@ class GeminiPlannerAI(_StructuredPlannerAI):
             f"{self.model}:generateContent"
         )
         payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "responseMimeType": "application/json",
-                "responseSchema": schema,
+            "model": self.model,
+            "input": prompt,
+            "response_format": {
+                "type": "text",
+                "mime_type": "application/json",
+                "schema": schema,
             },
         }
         try:
@@ -667,7 +669,7 @@ class GeminiPlannerAI(_StructuredPlannerAI):
 
         try:
             body = response.json()
-            raw = body["candidates"][0]["content"]["parts"][0]["text"]
+            raw = body["output_text"]
             result = json.loads(raw)
         except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
             raise PlannerAIInvalidResponse(
