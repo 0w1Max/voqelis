@@ -192,6 +192,11 @@ class PlannerStore:
                 "WHERE user_id=? AND kind=? AND recurring_template_id=?",
                 (user_id, TaskKind.RECURRING.value, template_id),
             )
+            # Removed recurring materializations must not leave orphaned reviews.
+            self.db.execute(
+                "DELETE FROM task_reviews "
+                "WHERE plan_item_id NOT IN (SELECT id FROM plan_items)"
+            )
 
         current_keys = {
             (
