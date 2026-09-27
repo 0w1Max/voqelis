@@ -2,9 +2,17 @@ from __future__ import annotations
 
 from datetime import date
 
+import httpx
 import pytest
 
-from voqelis.planner.ai import TASK_SCHEMA, AIProviderRouter, _strict_schema
+from voqelis.planner.ai import (
+    TASK_SCHEMA,
+    AIProviderRouter,
+    GeminiPlannerAI,
+    GroqPlannerAI,
+    _parse_time,
+    _strict_schema,
+)
 from voqelis.planner.config import PlannerConfig
 from voqelis.planner.models import (
     PlannerAIInvalidResponse,
@@ -114,3 +122,93 @@ def test_strict_schema_closes_nested_objects():
     schema = _strict_schema(TASK_SCHEMA)
     assert schema["additionalProperties"] is False
     assert schema["properties"]["tasks"]["items"]["additionalProperties"] is False
+
+
+def test_parse_time_accepts_provider_time_formats():
+    assert _parse_time("20:00") == 20 * 60
+    assert _parse_time("20:00:00") == 20 * 60
+    assert _parse_time("20:00:00.123+03:00") == 20 * 60
+    assert _parse_time("20:00+03:00") == 20 * 60
+    assert _parse_time(None) is None
+
+
+@pytest.mark.asyncio
+async def test_groq_structured_output_is_parsed_without_network():
+    payload = {
+        "choices": [{
+            "message": {
+                "content": '{"tasks":[{"title":"сходить в магазин","day":"2026-09-26",'
+                '"start_time":"20:00:00+03:00","end_time":null,"duration_minutes":60,'
+                '"period":null,"preferred_time":null,"relation":null,"anchor":null,'
+                '"why":"купить продукты","urgent":false}]}'
+            }
+        }]
+    }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "api.groq.com"
+        body = request.read()
+        assert b"response_format" in body
+        return httpx.Response(200, json=payload)
+
+    transport = httpx.MockTransport(handler)
+    ai = GroqPlannerAI(
+        "test-key",
+        model="qwen/qwen3.8-27b",
+        transport=transport,
+    )
+    result = await ai.extract_tasks(
+        "завтра в 8 вечера сходить в магазин на один час, чтобы купить продукты",
+        today=date(2026, 9, 25),
+        target_day=date(2026, 9, 26),
+        config=PlannerConfig(),
+    )
+    assert len(result) == 1
+    assert result[0].start_minute == 20 * 60
+    assert result[0].duration_minutes == 60
+    assert result[0].title == "сходить в магазин"
+    assert result[0].why == "купить продукты"
+
+
+@pytest.mark.asyncio
+async def test_gemini_http_429_is_provider_error():
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, headers={"retry-after": "12"})
+
+    ai = GeminiPlannerAI(
+        "test-key",
+        model="gemini-3.8-flash",
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(PlannerAIProviderError) as exc_info:
+        await ai.extract_tasks(
+            "завтра купить продукты",
+            today=date(2026, 9, 25),
+            target_day=date(2026, 9, 26),
+            config=PlannerConfig(),
+        )
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.retry_after_seconds == 12
+    assert exc_info.value.retryable is True
+
+
+@pytest.mark.asyncio
+async def test_router_uses_fallback_when_primary_provider_returns_http_error():
+    primary = FakeProvider(
+        error=PlannerAIProviderError(
+            "server error",
+            status_code=503,
+            retryable=True,
+        )
+    )
+    fallback = FakeProvider([task("fallback")])
+    router = AIProviderRouter(primary=primary, fallback=fallback)
+    result = await router.extract_tasks(
+        "завтра тест",
+        today=date(2026, 9, 25),
+        target_day=date(2026, 9, 26),
+        config=PlannerConfig(),
+    )
+    assert result == [task("fallback")]
+    assert primary.calls == 1
+    assert fallback.calls == 1
