@@ -641,10 +641,7 @@ class GeminiPlannerAI(_StructuredPlannerAI):
         self.transport = transport
 
     async def _json_call(self, prompt: str, schema: dict) -> dict:
-        url = (
-            f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{self.model}:generateContent"
-        )
+        url = "https://generativelanguage.googleapis.com/v1beta/interactions"
         payload = {
             "model": self.model,
             "input": prompt,
