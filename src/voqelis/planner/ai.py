@@ -677,9 +677,24 @@ class GeminiPlannerAI(_StructuredPlannerAI):
 
         try:
             body = response.json()
-            raw = body["output_text"]
+            raw = body.get("output_text")
+            if not isinstance(raw, str) or not raw.strip():
+                for step in body.get("steps", []) or []:
+                    if not isinstance(step, dict):
+                        continue
+                    content = step.get("content")
+                    if not isinstance(content, list):
+                        continue
+                    for item in content:
+                        if isinstance(item, dict) and isinstance(item.get("text"), str):
+                            raw = item["text"]
+                            break
+                    if isinstance(raw, str) and raw.strip():
+                        break
+            if not isinstance(raw, str) or not raw.strip():
+                raise ValueError("missing Gemini text output")
             result = json.loads(raw)
-        except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+        except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as exc:
             raise PlannerAIInvalidResponse(
                 "Gemini returned invalid structured JSON"
             ) from exc
