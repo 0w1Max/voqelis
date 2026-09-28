@@ -175,7 +175,13 @@ async def test_gemini_interactions_response_is_parsed():
     payload = {
         "id": "test-interaction",
         "status": "completed",
-        "output_text": "{\"tasks\":[{\"title\":\"сходить в магазин\",\"day\":\"2026-09-26\",\"start_time\":\"20:00\",\"end_time\":null,\"duration_minutes\":60,\"period\":null,\"preferred_time\":null,\"relation\":null,\"anchor\":null,\"why\":\"купить продукты\",\"urgent\":false}]}",
+        "steps": [{
+            "type": "model_output",
+            "content": [{
+                "type": "text",
+                "text": "{\"tasks\":[{\"title\":\"сходить в магазин\",\"day\":\"2026-09-26\",\"start_time\":\"20:00\",\"end_time\":null,\"duration_minutes\":60,\"period\":null,\"preferred_time\":null,\"relation\":null,\"anchor\":null,\"why\":\"купить продукты\",\"urgent\":false}]}"
+            }]
+        }],
     }
 
     async def handler(request: httpx.Request) -> httpx.Response:
