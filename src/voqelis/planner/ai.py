@@ -312,6 +312,15 @@ def _parse_tasks_result(
                     f"{provider_name} returned a non-string {field}"
                 )
 
+        # relation and anchor are meaningful only as a pair. Some structured
+        # model responses occasionally emit one side while leaving the other
+        # null even when the user never mentioned an anchor. Treat that as
+        # "no relation specified" instead of rejecting the whole otherwise
+        # usable task.
+        if (relation is None) != (anchor is None):
+            relation = None
+            anchor = None
+
         try:
             start = _parse_time(raw.get("start_time"))
             end = _parse_time(raw.get("end_time"))
