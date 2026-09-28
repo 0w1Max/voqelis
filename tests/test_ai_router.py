@@ -171,6 +171,38 @@ async def test_groq_structured_output_is_parsed_without_network():
 
 
 @pytest.mark.asyncio
+async def test_gemini_interactions_response_is_parsed():
+    payload = {
+        "id": "test-interaction",
+        "status": "completed",
+        "output_text": "{\"tasks\":[{\"title\":\"сходить в магазин\",\"day\":\"2026-09-26\",\"start_time\":\"20:00\",\"end_time\":null,\"duration_minutes\":60,\"period\":null,\"preferred_time\":null,\"relation\":null,\"anchor\":null,\"why\":\"купить продукты\",\"urgent\":false}]}",
+    }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "generativelanguage.googleapis.com"
+        assert request.url.path == "/v1beta/interactions"
+        body = request.read()
+        assert b"\"response_format\"" in body
+        assert b"\"mime_type\":\"application/json\"" in body
+        return httpx.Response(200, json=payload)
+
+    ai = GeminiPlannerAI(
+        "test-key",
+        model="gemini-3.8-flash",
+        transport=httpx.MockTransport(handler),
+    )
+    result = await ai.extract_tasks(
+        "завтра в 8 вечера сходить в магазин на один час, чтобы купить продукты",
+        today=date(2026, 9, 25),
+        target_day=date(2026, 9, 26),
+        config=PlannerConfig(),
+    )
+    assert result[0].start_minute == 20 * 60
+    assert result[0].duration_minutes == 60
+    assert result[0].title == "сходить в магазин"
+
+
+@pytest.mark.asyncio
 async def test_gemini_http_429_is_provider_error():
     async def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(429, headers={"retry-after": "12"})
