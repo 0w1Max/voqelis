@@ -764,7 +764,18 @@ class PlannerService:
     async def start_history(self, user_id: int, today: date) -> str:
         async with self._user_lock(user_id):
             self.store.set_session(user_id, "history_select", today, {})
-            return await self.show_plan_history(user_id, today)
+            end_day = today + timedelta(days=1)
+            start_day = today - timedelta(days=5)
+            rows = self.store.history_counts(user_id, start_day, end_day)
+            session = self.store.session(user_id)
+            active = date.fromisoformat(session["target_day"]) if session and session["target_day"] else end_day
+            lines = ["🗓 История планов", f"Активный план: {active.strftime('%d.%m.%Y')}", ""]
+            for plan_day, count in reversed(rows):
+                marker = " ← активный" if plan_day == active else ""
+                lines.append(f"{plan_day.strftime('%d.%m.%Y')} — {count} задач{marker}")
+            lines.append("")
+            lines.append("Чтобы открыть конкретный день, напиши дату в формате ДД.ММ.ГГГГ.")
+            return "\n".join(lines)
 
     async def _history_select(self, user_id: int, text: str, today: date) -> list[str]:
         try:
