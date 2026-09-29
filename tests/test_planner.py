@@ -266,6 +266,39 @@ def test_exports_create_files_with_merged_multihour_item(tmp_path: Path):
     store.close()
 
 
+def test_clear_day_preserves_recurring_tasks_by_default(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    store.ensure_daily_plan(1, day)
+    store.add_item(
+        PlanItem(
+            0, 1, day, "Обычная задача", None,
+            15 * 60, 16 * 60, TaskKind.ORDINARY,
+        )
+    )
+
+    deleted = store.clear_day(1, day)
+
+    assert deleted == 1
+    remaining = store.plan_items(1, day)
+    assert len(remaining) == 3
+    assert all(item.kind == TaskKind.RECURRING for item in remaining)
+    store.close()
+
+
+def test_clear_day_can_explicitly_remove_recurring_tasks(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    store.ensure_daily_plan(1, day)
+
+    deleted = store.clear_day(1, day, include_recurring=True)
+
+    assert deleted == 3
+    assert store.plan_items(1, day) == []
+    assert store.is_day_cleared(1, day)
+    store.close()
+
+
 def test_flexible_task_uses_first_free_slot(tmp_path: Path):
     store = PlannerStore(tmp_path / "planner.sqlite3")
     day = date(2026, 9, 23)
