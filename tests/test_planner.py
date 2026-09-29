@@ -149,6 +149,36 @@ def test_legacy_thirteen_recurring_tasks_are_migrated(tmp_path: Path):
     store.close()
 
 
+def test_delete_recurring_item_does_not_reappear_on_same_day(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    items = store.ensure_daily_plan(1, day)
+    recurring = items[0]
+
+    deleted = store.delete_plan_item(1, recurring.id)
+    assert deleted.id == recurring.id
+    assert not any(item.id == recurring.id for item in store.plan_items(1, day))
+
+    again = store.ensure_daily_plan(1, day)
+    assert not any(item.recurring_template_id == recurring.recurring_template_id for item in again)
+    store.close()
+
+
+def test_clear_day_removes_all_rows_and_suppresses_recurring_materialization(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    items = store.ensure_daily_plan(1, day)
+    assert items
+
+    removed = store.clear_day(1, day)
+    assert removed == len(items)
+    assert store.plan_items(1, day) == []
+
+    again = store.ensure_daily_plan(1, day)
+    assert again == []
+    store.close()
+
+
 def test_plan_item_fields_can_be_edited(tmp_path: Path):
     store = PlannerStore(tmp_path / "planner.sqlite3")
     items = store.ensure_daily_plan(1, date(2026, 9, 23))
