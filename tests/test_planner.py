@@ -164,13 +164,13 @@ def test_delete_recurring_item_does_not_reappear_on_same_day(tmp_path: Path):
     store.close()
 
 
-def test_clear_day_removes_all_rows_and_suppresses_recurring_materialization(tmp_path: Path):
+def test_clear_day_explicitly_removes_all_rows_and_suppresses_recurring_materialization(tmp_path: Path):
     store = PlannerStore(tmp_path / "planner.sqlite3")
     day = date(2026, 9, 23)
     items = store.ensure_daily_plan(1, day)
     assert items
 
-    removed = store.clear_day(1, day)
+    removed = store.clear_day(1, day, include_recurring=True)
     assert removed == len(items)
     assert store.plan_items(1, day) == []
 
