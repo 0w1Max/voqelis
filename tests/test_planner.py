@@ -23,7 +23,7 @@ from voqelis.planner.store import PlannerStore
 def test_parser_understands_evening_clock_and_range():
     config = PlannerConfig(recurring_templates=())
     single = parse_voice(
-        "завтра в 8 вечера читать книгу",
+        "завтра в 8 вечера читать книгу для отдыха",
         today=date(2026, 9, 24),
         config=config,
     )[0]
