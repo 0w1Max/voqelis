@@ -793,10 +793,7 @@ class PlannerService:
             items = self.store.plan_items(user_id, selected)
 
         if not items:
-            return [
-                f"🗓 Активный план: {selected.strftime('%d.%m.%Y')}\n\n"
-                f"На эту дату пока нет сохранённого плана."
-            ]
+            return [f"🗓 Активный план: {selected.strftime('%d.%m.%Y')}\n\nНа эту дату пока нет сохранённого плана."]
         return [
             f"🗓 Активный план: {selected.strftime('%d.%m.%Y')}\n\n"
             + render_plan_text(selected, items, self.config)
