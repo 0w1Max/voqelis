@@ -40,6 +40,33 @@ def test_parser_understands_evening_clock_and_range():
     assert ranged.duration_minutes == 60
 
 
+class FailingPlannerAI:
+    async def extract_tasks(self, text, *, today, target_day, config):
+        del text, today, target_day, config
+        from voqelis.planner.models import PlannerAIProviderError
+
+        raise PlannerAIProviderError("providers unavailable")
+
+
+@pytest.mark.asyncio
+async def test_service_falls_back_to_local_parser_when_ai_is_unavailable(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    config = PlannerConfig(recurring_templates=())
+    service = PlannerService(store, config, ai=FailingPlannerAI())
+
+    replies = await service.add_from_text(
+        1,
+        "завтра в 8 вечера читать книгу",
+        date(2026, 9, 29),
+    )
+
+    assert "Добавил: 20:00–21:00 — читать книгу" in replies[0]
+    items = store.plan_items(1, date(2026, 9, 30))
+    assert len(items) == 1
+    assert items[0].start_minute == 20 * 60
+    store.close()
+
+
 def test_period_and_duration_extraction():
     drafts = parse_voice(
         "Завтра днем с 12 до 15 заниматься проектом",
