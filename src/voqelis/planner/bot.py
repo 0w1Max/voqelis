@@ -28,6 +28,7 @@ def planner_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text="📅 Планирование дня")],
             [KeyboardButton(text="📋 Текущий план"), KeyboardButton(text="🗓 История планов")],
             [KeyboardButton(text="🔎 Анализ активного дня"), KeyboardButton(text="🧹 Очистить план")],
+            [KeyboardButton(text="🗑 Удалить строку")],
             [KeyboardButton(text="🎙️ Рассказать весь день")],
             [KeyboardButton(text="✏️ Редактировать план")],
             [KeyboardButton(text="✏️ Исправить анализ")],
@@ -236,7 +237,15 @@ def create_planner_router(
     async def on_plan_history(message: Message) -> None:
         if allowed(message):
             await message.answer(
-                await service.show_plan_history(message.from_user.id, planner_today()),
+                await service.start_history(message.from_user.id, planner_today()),
+                reply_markup=planner_keyboard(),
+            )
+
+    @router.message(F.text == "🗑 Удалить строку")
+    async def on_delete_item(message: Message) -> None:
+        if allowed(message):
+            await message.answer(
+                await service.start_delete_item(message.from_user.id, active_planner_day(message.from_user.id)),
                 reply_markup=planner_keyboard(),
             )
 
