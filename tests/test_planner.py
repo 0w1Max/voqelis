@@ -56,7 +56,7 @@ async def test_service_falls_back_to_local_parser_when_ai_is_unavailable(tmp_pat
 
     replies = await service.add_from_text(
         1,
-        "завтра в 8 вечера читать книгу",
+        "завтра в 8 вечера читать книгу для отдыха",
         date(2026, 9, 29),
     )
 
