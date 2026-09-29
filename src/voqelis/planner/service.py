@@ -55,9 +55,16 @@ class PlannerService:
         session = self.store.session(user_id)
         target = date.fromisoformat(session["target_day"]) if session and session["target_day"] else today + timedelta(days=1)
         if self.ai is not None:
-            drafts = await self.ai.extract_tasks(
-                text, today=today, target_day=target, config=self.config
-            )
+            try:
+                drafts = await self.ai.extract_tasks(
+                    text, today=today, target_day=target, config=self.config
+                )
+            except PlannerAIError as exc:
+                logger.warning(
+                    "PLANNER_AI_LOCAL_FALLBACK reason=%s",
+                    exc,
+                )
+                drafts = parse_voice(text, today=today, config=self.config)
         else:
             # Explicit fallback remains available to unit tests/local development.
             drafts = parse_voice(text, today=today, config=self.config)
