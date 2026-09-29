@@ -286,6 +286,28 @@ def test_clear_day_preserves_recurring_tasks_by_default(tmp_path: Path):
     store.close()
 
 
+def test_clear_plan_requires_explicit_recurring_choice(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    store.ensure_daily_plan(1, day)
+    store.add_item(
+        PlanItem(
+            0, 1, day, "Обычная задача", None,
+            15 * 60, 16 * 60, TaskKind.ORDINARY,
+        )
+    )
+    service = PlannerService(store, PlannerConfig())
+
+    prompt = asyncio.run(service.start_clear_plan(1, day))
+    assert "Ежедневных задач: 3" in prompt
+    assert store.session(1)["state"] == "plan_clear_confirm"
+
+    replies = asyncio.run(service.handle_callback(1, "pl:clear:ordinary", day))
+    assert "ежедневные задачи сохранены" in replies[0]
+    assert len(store.plan_items(1, day)) == 3
+    store.close()
+
+
 def test_clear_day_can_explicitly_remove_recurring_tasks(tmp_path: Path):
     store = PlannerStore(tmp_path / "planner.sqlite3")
     day = date(2026, 9, 23)
