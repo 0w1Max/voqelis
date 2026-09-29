@@ -256,6 +256,50 @@ class PlannerStore:
         ).fetchall()
         return [self._item(row) for row in rows]
 
+    def history_counts(self, user_id: int, start_day: date, end_day: date) -> list[tuple[date, int]]:
+        rows = self.db.execute(
+            "SELECT day, COUNT(*) AS count FROM plan_items WHERE user_id=? AND day BETWEEN ? AND ? GROUP BY day",
+            (user_id, start_day.isoformat(), end_day.isoformat()),
+        ).fetchall()
+        counts = {date.fromisoformat(row["day"]): int(row["count"]) for row in rows}
+        return [(start_day.fromordinal(start_day.toordinal() + offset), counts.get(start_day.fromordinal(start_day.toordinal() + offset), 0)) for offset in range((end_day - start_day).days + 1)]
+
+    def is_day_cleared(self, user_id: int, day: date) -> bool:
+        return self.db.execute("SELECT 1 FROM planner_day_clearances WHERE user_id=? AND day=?", (user_id, day.isoformat())).fetchone() is not None
+
+    def clear_day(self, user_id: int, day: date) -> int:
+        try:
+            self.db.execute("BEGIN IMMEDIATE")
+            rows = self.db.execute("SELECT id FROM plan_items WHERE user_id=? AND day=?", (user_id, day.isoformat())).fetchall()
+            ids = [int(row["id"]) for row in rows]
+            if ids:
+                placeholders = ",".join("?" for _ in ids)
+                self.db.execute(f"DELETE FROM task_reviews WHERE plan_item_id IN ({placeholders})", ids)
+                self.db.execute(f"DELETE FROM plan_items WHERE id IN ({placeholders})", ids)
+            self.db.execute("DELETE FROM day_reviews WHERE user_id=? AND day=?", (user_id, day.isoformat()))
+            self.db.execute("INSERT INTO planner_day_clearances(user_id,day) VALUES(?,?) ON CONFLICT(user_id,day) DO NOTHING", (user_id, day.isoformat()))
+            self.db.commit()
+            return len(ids)
+        except Exception:
+            self.db.rollback()
+            raise
+
+    def delete_plan_item(self, user_id: int, item_id: int) -> PlanItem:
+        try:
+            self.db.execute("BEGIN IMMEDIATE")
+            row = self.db.execute("SELECT * FROM plan_items WHERE id=? AND user_id=?", (item_id, user_id)).fetchone()
+            if row is None:
+                raise KeyError(item_id)
+            item = self._item(row)
+            self.db.execute("DELETE FROM task_reviews WHERE plan_item_id=?", (item_id,))
+            self.db.execute("DELETE FROM plan_items WHERE id=? AND user_id=?", (item_id, user_id))
+            if item.kind == TaskKind.RECURRING and item.recurring_template_id is not None:
+                self.db.execute("INSERT INTO recurring_exclusions(user_id,day,recurring_template_id) VALUES(?,?,?) ON CONFLICT(user_id,day,recurring_template_id) DO NOTHING", (user_id, item.day.isoformat(), item.recurring_template_id))
+            self.db.commit()
+            return item
+        except Exception:
+            self.db.rollback()
+            raise
     def get_plan_item(self, item_id: int) -> PlanItem:
         row = self.db.execute("SELECT * FROM plan_items WHERE id=?", (item_id,)).fetchone()
         if not row:
@@ -437,6 +481,14 @@ class PlannerStore:
             existing = self.plan_items(user_id, day)
 
             self.seed_defaults(user_id, config)
+            cleared = self.is_day_cleared(user_id, day)
+            excluded_templates = {
+                int(row["recurring_template_id"])
+                for row in self.db.execute(
+                    "SELECT recurring_template_id FROM recurring_exclusions WHERE user_id=? AND day=?",
+                    (user_id, day.isoformat()),
+                ).fetchall()
+            }
             rows = [
                 row for row in self.recurring(user_id)
                 if config.recurring_applies_on(
@@ -457,7 +509,9 @@ class PlannerStore:
                 if item.kind == TaskKind.RECURRING and item.recurring_template_id is not None
             }
             for row in rows:
-                if int(row["id"]) in materialized_template_ids:
+                if cleared:
+                    break
+                if int(row["id"]) in materialized_template_ids or int(row["id"]) in excluded_templates:
                     continue
                 start = int(row["start_minute"])
                 end = start + int(row["duration_minutes"])
