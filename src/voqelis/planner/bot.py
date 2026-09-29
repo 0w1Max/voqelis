@@ -26,7 +26,8 @@ def planner_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="📅 Планирование дня")],
-            [KeyboardButton(text="📋 Текущий план"), KeyboardButton(text="🔎 Анализ сегодня")],
+            [KeyboardButton(text="📋 Текущий план"), KeyboardButton(text="🗓 История планов")],
+            [KeyboardButton(text="🔎 Анализ активного дня"), KeyboardButton(text="🧹 Очистить план")],
             [KeyboardButton(text="🎙️ Рассказать весь день")],
             [KeyboardButton(text="✏️ Редактировать план")],
             [KeyboardButton(text="✏️ Исправить анализ")],
@@ -198,7 +199,7 @@ def create_planner_router(
     async def on_review_command(message: Message) -> None:
         if allowed(message):
             await message.answer(
-                await service.start_review(message.from_user.id, planner_today()),
+                await service.start_review(message.from_user.id, active_planner_day(message.from_user.id)),
                 reply_markup=planner_markup_for_state(service, message.from_user.id),
             )
 
@@ -231,7 +232,23 @@ def create_planner_router(
                 reply_markup=planner_keyboard(),
             )
 
-    @router.message(F.text == "🔎 Анализ сегодня")
+    @router.message(F.text == "🗓 История планов")
+    async def on_plan_history(message: Message) -> None:
+        if allowed(message):
+            await message.answer(
+                await service.show_plan_history(message.from_user.id, planner_today()),
+                reply_markup=planner_keyboard(),
+            )
+
+    @router.message(F.text == "🧹 Очистить план")
+    async def on_clear_plan(message: Message) -> None:
+        if allowed(message):
+            await message.answer(
+                await service.start_clear_plan(message.from_user.id, active_planner_day(message.from_user.id)),
+                reply_markup=planner_markup_for_state(service, message.from_user.id),
+            )
+
+    @router.message(F.text == "🔎 Анализ активного дня")
     async def on_review(message: Message) -> None:
         if allowed(message):
             await message.answer(
