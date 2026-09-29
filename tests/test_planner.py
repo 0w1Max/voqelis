@@ -115,8 +115,8 @@ def test_legacy_thirteen_recurring_tasks_are_migrated(tmp_path: Path):
     legacy = tuple(
         RecurringTemplateSpec(title, "why", start, 60)
         for title, start in (
-            ("Проснуться + молитва + умыться + зарядка (КД)", 540),
-            ("Завтрак + душ (КД)", 600),
+            ("Проснуться + молитва + умыться + зарядка", 540),
+            ("Завтрак + душ", 600),
             ("Послушать спикерскую + заниматься проектами", 660),
             ("Читать книгу", 780),
             ("Переделать резюме", 840),
@@ -143,8 +143,8 @@ def test_legacy_thirteen_recurring_tasks_are_migrated(tmp_path: Path):
         (item.title, item.start_minute, item.end_minute)
         for item in old_day_items
     } == {
-        ("Проснуться + молитва + умыться + зарядка (КД)", 540, 600),
-        ("Завтрак + душ (КД)", 600, 660),
+        ("Проснуться + молитва + умыться + зарядка", 540, 600),
+        ("Завтрак + душ", 600, 660),
     }
     store.close()
 
