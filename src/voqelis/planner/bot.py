@@ -269,7 +269,7 @@ def create_planner_router(
     async def on_full_review(message: Message) -> None:
         if allowed(message):
             await message.answer(
-                await service.start_full_review(message.from_user.id, planner_today()),
+                await service.start_full_review(message.from_user.id, active_planner_day(message.from_user.id)),
                 reply_markup=planner_markup_for_state(service, message.from_user.id),
             )
 
@@ -277,7 +277,7 @@ def create_planner_router(
     async def on_review_edit(message: Message) -> None:
         if allowed(message):
             await message.answer(
-                await service.start_review_edit(message.from_user.id, planner_today()),
+                await service.start_review_edit(message.from_user.id, active_planner_day(message.from_user.id)),
                 reply_markup=planner_markup_for_state(service, message.from_user.id),
             )
 
