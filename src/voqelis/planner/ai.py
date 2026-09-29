@@ -240,6 +240,8 @@ def _task_prompt(text: str, *, today: date, target_day: date) -> str:
         "'заниматься своими проектами', not 'мне на завтра надо запланировать читать книгу'. "
         "Never put planning instructions or the user's reason inside title. "
         "Put a purpose introduced by 'чтобы', 'для', 'для того чтобы' or equivalent into why. "
+        "If several consecutive purposes are listed, including pause-separated phrases like 'для здоровья, для настроения, для духовного опыта', keep them together in one why field and separate them with commas. "
+        "Correct obvious Russian inflection/transcription slips when the intended word is clear from context, but do not invent facts or change the user's meaning. "
         "Use duration_minutes only when the user explicitly gives a duration. "
         "For an explicit interval, set start_time and end_time and set duration_minutes to null. "
         "For an exact start, set only start_time and leave end_time null. "
