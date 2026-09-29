@@ -156,7 +156,6 @@ class Scheduler:
                     item.title.strip().casefold() == normalized_title
                     and item.start_minute == desired[0]
                     and item.end_minute == desired[1]
-                    and (item.why or "").strip() == (draft.why or "").strip()
                 )
             ),
             None,
