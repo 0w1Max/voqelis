@@ -267,17 +267,41 @@ class PlannerStore:
     def is_day_cleared(self, user_id: int, day: date) -> bool:
         return self.db.execute("SELECT 1 FROM planner_day_clearances WHERE user_id=? AND day=?", (user_id, day.isoformat())).fetchone() is not None
 
-    def clear_day(self, user_id: int, day: date) -> int:
+    def clear_day(self, user_id: int, day: date, *, include_recurring: bool = False) -> int:
         try:
             self.db.execute("BEGIN IMMEDIATE")
-            rows = self.db.execute("SELECT id FROM plan_items WHERE user_id=? AND day=?", (user_id, day.isoformat())).fetchall()
+            if include_recurring:
+                rows = self.db.execute(
+                    "SELECT id FROM plan_items WHERE user_id=? AND day=?",
+                    (user_id, day.isoformat()),
+                ).fetchall()
+            else:
+                rows = self.db.execute(
+                    "SELECT id FROM plan_items "
+                    "WHERE user_id=? AND day=? AND kind!=?",
+                    (user_id, day.isoformat(), TaskKind.RECURRING.value),
+                ).fetchall()
             ids = [int(row["id"]) for row in rows]
             if ids:
                 placeholders = ",".join("?" for _ in ids)
-                self.db.execute(f"DELETE FROM task_reviews WHERE plan_item_id IN ({placeholders})", ids)
-                self.db.execute(f"DELETE FROM plan_items WHERE id IN ({placeholders})", ids)
-            self.db.execute("DELETE FROM day_reviews WHERE user_id=? AND day=?", (user_id, day.isoformat()))
-            self.db.execute("INSERT INTO planner_day_clearances(user_id,day) VALUES(?,?) ON CONFLICT(user_id,day) DO NOTHING", (user_id, day.isoformat()))
+                self.db.execute(
+                    f"DELETE FROM task_reviews WHERE plan_item_id IN ({placeholders})",
+                    ids,
+                )
+                self.db.execute(
+                    f"DELETE FROM plan_items WHERE id IN ({placeholders})",
+                    ids,
+                )
+            self.db.execute(
+                "DELETE FROM day_reviews WHERE user_id=? AND day=?",
+                (user_id, day.isoformat()),
+            )
+            if include_recurring:
+                self.db.execute(
+                    "INSERT INTO planner_day_clearances(user_id,day) VALUES(?,?) "
+                    "ON CONFLICT(user_id,day) DO NOTHING",
+                    (user_id, day.isoformat()),
+                )
             self.db.commit()
             return len(ids)
         except Exception:
