@@ -60,6 +60,8 @@ CREATE TABLE IF NOT EXISTS planner_sessions (
     payload TEXT NOT NULL DEFAULT '{}',
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS planner_day_clearances (user_id INTEGER NOT NULL, day TEXT NOT NULL, PRIMARY KEY (user_id, day));
+CREATE TABLE IF NOT EXISTS recurring_exclusions (user_id INTEGER NOT NULL, day TEXT NOT NULL, recurring_template_id INTEGER NOT NULL, PRIMARY KEY (user_id, day, recurring_template_id));
 """
 
 
@@ -73,6 +75,7 @@ class PlannerStore:
         self.db.executescript(SCHEMA)
         self._migrate_sessions()
         self._migrate_recurring_templates()
+        self._migrate_legacy_recurring_titles()
         self.db.commit()
 
     def _migrate_sessions(self) -> None:
@@ -103,6 +106,22 @@ class PlannerStore:
                 "ALTER TABLE recurring_templates ADD COLUMN recurrence_days TEXT NOT NULL DEFAULT '[]'"
             )
 
+    def _migrate_legacy_recurring_titles(self) -> None:
+        title_map = {
+            "Проснуться + молитва + умыться + зарядка (КД)": "Проснуться + молитва + умыться + зарядка",
+            "Завтрак + душ (КД)": "Завтрак + душ",
+            "Подготовка ко сну + дневник успеха + молитва (КД)": "Подготовка ко сну + дневник успеха + молитва",
+        }
+        for old_title, new_title in title_map.items():
+            rows = self.db.execute("SELECT id FROM recurring_templates WHERE title=?", (old_title,)).fetchall()
+            if not rows:
+                continue
+            self.db.execute("UPDATE recurring_templates SET title=? WHERE title=?", (new_title, old_title))
+            for row in rows:
+                self.db.execute(
+                    "UPDATE plan_items SET title=? WHERE recurring_template_id=? AND title=?",
+                    (new_title, int(row["id"]), old_title),
+                )
     def close(self) -> None:
         self.db.close()
 
@@ -141,8 +160,8 @@ class PlannerStore:
     def seed_defaults(self, user_id: int, config: PlannerConfig) -> None:
         existing = self.recurring(user_id)
         legacy_defs = (
-            ("Проснуться + молитва + умыться + зарядка (КД)", 540, 60),
-            ("Завтрак + душ (КД)", 600, 60),
+            ("Проснуться + молитва + умыться + зарядка", 540, 60),
+            ("Завтрак + душ", 600, 60),
             ("Послушать спикерскую + заниматься проектами", 660, 60),
             ("Читать книгу", 780, 60),
             ("Переделать резюме", 840, 60),
