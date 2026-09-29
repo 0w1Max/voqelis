@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import asdict, replace
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -779,8 +779,9 @@ class PlannerService:
 
     async def _history_select(self, user_id: int, text: str, today: date) -> list[str]:
         try:
-            selected = date.fromisoformat(datetime.strptime(text.strip(), "%d.%m.%Y").date().isoformat())
-        except ValueError:
+            day, month, year = (int(part) for part in text.strip().split("."))
+            selected = date(year, month, day)
+        except (TypeError, ValueError):
             return ["Напиши дату в формате ДД.ММ.ГГГГ."]
         if selected < today - timedelta(days=30) or selected > today + timedelta(days=30):
             return ["Эта дата вне доступного диапазона истории."]
@@ -794,7 +795,7 @@ class PlannerService:
         if not items:
             return [
                 f"🗓 Активный план: {selected.strftime('%d.%m.%Y')}\n\n"
-                "На эту дату пока нет сохранённого плана."
+                f"На эту дату пока нет сохранённого плана."
             ]
         return [
             f"🗓 Активный план: {selected.strftime('%d.%m.%Y')}\n\n"
