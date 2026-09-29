@@ -110,6 +110,27 @@ def planner_markup_for_state(
             )
         return InlineKeyboardMarkup(inline_keyboard=rows)
 
+    if state == "plan_clear_confirm":
+        return InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="🧹 Очистить только обычные",
+                        callback_data="pl:clear:ordinary",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="⚠️ Очистить всё, включая ежедневные",
+                        callback_data="pl:clear:all",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(text="❌ Отмена", callback_data="pl:clear:no"),
+                ],
+            ]
+        )
+
     if state == "review_full_confirm":
         return InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="✅ Сохранить", callback_data="pl:full:yes"),
