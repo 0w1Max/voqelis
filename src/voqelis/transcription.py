@@ -66,7 +66,19 @@ class Transcriber:
         )
 
         # faster-whisper starts inference while the segment generator is iterated.
-        text = "".join(segment.text for segment in segments).strip()
+        segment_list = list(segments)
+        text = "".join(segment.text for segment in segment_list).strip()
+        pause_parts: list[str] = []
+        previous_end = 0.0
+        for segment in segment_list:
+            segment_text = segment.text.strip()
+            if not segment_text:
+                continue
+            if pause_parts and segment.start - previous_end >= 0.6:
+                pause_parts.append(",")
+            pause_parts.append(segment_text)
+            previous_end = segment.end
+        pause_aware_text = " ".join(pause_parts).replace(" ,", ",").strip()
         elapsed = time.monotonic() - started
 
         return TranscriptionResult(
@@ -76,6 +88,7 @@ class Transcriber:
             duration_seconds=float(info.duration),
             duration_after_vad_seconds=float(info.duration_after_vad),
             processing_seconds=elapsed,
+            pause_aware_text=pause_aware_text,
         )
 
     async def transcribe(self, audio_path: str) -> TranscriptionResult:
