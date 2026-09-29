@@ -171,7 +171,7 @@ class PlannerService:
                 )
                 replies.append(self._conflict_text(result))
                 break
-            message = f"✅ Добавил: {fmt_time(result.start_minute)}–{fmt_time(result.end_minute)} — {result.title}"
+            message = f"🗓 Активный план: {draft.day.strftime('%d.%m.%Y')}\n\n✅ Добавил: {fmt_time(result.start_minute)}–{fmt_time(result.end_minute)} — {result.title}"
             message += f"\nЗачем: {result.why}" if result.why else "\nЗачем: не указано."
             replies.append(message)
         return replies
