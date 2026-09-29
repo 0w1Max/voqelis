@@ -633,6 +633,10 @@ class PlannerService:
             return []
         state = session["state"]
         day = date.fromisoformat(session["target_day"]) if session["target_day"] else today
+        if state == "history_select":
+            return await self._history_select(user_id, text, today)
+        if state == "plan_delete_select":
+            return await self._delete_item_select(user_id, text, day)
         if state == "planning":
             return await self.add_from_text(user_id, text, today)
         if state == "plan_edit_select":
@@ -757,6 +761,43 @@ class PlannerService:
 
         return ["Эта кнопка больше не актуальна. Повтори действие из текущего сообщения."]
 
+    async def start_history(self, user_id: int, today: date) -> str:
+        async with self._user_lock(user_id):
+            self.store.set_session(user_id, "history_select", today, {})
+            return await self.show_plan_history(user_id, today)
+
+    async def _history_select(self, user_id: int, text: str, today: date) -> list[str]:
+        try:
+            selected = date.fromisoformat(datetime.strptime(text.strip(), "%d.%m.%Y").date().isoformat())
+        except ValueError:
+            return ["Напиши дату в формате ДД.ММ.ГГГГ."]
+        if selected < today - timedelta(days=30) or selected > today + timedelta(days=30):
+            return ["Эта дата вне доступного диапазона истории."]
+        self.store.set_session(user_id, "planning", selected, {})
+        items = self.store.ensure_daily_plan(user_id, selected, self.config)
+        return [f"🗓 Активный план: {selected.strftime('%d.%m.%Y')}\n\n" + render_plan_text(selected, items, self.config)]
+
+    async def start_delete_item(self, user_id: int, day: date) -> str:
+        async with self._user_lock(user_id):
+            items = self.store.plan_items(user_id, day)
+            if not items:
+                return f"На {day.strftime('%d.%m.%Y')} нет задач для удаления."
+            self.store.set_session(user_id, "plan_delete_select", day, {})
+            lines = [f"🗑 Выбери номер строки для удаления из плана {day.strftime('%d.%m.%Y')}:"]
+            for index, item in enumerate(items, 1):
+                lines.append(f"{index}. {fmt_time(item.start_minute)}–{fmt_time(item.end_minute)} — {item.title}")
+            return "\n".join(lines)
+
+    async def _delete_item_select(self, user_id: int, text: str, day: date) -> list[str]:
+        items = self.store.plan_items(user_id, day)
+        if not text.strip().isdigit():
+            return ["Напиши номер строки для удаления."]
+        index = int(text.strip()) - 1
+        if not 0 <= index < len(items):
+            return ["Такого номера нет в текущем плане."]
+        item = self.store.delete_plan_item(user_id, items[index].id)
+        self.store.set_session(user_id, "planning", day, {})
+        return [f"🗑 Удалил: {item.title}\n\n" + render_plan_text(day, self.store.plan_items(user_id, day), self.config)]
     async def show_plan_history(self, user_id: int, today: date) -> str:
         async with self._user_lock(user_id):
             end_day = today + timedelta(days=1)
