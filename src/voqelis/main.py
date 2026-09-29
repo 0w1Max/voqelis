@@ -52,7 +52,7 @@ async def async_main() -> None:
         GeminiPlannerAI(
             settings.gemini_api_key,
             model=settings.gemini_model,
-            timeout_seconds=settings.planner_ai_timeout_seconds,
+            timeout_seconds=settings.planner_ai_fallback_timeout_seconds,
         )
         if settings.gemini_api_key
         else None
