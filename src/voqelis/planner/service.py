@@ -747,10 +747,12 @@ class PlannerService:
                 return await self._review_edit_select(user_id, value, day)
             return ["Некорректный номер задачи."]
 
-        if callback_data in {"pl:clear:ordinary", "pl:clear:all"}:
+        if callback_data in {"pl:clear:ordinary", "pl:clear:all", "pl:clear:no"}:
             if state != "plan_clear_confirm":
                 return ["Эта кнопка больше не актуальна. Открой «🧹 Очистить план» заново."]
             day = date.fromisoformat(session["target_day"]) if session and session["target_day"] else today
+            if callback_data == "pl:clear:no":
+                return await self._clear_plan_confirm(user_id, "нет", day)
             return await self._clear_plan_confirm(
                 user_id,
                 "да",
