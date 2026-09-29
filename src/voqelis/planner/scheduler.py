@@ -146,6 +146,24 @@ class Scheduler:
                     break
 
         conflicts = [x for x in occupied if self._overlap(desired, (x.start_minute, x.end_minute))]
+
+        normalized_title = draft.title.strip().casefold()
+        duplicate = next(
+            (
+                item
+                for item in occupied
+                if (
+                    item.title.strip().casefold() == normalized_title
+                    and item.start_minute == desired[0]
+                    and item.end_minute == desired[1]
+                    and (item.why or "").strip() == (draft.why or "").strip()
+                )
+            ),
+            None,
+        )
+        if duplicate is not None:
+            return duplicate
+
         if not conflicts:
             item_id = self.store.add_item_if_free(
                 PlanItem(
