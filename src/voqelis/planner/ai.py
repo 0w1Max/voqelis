@@ -334,7 +334,8 @@ def _parse_tasks_result(
 
         normalized_duration = (
             end - start if start is not None and end is not None else duration
-        )
+        )        if start is not None and end is None and normalized_duration is None:
+            normalized_duration = 60
         draft = TaskDraft(
             title=_clean_task_title(title_value),
             day=day_value_parsed,
@@ -653,27 +654,38 @@ class GeminiPlannerAI(_StructuredPlannerAI):
                 "schema": schema,
             },
         }
-        try:
-            async with httpx.AsyncClient(
-                timeout=self.timeout,
-                transport=self.transport,
-            ) as client:
-                response = await client.post(
-                    url,
-                    headers={"x-goog-api-key": self.api_key},
-                    json=payload,
-                )
-        except httpx.TimeoutException as exc:
-            raise PlannerAIProviderError(
-                "Gemini request timed out",
-                retryable=True,
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise PlannerAIProviderError(
-                "Gemini request failed",
-                retryable=True,
-            ) from exc
+        response = None
+        for attempt in range(2):
+            try:
+                async with httpx.AsyncClient(
+                    timeout=self.timeout,
+                    transport=self.transport,
+                ) as client:
+                    response = await client.post(
+                        url,
+                        headers={"x-goog-api-key": self.api_key},
+                        json=payload,
+                    )
+            except httpx.TimeoutException as exc:
+                raise PlannerAIProviderError(
+                    "Gemini request timed out",
+                    retryable=True,
+                ) from exc
+            except httpx.HTTPError as exc:
+                raise PlannerAIProviderError(
+                    "Gemini request failed",
+                    retryable=True,
+                ) from exc
 
+            if response.status_code not in {502, 503, 504} or attempt == 1:
+                break
+            logger.warning(
+                "PLANNER_AI_GEMINI_RETRY status=%s",
+                response.status_code,
+            )
+            await asyncio.sleep(1.0)
+
+        assert response is not None
         if response.status_code >= 400:
             raise _provider_http_error("Gemini", response)
 
