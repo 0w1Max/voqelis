@@ -784,9 +784,22 @@ class PlannerService:
             return ["Напиши дату в формате ДД.ММ.ГГГГ."]
         if selected < today - timedelta(days=30) or selected > today + timedelta(days=30):
             return ["Эта дата вне доступного диапазона истории."]
+
         self.store.set_session(user_id, "planning", selected, {})
-        items = self.store.ensure_daily_plan(user_id, selected, self.config)
-        return [f"🗓 Активный план: {selected.strftime('%d.%m.%Y')}\n\n" + render_plan_text(selected, items, self.config)]
+        if selected > today:
+            items = self.store.ensure_daily_plan(user_id, selected, self.config)
+        else:
+            items = self.store.plan_items(user_id, selected)
+
+        if not items:
+            return [
+                f"🗓 Активный план: {selected.strftime('%d.%m.%Y')}\n\n"
+                "На эту дату пока нет сохранённого плана."
+            ]
+        return [
+            f"🗓 Активный план: {selected.strftime('%d.%m.%Y')}\n\n"
+            + render_plan_text(selected, items, self.config)
+        ]
 
     async def start_delete_item(self, user_id: int, day: date) -> str:
         async with self._user_lock(user_id):
@@ -809,20 +822,6 @@ class PlannerService:
         item = self.store.delete_plan_item(user_id, items[index].id)
         self.store.set_session(user_id, "planning", day, {})
         return [f"🗑 Удалил: {item.title}\n\n" + render_plan_text(day, self.store.plan_items(user_id, day), self.config)]
-    async def show_plan_history(self, user_id: int, today: date) -> str:
-        async with self._user_lock(user_id):
-            end_day = today + timedelta(days=1)
-            start_day = today - timedelta(days=5)
-            rows = self.store.history_counts(user_id, start_day, end_day)
-            session = self.store.session(user_id)
-            active = date.fromisoformat(session["target_day"]) if session and session["target_day"] else today + timedelta(days=1)
-            lines = ["🗓 История планов", f"Активный план: {active.strftime('%d.%m.%Y')}", ""]
-            for day, count in reversed(rows):
-                marker = " ← активный" if day == active else ""
-                lines.append(f"{day.strftime('%d.%m.%Y')} — {count} задач{marker}")
-            lines.append("\nЧтобы открыть конкретный день, напиши дату в формате ДД.ММ.ГГГГ.")
-            return "\n".join(lines)
-
     async def start_clear_plan(self, user_id: int, day: date) -> str:
         async with self._user_lock(user_id):
             items = self.store.plan_items(user_id, day)
