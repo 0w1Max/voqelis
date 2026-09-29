@@ -747,6 +747,17 @@ class PlannerService:
                 return await self._review_edit_select(user_id, value, day)
             return ["Некорректный номер задачи."]
 
+        if callback_data in {"pl:clear:ordinary", "pl:clear:all"}:
+            if state != "plan_clear_confirm":
+                return ["Эта кнопка больше не актуальна. Открой «🧹 Очистить план» заново."]
+            day = date.fromisoformat(session["target_day"]) if session and session["target_day"] else today
+            return await self._clear_plan_confirm(
+                user_id,
+                "да",
+                day,
+                include_recurring=callback_data == "pl:clear:all",
+            )
+
         if callback_data == "pl:skip:final1":
             if state != "review_final1":
                 return ["Эта кнопка больше не актуальна."]
@@ -823,19 +834,42 @@ class PlannerService:
     async def start_clear_plan(self, user_id: int, day: date) -> str:
         async with self._user_lock(user_id):
             items = self.store.plan_items(user_id, day)
-            self.store.set_session(user_id, "plan_clear_confirm", day, {})
-            return f"🧹 Очистить план на {day.strftime('%d.%m.%Y')}?\nБудет удалено строк: {len(items)}.\n\nНапиши «да» или «нет»."
+            ordinary = sum(item.kind != TaskKind.RECURRING for item in items)
+            recurring = len(items) - ordinary
+            self.store.set_session(
+                user_id,
+                "plan_clear_confirm",
+                day,
+                {"ordinary": ordinary, "recurring": recurring},
+            )
+            return (
+                f"🧹 Очистить план на {day.strftime('%d.%m.%Y')}?\\n\\n"
+                f"Обычных задач: {ordinary}. Ежедневных задач: {recurring}.\\n\\n"
+                "По умолчанию ежедневные задачи сохраняются. Выбери вариант:"
+            )
 
-    async def _clear_plan_confirm(self, user_id: int, text: str, day: date) -> list[str]:
+    async def _clear_plan_confirm(
+        self,
+        user_id: int,
+        text: str,
+        day: date,
+        *,
+        include_recurring: bool = False,
+    ) -> list[str]:
         answer = text.strip().casefold()
         if answer in {"нет", "no", "отмена", "cancel"}:
             self.store.clear_session(user_id)
             return ["Очистка отменена."]
         if answer not in {"да", "д", "yes"}:
-            return ["Напиши «да» или «нет»."]
-        count = self.store.clear_day(user_id, day)
+            return ["Выбери вариант очистки или напиши «нет»."]
+        count = self.store.clear_day(
+            user_id,
+            day,
+            include_recurring=include_recurring,
+        )
         self.store.set_session(user_id, "planning", day, {})
-        return [f"🧹 План на {day.strftime('%d.%m.%Y')} очищен. Удалено строк: {count}."]
+        suffix = " вместе с ежедневными задачами" if include_recurring else " (ежедневные задачи сохранены)"
+        return [f"🧹 План на {day.strftime('%d.%m.%Y')} очищен. Удалено строк: {count}{suffix}."]
 
     async def delete_plan_item(self, user_id: int, item_id: int, day: date) -> str:
         async with self._user_lock(user_id):
