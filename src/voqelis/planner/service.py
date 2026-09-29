@@ -641,6 +641,8 @@ class PlannerService:
             return await self._plan_edit_field(user_id, text, day)
         if state == "plan_edit_value":
             return await self._plan_edit_value(user_id, text, day)
+        if state == "plan_clear_confirm":
+            return await self._clear_plan_confirm(user_id, text, day)
         if state == "planning_why":
             return await self._resolve_why(user_id, text, today)
         if state == "planning_conflict":
@@ -755,10 +757,45 @@ class PlannerService:
 
         return ["Эта кнопка больше не актуальна. Повтори действие из текущего сообщения."]
 
+    async def show_plan_history(self, user_id: int, today: date) -> str:
+        async with self._user_lock(user_id):
+            end_day = today + timedelta(days=1)
+            start_day = today - timedelta(days=5)
+            rows = self.store.history_counts(user_id, start_day, end_day)
+            session = self.store.session(user_id)
+            active = date.fromisoformat(session["target_day"]) if session and session["target_day"] else today + timedelta(days=1)
+            lines = ["🗓 История планов", f"Активный план: {active.strftime('%d.%m.%Y')}", ""]
+            for day, count in reversed(rows):
+                marker = " ← активный" if day == active else ""
+                lines.append(f"{day.strftime('%d.%m.%Y')} — {count} задач{marker}")
+            lines.append("\nЧтобы открыть конкретный день, напиши дату в формате ДД.ММ.ГГГГ.")
+            return "\n".join(lines)
+
+    async def start_clear_plan(self, user_id: int, day: date) -> str:
+        async with self._user_lock(user_id):
+            items = self.store.plan_items(user_id, day)
+            self.store.set_session(user_id, "plan_clear_confirm", day, {})
+            return f"🧹 Очистить план на {day.strftime('%d.%m.%Y')}?\nБудет удалено строк: {len(items)}.\n\nНапиши «да» или «нет»."
+
+    async def _clear_plan_confirm(self, user_id: int, text: str, day: date) -> list[str]:
+        answer = text.strip().casefold()
+        if answer in {"нет", "no", "отмена", "cancel"}:
+            self.store.clear_session(user_id)
+            return ["Очистка отменена."]
+        if answer not in {"да", "д", "yes"}:
+            return ["Напиши «да» или «нет»."]
+        count = self.store.clear_day(user_id, day)
+        self.store.set_session(user_id, "planning", day, {})
+        return [f"🧹 План на {day.strftime('%d.%m.%Y')} очищен. Удалено строк: {count}."]
+
+    async def delete_plan_item(self, user_id: int, item_id: int, day: date) -> str:
+        async with self._user_lock(user_id):
+            item = self.store.delete_plan_item(user_id, item_id)
+            return f"🗑 Удалил: {item.title}\nПлан: {day.strftime('%d.%m.%Y')}."
     async def show_plan(self, user_id: int, day: date) -> str:
         async with self._user_lock(user_id):
             items = self.store.ensure_daily_plan(user_id, day, self.config)
-            return render_plan_text(day, items, self.config)
+            return f"🗓 Активный план: {day.strftime('%d.%m.%Y')}\n\n" + render_plan_text(day, items, self.config)
 
     async def export_day(self, user_id: int, day: date, fmt: str) -> Path:
         async with self._user_lock(user_id):
