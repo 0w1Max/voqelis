@@ -253,6 +253,30 @@ def test_flexible_task_uses_first_free_slot(tmp_path: Path):
     store.close()
 
 
+def test_exact_duplicate_submission_returns_existing_item_without_conflict(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    store.ensure_daily_plan(1, day)
+    scheduler = Scheduler(store, PlannerConfig())
+    draft = TaskDraft(
+        "Сходить в магазин",
+        day,
+        start_minute=20 * 60,
+        duration_minutes=60,
+        why="Купить продукты",
+    )
+    first = scheduler.schedule(1, draft)
+    assert not isinstance(first, Conflict)
+
+    second = scheduler.schedule(1, draft)
+    assert not isinstance(second, Conflict)
+    assert second.id == first.id
+    assert len(
+        [x for x in store.plan_items(1, day) if x.title == "Сходить в магазин"]
+    ) == 1
+    store.close()
+
+
 def test_exact_conflict_suggests_nearest_free_slots(tmp_path: Path):
     store = PlannerStore(tmp_path / "planner.sqlite3")
     day = date(2026, 9, 23)
