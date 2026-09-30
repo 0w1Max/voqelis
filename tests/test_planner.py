@@ -713,6 +713,21 @@ def test_full_review_cancel_does_not_write_results(tmp_path: Path):
     store.close()
 
 
+def test_history_preserves_active_plan_day(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    service = PlannerService(store, PlannerConfig(), ai=None)
+    active_day = date(2026, 10, 2)
+
+    store.set_session(1, "planning", active_day, {})
+    history = asyncio.run(service.start_history(1, date(2026, 10, 1)))
+
+    assert "Активный план: 02.10.2026" in history
+    assert "02.10.2026" in history
+    assert store.session(1)["state"] == "history_select"
+    assert store.session(1)["target_day"] == "2026-10-02"
+    store.close()
+
+
 def test_recurring_rules_materialize_only_on_matching_days(tmp_path: Path):
 
     config = PlannerConfig(
