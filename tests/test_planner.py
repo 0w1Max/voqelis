@@ -770,16 +770,26 @@ def test_active_plan_day_survives_session_clear(tmp_path: Path):
     store.close()
 
 
-def test_history_selection_updates_persistent_active_plan_day(tmp_path: Path):
-    store = PlannerStore(tmp_path / "planner.sqlite3")
-    service = PlannerService(store, PlannerConfig(), ai=None)
-    selected = date(2026, 10, 3)
+def test_legacy_session_target_day_is_migrated_to_active_day(tmp_path: Path):
+    db_path = tmp_path / "planner.sqlite3"
+    db = sqlite3.connect(db_path)
+    db.execute(
+        "CREATE TABLE planner_sessions ("
+        "user_id INTEGER PRIMARY KEY, mode TEXT NOT NULL DEFAULT 'idle', "
+        "state TEXT NOT NULL DEFAULT 'idle', target_day TEXT, "
+        "payload TEXT NOT NULL DEFAULT '{}', updated_at TEXT NOT NULL)"
+    )
+    db.execute(
+        "INSERT INTO planner_sessions(user_id,state,target_day,payload,updated_at) "
+        "VALUES(?,?,?,?,?)",
+        (1, "planning", "2026-10-03", "{}", "2026-09-30T00:00:00+00:00"),
+    )
+    db.commit()
+    db.close()
 
-    store.set_session(1, "planning", date(2026, 10, 2), {})
-    store.clear_session(1)
-    store.set_active_plan_day(1, selected)
+    store = PlannerStore(db_path)
 
-    assert store.active_plan_day(1) == selected
+    assert store.active_plan_day(1) == date(2026, 10, 3)
     store.close()
 
 
