@@ -185,6 +185,13 @@ def planner_markup_for_state(
     return planner_keyboard()
 
 
+def active_planner_day(service: PlannerService, user_id: int, today: date) -> date:
+    active = service.store.active_plan_day(user_id)
+    if active is not None:
+        return active
+    return today + timedelta(days=1)
+
+
 def create_planner_router(
     *, service: PlannerService, allowed_user_ids: frozenset[int]
 ) -> Router:
@@ -194,12 +201,6 @@ def create_planner_router(
         return datetime.now(planner_tz).date()
 
     router = Router(name="planner")
-
-    def active_planner_day(user_id: int) -> date:
-        active = service.store.active_plan_day(user_id)
-        if active is not None:
-            return active
-        return planner_today() + timedelta(days=1)
 
     def allowed(message: Message) -> bool:
         return (
@@ -221,7 +222,7 @@ def create_planner_router(
     async def on_review_command(message: Message) -> None:
         if allowed(message):
             await message.answer(
-                await service.start_review(message.from_user.id, active_planner_day(message.from_user.id)),
+                await service.start_review(message.from_user.id, active_planner_day(service, message.from_user.id, planner_today())),
                 reply_markup=planner_markup_for_state(service, message.from_user.id),
             )
 
@@ -239,7 +240,7 @@ def create_planner_router(
         if allowed(message):
             await message.answer(
                 await service.show_plan(
-                    message.from_user.id, active_planner_day(message.from_user.id)
+                    message.from_user.id, active_planner_day(service, message.from_user.id, planner_today())
                 ),
                 reply_markup=planner_keyboard(),
             )
@@ -249,7 +250,7 @@ def create_planner_router(
         if allowed(message):
             await message.answer(
                 await service.start_plan_edit(
-                    message.from_user.id, active_planner_day(message.from_user.id)
+                    message.from_user.id, active_planner_day(service, message.from_user.id, planner_today())
                 ),
                 reply_markup=planner_keyboard(),
             )
@@ -266,7 +267,7 @@ def create_planner_router(
     async def on_delete_item(message: Message) -> None:
         if allowed(message):
             await message.answer(
-                await service.start_delete_item(message.from_user.id, active_planner_day(message.from_user.id)),
+                await service.start_delete_item(message.from_user.id, active_planner_day(service, message.from_user.id, planner_today())),
                 reply_markup=planner_keyboard(),
             )
 
@@ -274,7 +275,7 @@ def create_planner_router(
     async def on_clear_plan(message: Message) -> None:
         if allowed(message):
             await message.answer(
-                await service.start_clear_plan(message.from_user.id, active_planner_day(message.from_user.id)),
+                await service.start_clear_plan(message.from_user.id, active_planner_day(service, message.from_user.id, planner_today())),
                 reply_markup=planner_markup_for_state(service, message.from_user.id),
             )
 
@@ -282,7 +283,7 @@ def create_planner_router(
     async def on_review(message: Message) -> None:
         if allowed(message):
             await message.answer(
-                await service.start_review(message.from_user.id, active_planner_day(message.from_user.id)),
+                await service.start_review(message.from_user.id, active_planner_day(service, message.from_user.id, planner_today())),
                 reply_markup=planner_markup_for_state(service, message.from_user.id),
             )
 
@@ -290,7 +291,7 @@ def create_planner_router(
     async def on_full_review(message: Message) -> None:
         if allowed(message):
             await message.answer(
-                await service.start_full_review(message.from_user.id, active_planner_day(message.from_user.id)),
+                await service.start_full_review(message.from_user.id, active_planner_day(service, message.from_user.id, planner_today())),
                 reply_markup=planner_markup_for_state(service, message.from_user.id),
             )
 
@@ -298,14 +299,14 @@ def create_planner_router(
     async def on_review_edit(message: Message) -> None:
         if allowed(message):
             await message.answer(
-                await service.start_review_edit(message.from_user.id, active_planner_day(message.from_user.id)),
+                await service.start_review_edit(message.from_user.id, active_planner_day(service, message.from_user.id, planner_today())),
                 reply_markup=planner_markup_for_state(service, message.from_user.id),
             )
 
     async def _send_export(message: Message, fmt: str) -> None:
         if not allowed(message):
             return
-        day = active_planner_day(message.from_user.id)
+        day = active_planner_day(service, message.from_user.id, planner_today())
         output = None
         try:
             output = await service.export_day(message.from_user.id, day, fmt)
