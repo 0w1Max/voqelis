@@ -111,17 +111,76 @@ class PlannerStore:
             "Проснуться + молитва + умыться + зарядка (КД)": "Проснуться + молитва + умыться + зарядка",
             "Завтрак + душ (КД)": "Завтрак + душ",
             "Подготовка ко сну + дневник успеха + молитва (КД)": "Подготовка ко сну + дневник успеха + молитва",
+            "Подготовка ко сну + дневник успеха + благодарности за день (КД)": "Подготовка ко сну + дневник успеха + благодарность + молитва",
         }
         for old_title, new_title in title_map.items():
-            rows = self.db.execute("SELECT id FROM recurring_templates WHERE title=?", (old_title,)).fetchall()
+            rows = self.db.execute(
+                "SELECT * FROM recurring_templates WHERE title=?",
+                (old_title,),
+            ).fetchall()
             if not rows:
                 continue
-            self.db.execute("UPDATE recurring_templates SET title=? WHERE title=?", (new_title, old_title))
             for row in rows:
-                self.db.execute(
-                    "UPDATE plan_items SET title=? WHERE recurring_template_id=? AND title=?",
-                    (new_title, int(row["id"]), old_title),
-                )
+                template_id = int(row["id"])
+                canonical = self.db.execute(
+                    "SELECT id FROM recurring_templates "
+                    "WHERE user_id=? AND title=? AND start_minute=? "
+                    "AND duration_minutes=? AND recurrence=? AND recurrence_days=? "
+                    "ORDER BY id LIMIT 1",
+                    (
+                        row["user_id"],
+                        new_title,
+                        row["start_minute"],
+                        row["duration_minutes"],
+                        row["recurrence"],
+                        row["recurrence_days"],
+                    ),
+                ).fetchone()
+                if canonical is None:
+                    self.db.execute(
+                        "UPDATE recurring_templates SET title=? WHERE id=?",
+                        (new_title, template_id),
+                    )
+                    canonical_id = template_id
+                else:
+                    canonical_id = int(canonical["id"])
+                    self.db.execute(
+                        "UPDATE plan_items SET title=?, recurring_template_id=? "
+                        "WHERE recurring_template_id=?",
+                        (new_title, canonical_id, template_id),
+                    )
+                    self.db.execute(
+                        "UPDATE recurring_templates SET active=0 WHERE id=?",
+                        (template_id,),
+                    )
+
+        # Remove duplicate materializations left behind by legacy template
+        # migrations. Keep the lowest-id recurring row for each user/day/slot.
+        duplicates = self.db.execute(
+            "SELECT user_id, day, start_minute, end_minute, MIN(id) AS keep_id "
+            "FROM plan_items WHERE kind=? "
+            "GROUP BY user_id, day, start_minute, end_minute "
+            "HAVING COUNT(*) > 1",
+            (TaskKind.RECURRING.value,),
+        ).fetchall()
+        for group in duplicates:
+            rows = self.db.execute(
+                "SELECT id FROM plan_items "
+                "WHERE user_id=? AND day=? AND start_minute=? AND end_minute=? "
+                "AND kind=? AND id<>? ORDER BY id",
+                (
+                    group["user_id"],
+                    group["day"],
+                    group["start_minute"],
+                    group["end_minute"],
+                    TaskKind.RECURRING.value,
+                    group["keep_id"],
+                ),
+            ).fetchall()
+            for row in rows:
+                item_id = int(row["id"])
+                self.db.execute("DELETE FROM task_reviews WHERE plan_item_id=?", (item_id,))
+                self.db.execute("DELETE FROM plan_items WHERE id=?", (item_id,))
     def close(self) -> None:
         self.db.close()
 
