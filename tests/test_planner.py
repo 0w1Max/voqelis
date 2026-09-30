@@ -756,6 +756,33 @@ def test_full_review_cancel_does_not_write_results(tmp_path: Path):
     store.close()
 
 
+def test_active_plan_day_survives_session_clear(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 10, 2)
+
+    store.set_session(1, "planning", day, {})
+    assert store.active_plan_day(1) == day
+
+    store.clear_session(1)
+
+    assert store.session(1) is None
+    assert store.active_plan_day(1) == day
+    store.close()
+
+
+def test_history_selection_updates_persistent_active_plan_day(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    service = PlannerService(store, PlannerConfig(), ai=None)
+    selected = date(2026, 10, 3)
+
+    store.set_session(1, "planning", date(2026, 10, 2), {})
+    store.clear_session(1)
+    store.set_active_plan_day(1, selected)
+
+    assert store.active_plan_day(1) == selected
+    store.close()
+
+
 def test_history_preserves_active_plan_day(tmp_path: Path):
     store = PlannerStore(tmp_path / "planner.sqlite3")
     service = PlannerService(store, PlannerConfig(), ai=None)
