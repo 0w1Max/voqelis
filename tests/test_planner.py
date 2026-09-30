@@ -723,6 +723,37 @@ def test_full_review_requires_confirmation_and_then_continues_unmatched_tasks(tm
     store.close()
 
 
+def test_full_review_provider_failure_falls_back_to_sequential_review(tmp_path: Path):
+    class FailingFullReviewAI:
+        async def extract_tasks(self, text, *, today, target_day, config):
+            del text, today, target_day, config
+            return []
+
+        async def extract_review(self, text, *, task_title):
+            return text, (), None
+
+        async def extract_full_review(self, text, *, items):
+            del text, items
+            from voqelis.planner.models import PlannerAIUnavailable
+
+            raise PlannerAIUnavailable("full review provider unavailable")
+
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    items = store.ensure_daily_plan(1, day)
+    service = PlannerService(store, PlannerConfig(), ai=FailingFullReviewAI())
+
+    asyncio.run(service.start_full_review(1, day))
+    replies = asyncio.run(service.handle_text(1, "мой день прошёл нормально", day))
+
+    assert "ничего не сохранено" in replies[0]
+    assert "Выполнено?" in replies[1]
+    assert store.session(1)["state"] == "review_status"
+    assert store.session_payload(1)["current_item_id"] == items[0].id
+    assert all(item.status is None for item in store.reviews(1, day))
+    store.close()
+
+
 def test_full_review_cancel_does_not_write_results(tmp_path: Path):
 
     class FakeAI:
