@@ -731,6 +731,7 @@ class AIProviderRouter:
         self.primary = primary
         self.fallback = fallback
         self._blocked_until = 0.0
+        self._fallback_blocked_until = 0.0
         self._lock = asyncio.Lock()
 
     @staticmethod
@@ -739,6 +740,26 @@ class AIProviderRouter:
             return "none"
         return str(getattr(provider, "provider_name", provider.__class__.__name__))
 
+    @staticmethod
+    def _cooldown_for_error(error: PlannerAIError) -> float:
+        if isinstance(error, PlannerAIProviderError):
+            if error.retry_after_seconds is not None:
+                return max(1.0, error.retry_after_seconds)
+            if error.status_code == 429:
+                return 60.0
+            if error.status_code in {401, 403}:
+                return 300.0
+            if error.status_code in {408, 409, 425} or (
+                error.status_code is not None and error.status_code >= 500
+            ):
+                return 15.0
+            if error.retryable:
+                return 30.0
+            return 60.0
+        if isinstance(error, PlannerAIInvalidResponse):
+            return 30.0
+        return 60.0
+
     async def _available(self) -> bool:
         async with self._lock:
             return (
@@ -746,28 +767,27 @@ class AIProviderRouter:
                 and time.monotonic() >= self._blocked_until
             )
 
-    async def _block_primary(self, error: PlannerAIError) -> float:
-        if isinstance(error, PlannerAIProviderError):
-            if error.retry_after_seconds is not None:
-                cooldown = max(1.0, error.retry_after_seconds)
-            elif error.status_code == 429:
-                cooldown = 60.0
-            elif error.status_code in {401, 403}:
-                cooldown = 300.0
-            elif error.status_code in {408, 409, 425} or (
-                error.status_code is not None and error.status_code >= 500
-            ):
-                cooldown = 15.0
-            else:
-                cooldown = 60.0
-        elif isinstance(error, PlannerAIInvalidResponse):
-            cooldown = 30.0
-        else:
-            cooldown = 60.0
+    async def _fallback_available(self) -> bool:
+        async with self._lock:
+            return (
+                self.fallback is not None
+                and time.monotonic() >= self._fallback_blocked_until
+            )
 
+    async def _block_primary(self, error: PlannerAIError) -> float:
+        cooldown = self._cooldown_for_error(error)
         async with self._lock:
             self._blocked_until = max(
                 self._blocked_until,
+                time.monotonic() + cooldown,
+            )
+        return cooldown
+
+    async def _block_fallback(self, error: PlannerAIError) -> float:
+        cooldown = self._cooldown_for_error(error)
+        async with self._lock:
+            self._fallback_blocked_until = max(
+                self._fallback_blocked_until,
                 time.monotonic() + cooldown,
             )
         return cooldown
@@ -793,9 +813,9 @@ class AIProviderRouter:
                     cooldown,
                 )
 
-        if self.fallback is None:
+        if not await self._fallback_available():
             raise PlannerAIUnavailable(
-                f"{primary_name} is unavailable and no fallback is configured"
+                f"{fallback_name} is temporarily unavailable"
             )
 
         try:
@@ -805,13 +825,17 @@ class AIProviderRouter:
             PlannerAIInvalidResponse,
             PlannerAIUnavailable,
         ) as exc:
+            cooldown = await self._block_fallback(exc)
             logger.error(
-                "PLANNER_AI_FALLBACK_FAILED provider=%s reason=%s",
+                "PLANNER_AI_FALLBACK_FAILED provider=%s reason=%s cooldown=%.1fs",
                 fallback_name,
                 exc,
+                cooldown,
             )
             raise
 
+        async with self._lock:
+            self._fallback_blocked_until = 0.0
         logger.info("PLANNER_AI_PROVIDER provider=%s", fallback_name)
         return result
 
