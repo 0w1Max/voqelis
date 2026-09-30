@@ -856,8 +856,8 @@ class PlannerService:
                 {"ordinary": ordinary, "recurring": recurring},
             )
             return (
-                f"🧹 Очистить план на {day.strftime('%d.%m.%Y')}?\\n\\n"
-                f"Обычных задач: {ordinary}. Ежедневных задач: {recurring}.\\n\\n"
+                f"🧹 Очистить план на {day.strftime('%d.%m.%Y')}?\n\n"
+                f"Обычных задач: {ordinary}. Ежедневных задач: {recurring}.\n\n"
                 "По умолчанию ежедневные задачи сохраняются. Выбери вариант:"
             )
 
