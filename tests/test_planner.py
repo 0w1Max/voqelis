@@ -386,6 +386,8 @@ def test_clear_plan_requires_explicit_recurring_choice(tmp_path: Path):
 
     prompt = asyncio.run(service.start_clear_plan(1, day))
     assert "Ежедневных задач: 3" in prompt
+    assert "\\n\\n" not in prompt
+    assert "\n\n" in prompt
     assert store.session(1)["state"] == "plan_clear_confirm"
 
     replies = asyncio.run(service.handle_callback(1, "pl:clear:ordinary", day))
