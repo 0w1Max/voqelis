@@ -60,6 +60,10 @@ CREATE TABLE IF NOT EXISTS planner_sessions (
     payload TEXT NOT NULL DEFAULT '{}',
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS planner_active_days (
+    user_id INTEGER PRIMARY KEY,
+    day TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS planner_day_clearances (user_id INTEGER NOT NULL, day TEXT NOT NULL, PRIMARY KEY (user_id, day));
 CREATE TABLE IF NOT EXISTS recurring_exclusions (user_id INTEGER NOT NULL, day TEXT NOT NULL, recurring_template_id INTEGER NOT NULL, PRIMARY KEY (user_id, day, recurring_template_id));
 """
@@ -74,6 +78,7 @@ class PlannerStore:
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
         self._migrate_sessions()
+        self._migrate_active_plan_days()
         self._migrate_recurring_templates()
         self._migrate_legacy_recurring_titles()
         self.db.commit()
@@ -91,6 +96,39 @@ class PlannerStore:
         if "updated_at" not in columns:
             self.db.execute("ALTER TABLE planner_sessions ADD COLUMN updated_at TEXT")
         self.db.execute("UPDATE planner_sessions SET state=mode WHERE state IS NULL OR state=''")
+
+    def _migrate_active_plan_days(self) -> None:
+        # Active day is durable user state; planner_sessions remains transient.
+        rows = self.db.execute(
+            "SELECT user_id, target_day FROM planner_sessions "
+            "WHERE target_day IS NOT NULL AND trim(target_day)<>''"
+        ).fetchall()
+        for row in rows:
+            self.db.execute(
+                "INSERT INTO planner_active_days(user_id,day) VALUES(?,?) "
+                "ON CONFLICT(user_id) DO NOTHING",
+                (row["user_id"], row["target_day"]),
+            )
+
+    def active_plan_day(self, user_id: int) -> date | None:
+        row = self.db.execute(
+            "SELECT day FROM planner_active_days WHERE user_id=?",
+            (user_id,),
+        ).fetchone()
+        if not row:
+            return None
+        try:
+            return date.fromisoformat(row["day"])
+        except ValueError:
+            return None
+
+    def set_active_plan_day(self, user_id: int, day: date) -> None:
+        self.db.execute(
+            "INSERT INTO planner_active_days(user_id,day) VALUES(?,?) "
+            "ON CONFLICT(user_id) DO UPDATE SET day=excluded.day",
+            (user_id, day.isoformat()),
+        )
+        self.db.commit()
 
     def _migrate_recurring_templates(self) -> None:
         columns = {
@@ -205,9 +243,16 @@ class PlannerStore:
             "target_day=excluded.target_day,payload=excluded.payload,updated_at=excluded.updated_at",
             (user_id, state, state, target_day.isoformat() if target_day else None, json.dumps(payload or {}, ensure_ascii=False), now),
         )
+        if target_day is not None:
+            self.db.execute(
+                "INSERT INTO planner_active_days(user_id,day) VALUES(?,?) "
+                "ON CONFLICT(user_id) DO UPDATE SET day=excluded.day",
+                (user_id, target_day.isoformat()),
+            )
         self.db.commit()
 
     def clear_session(self, user_id: int) -> None:
+        # Session is transient; the active planner day intentionally survives it.
         self.db.execute("DELETE FROM planner_sessions WHERE user_id=?", (user_id,))
         self.db.commit()
 
