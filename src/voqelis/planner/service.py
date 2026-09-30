@@ -359,7 +359,30 @@ class PlannerService:
         ]
         try:
             extracted = await self.ai.extract_full_review(text, items=payload)
-        except (PlannerAIError, ValueError, TypeError):
+        except PlannerAIError as exc:
+            logger.warning(
+                "PLANNER_AI_FULL_REVIEW_FALLBACK reason=%s",
+                exc,
+            )
+            pending_item = next((x for x in items if x.status is None), None)
+            if pending_item is None:
+                self.store.set_session(user_id, "review_final1", day, {})
+                return [
+                    "⚠️ Общий анализ сейчас недоступен. Все задачи уже обработаны — "
+                    "переходим к финальному анализу."
+                ]
+            self.store.set_session(
+                user_id,
+                "review_status",
+                day,
+                {"current_item_id": pending_item.plan_item.id},
+            )
+            return [
+                "⚠️ Общий анализ сейчас недоступен. Ничего не сохранено. "
+                "Переходим к последовательному анализу задач.",
+                f"{render_review_prompt(pending_item)}\n\nВыполнено?",
+            ]
+        except (ValueError, TypeError):
             return ["⚠️ Не удалось разобрать общий обзор дня. Попробуй ещё раз."]
         by_id = {x.plan_item.id: x.plan_item for x in items}
         proposal = []
