@@ -151,8 +151,8 @@ class PlannerStore:
                         (new_title, canonical_id, template_id),
                     )
                     self.db.execute(
-                        "UPDATE recurring_templates SET active=0 WHERE id=?",
-                        (template_id,),
+                        "UPDATE recurring_templates SET title=?, active=0 WHERE id=?",
+                        (new_title, template_id),
                     )
 
         # Remove duplicate materializations left behind by legacy template
