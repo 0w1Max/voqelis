@@ -514,7 +514,13 @@ class PlannerService:
                 )
             else:
                 activity, feelings, reason = text.strip(), (), None
-        except (PlannerAIError, ValueError, TypeError):
+        except PlannerAIError as exc:
+            logger.warning(
+                "PLANNER_AI_REVIEW_LOCAL_FALLBACK reason=%s",
+                exc,
+            )
+            activity, feelings, reason = text.strip(), (), None
+        except (ValueError, TypeError):
             return [
                 (
                     f"⚠️ Не удалось разобрать ответ для «{item.plan_item.title}». "
