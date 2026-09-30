@@ -196,9 +196,9 @@ def create_planner_router(
     router = Router(name="planner")
 
     def active_planner_day(user_id: int) -> date:
-        session = service.store.session(user_id)
-        if session and session["target_day"]:
-            return date.fromisoformat(session["target_day"])
+        active = service.store.active_plan_day(user_id)
+        if active is not None:
+            return active
         return planner_today() + timedelta(days=1)
 
     def allowed(message: Message) -> bool:
@@ -305,12 +305,7 @@ def create_planner_router(
     async def _send_export(message: Message, fmt: str) -> None:
         if not allowed(message):
             return
-        session = service.store.session(message.from_user.id)
-        day = (
-            date.fromisoformat(session["target_day"])
-            if session is not None and session["target_day"]
-            else planner_today()
-        )
+        day = active_planner_day(message.from_user.id)
         output = None
         try:
             output = await service.export_day(message.from_user.id, day, fmt)
