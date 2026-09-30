@@ -368,8 +368,10 @@ class PlannerService:
             if pending_item is None:
                 self.store.set_session(user_id, "review_final1", day, {})
                 return [
-                    "⚠️ Общий анализ сейчас недоступен. Все задачи уже обработаны — "
-                    "переходим к финальному анализу."
+                    (
+                        "⚠️ Общий анализ сейчас недоступен. Все задачи уже обработаны — "
+                        "переходим к финальному анализу."
+                    )
                 ]
             self.store.set_session(
                 user_id,
@@ -378,8 +380,10 @@ class PlannerService:
                 {"current_item_id": pending_item.plan_item.id},
             )
             return [
-                "⚠️ Общий анализ сейчас недоступен. Ничего не сохранено. "
-                "Переходим к последовательному анализу задач.",
+                (
+                    "⚠️ Общий анализ сейчас недоступен. Ничего не сохранено. "
+                    "Переходим к последовательному анализу задач."
+                ),
                 f"{render_review_prompt(pending_item)}\n\nВыполнено?",
             ]
         except (ValueError, TypeError):
