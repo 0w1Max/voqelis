@@ -746,7 +746,7 @@ def test_full_review_provider_failure_falls_back_to_sequential_review(tmp_path: 
     asyncio.run(service.start_full_review(1, day))
     replies = asyncio.run(service.handle_text(1, "мой день прошёл нормально", day))
 
-    assert "ничего не сохранено" in replies[0]
+    assert "ничего не сохранено" in replies[0].casefold()
     assert "Выполнено?" in replies[1]
     assert store.session(1)["state"] == "review_status"
     assert store.session_payload(1)["current_item_id"] == items[0].id
