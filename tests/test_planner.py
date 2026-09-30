@@ -176,6 +176,65 @@ def test_legacy_thirteen_recurring_tasks_are_migrated(tmp_path: Path):
     store.close()
 
 
+def test_legacy_sleep_kd_variant_is_migrated_to_canonical_template(tmp_path: Path):
+    db_path = tmp_path / "planner.sqlite3"
+    store = PlannerStore(db_path)
+
+    old = store.db.execute(
+        "INSERT INTO recurring_templates "
+        "(user_id, title, why, start_minute, duration_minutes, recurrence, recurrence_days, active) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, 1)",
+        (
+            1,
+            "Подготовка ко сну + дневник успеха + благодарность + молитва (КД)",
+            "why",
+            24 * 60,
+            60,
+            "daily",
+            "[]",
+        ),
+    )
+    canonical = store.db.execute(
+        "INSERT INTO recurring_templates "
+        "(user_id, title, why, start_minute, duration_minutes, recurrence, recurrence_days, active) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, 1)",
+        (
+            1,
+            "Подготовка ко сну + дневник успеха + благодарность + молитва",
+            "why",
+            24 * 60,
+            60,
+            "daily",
+            "[]",
+        ),
+    )
+    old_id = int(old.lastrowid)
+    canonical_id = int(canonical.lastrowid)
+    store.db.commit()
+    store.close()
+
+    store = PlannerStore(db_path)
+    rows = store.db.execute(
+        "SELECT id, title, active FROM recurring_templates "
+        "WHERE user_id=? AND start_minute=? ORDER BY id",
+        (1, 24 * 60),
+    ).fetchall()
+
+    assert [(int(row["id"]), row["title"], int(row["active"])) for row in rows] == [
+        (
+            old_id,
+            "Подготовка ко сну + дневник успеха + благодарность + молитва",
+            0,
+        ),
+        (
+            canonical_id,
+            "Подготовка ко сну + дневник успеха + благодарность + молитва",
+            1,
+        ),
+    ]
+    store.close()
+
+
 def test_delete_recurring_item_does_not_reappear_on_same_day(tmp_path: Path):
     store = PlannerStore(tmp_path / "planner.sqlite3")
     day = date(2026, 9, 23)
