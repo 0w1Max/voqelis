@@ -850,3 +850,131 @@ def test_previous_why_is_case_insensitive_for_cyrillic_titles(tmp_path: Path):
     )
     assert store.previous_why(1, "позвонить клиенту") == "Чтобы закрыть вопрос"
     store.close()
+
+def test_review_flow_never_deletes_plan_items(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    service = PlannerService(store, PlannerConfig(), ai=None)
+
+    before = store.ensure_daily_plan(1, day)
+    before_snapshot = [
+        (item.id, item.title, item.start_minute, item.end_minute, item.kind.value)
+        for item in before
+    ]
+
+    asyncio.run(service.start_review(1, day))
+    for item in before:
+        session = store.session(1)
+        assert session is not None
+        assert int(store.session_payload(1)["current_item_id"]) == item.id
+        asyncio.run(service.handle_callback(1, "pl:review:+", day))
+        asyncio.run(service.handle_text(1, "сделал", day))
+
+    assert store.session(1)["state"] == "review_final1"
+    asyncio.run(service.handle_text(1, "следовал рекомендации", day))
+    assert store.session(1)["state"] == "review_final2"
+    asyncio.run(service.handle_text(1, "замечал усталость", day))
+
+    after = store.plan_items(1, day)
+    after_snapshot = [
+        (item.id, item.title, item.start_minute, item.end_minute, item.kind.value)
+        for item in after
+    ]
+    assert after_snapshot == before_snapshot
+    day_review = store.day_review(1, day)
+    assert day_review is not None
+    assert day_review.completed is True
+    store.close()
+
+
+def test_plan_edit_service_changes_title_and_why_without_moving_item(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    service = PlannerService(store, PlannerConfig())
+    items = store.ensure_daily_plan(1, day)
+    original = items[0]
+    slot = (
+        original.start_minute,
+        original.end_minute,
+        original.kind,
+        original.recurring_template_id,
+    )
+
+    asyncio.run(service.start_plan_edit(1, day))
+    asyncio.run(service.handle_text(1, "1", day))
+    asyncio.run(service.handle_text(1, "дело", day))
+    asyncio.run(service.handle_text(1, "Новое утреннее дело", day))
+
+    edited = store.get_plan_item(original.id)
+    assert edited.title == "Новое утреннее дело"
+    assert (
+        edited.start_minute,
+        edited.end_minute,
+        edited.kind,
+        edited.recurring_template_id,
+    ) == slot
+
+    asyncio.run(service.start_plan_edit(1, day))
+    asyncio.run(service.handle_text(1, "1", day))
+    asyncio.run(service.handle_text(1, "зачем", day))
+    asyncio.run(service.handle_text(1, "Для здоровья и бодрости", day))
+
+    edited = store.get_plan_item(original.id)
+    assert edited.why == "Для здоровья и бодрости"
+    assert (
+        edited.start_minute,
+        edited.end_minute,
+        edited.kind,
+        edited.recurring_template_id,
+    ) == slot
+    store.close()
+
+
+def test_delete_ordinary_item_service_preserves_recurring_items(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    service = PlannerService(store, PlannerConfig())
+    recurring = store.ensure_daily_plan(1, day)
+    store.add_item(
+        PlanItem(
+            0,
+            1,
+            day,
+            "Обычная задача",
+            None,
+            15 * 60,
+            16 * 60,
+            TaskKind.ORDINARY,
+        )
+    )
+    items = store.plan_items(1, day)
+    ordinary_index = next(
+        index
+        for index, item in enumerate(items, 1)
+        if item.title == "Обычная задача"
+    )
+
+    asyncio.run(service.start_delete_item(1, day))
+    asyncio.run(service.handle_text(1, str(ordinary_index), day))
+
+    remaining = store.plan_items(1, day)
+    assert not any(item.title == "Обычная задача" for item in remaining)
+    assert [item.id for item in remaining if item.kind == TaskKind.RECURRING] == [
+        item.id for item in recurring
+    ]
+    store.close()
+
+
+def test_clear_all_callback_removes_recurring_items_and_marks_day_cleared(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    service = PlannerService(store, PlannerConfig())
+    store.ensure_daily_plan(1, day)
+
+    asyncio.run(service.start_clear_plan(1, day))
+    replies = asyncio.run(service.handle_callback(1, "pl:clear:all", day))
+
+    assert "вместе с ежедневными задачами" in replies[0]
+    assert store.plan_items(1, day) == []
+    assert store.is_day_cleared(1, day)
+    store.close()
