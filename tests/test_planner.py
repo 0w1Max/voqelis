@@ -613,6 +613,47 @@ def test_review_status_callback_sets_detail_state(tmp_path: Path):
     store.close()
 
 
+def test_review_uses_local_fallback_when_ai_is_unavailable(tmp_path: Path):
+    class FailingReviewAI:
+        async def extract_tasks(self, text, *, today, target_day, config):
+            del text, today, target_day, config
+            return []
+
+        async def extract_review(self, text, *, task_title):
+            del text, task_title
+            from voqelis.planner.models import PlannerAIUnavailable
+
+            raise PlannerAIUnavailable("review provider unavailable")
+
+        async def extract_full_review(self, text, *, items):
+            del text, items
+            return []
+
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    items = store.ensure_daily_plan(1, day)
+    service = PlannerService(store, PlannerConfig(), ai=FailingReviewAI())
+
+    asyncio.run(service.start_review(1, day))
+    replies = asyncio.run(service.handle_callback(1, "pl:review:+", day))
+    assert "Расскажи" in replies[0]
+
+    saved = asyncio.run(service.handle_text(1, "сделал, чувствовал себя нормально", day))
+    assert "Сохранено." in saved[0]
+
+    review = next(
+        item for item in store.reviews(1, day)
+        if item.plan_item.id == items[0].id
+    )
+    assert review.status == "+"
+    assert review.activity == "сделал, чувствовал себя нормально"
+    assert review.feelings == ()
+    assert review.missed_reason is None
+    assert store.session(1)["state"] == "review_status"
+    assert store.session_payload(1)["current_item_id"] == items[1].id
+    store.close()
+
+
 def test_review_can_resume_final_questions(tmp_path: Path):
 
     store = PlannerStore(tmp_path / "planner.sqlite3")
