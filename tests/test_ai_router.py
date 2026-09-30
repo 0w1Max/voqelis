@@ -209,6 +209,45 @@ async def test_gemini_interactions_response_is_parsed():
 
 
 @pytest.mark.asyncio
+async def test_gemini_retries_transient_503_once():
+    payload = {
+        "steps": [{
+            "type": "model_output",
+            "content": [{
+                "type": "text",
+                "text": "{\"tasks\":[{\"title\":\"читать книгу\",\"day\":\"2026-09-26\",\"start_time\":\"21:00\",\"end_time\":null,\"duration_minutes\":null,\"period\":null,\"preferred_time\":null,\"relation\":null,\"anchor\":null,\"why\":\"для отдыха\",\"urgent\":false}]}"
+            }]
+        }],
+    }
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        assert request.url.host == "generativelanguage.googleapis.com"
+        if calls == 1:
+            return httpx.Response(503)
+        return httpx.Response(200, json=payload)
+
+    ai = GeminiPlannerAI(
+        "test-key",
+        model="gemini-3.8-flash",
+        transport=httpx.MockTransport(handler),
+    )
+    result = await ai.extract_tasks(
+        "завтра в 9 вечера читать книгу для отдыха",
+        today=date(2026, 9, 25),
+        target_day=date(2026, 9, 26),
+        config=PlannerConfig(),
+    )
+
+    assert calls == 2
+    assert result[0].start_minute == 21 * 60
+    assert result[0].duration_minutes == 60
+    assert result[0].why == "для отдыха"
+
+
+@pytest.mark.asyncio
 async def test_gemini_http_429_is_provider_error():
     async def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(429, headers={"retry-after": "12"})
