@@ -334,7 +334,8 @@ def _parse_tasks_result(
 
         normalized_duration = (
             end - start if start is not None and end is not None else duration
-        )        if start is not None and end is None and normalized_duration is None:
+        )
+        if start is not None and end is None and normalized_duration is None:
             normalized_duration = 60
         draft = TaskDraft(
             title=_clean_task_title(title_value),
