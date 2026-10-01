@@ -141,7 +141,8 @@ async def test_exact_time_survives_missing_reason_flow(tmp_path: Path):
     assert "не указана причина" in replies[0]
     payload = store.session_payload(1)
     assert payload["draft"]["start_minute"] == 21 * 60
-    assert payload["draft"]["end_minute"] == 22 * 60
+    assert payload["draft"]["end_minute"] is None
+    assert payload["draft"]["duration_minutes"] == 60
 
     saved = await service.handle_callback(1, "pl:why:skip", date(2026, 10, 1))
     assert "21:00–22:00 — ужинать" in saved[0]
@@ -150,6 +151,43 @@ async def test_exact_time_survives_missing_reason_flow(tmp_path: Path):
     assert len(items) == 1
     assert (items[0].start_minute, items[0].end_minute) == (21 * 60, 22 * 60)
     assert store.reviews(1, date(2026, 10, 2))[0].status is None
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_ai_wrong_exact_time_survives_missing_reason_flow(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    config = PlannerConfig(recurring_templates=())
+    service = PlannerService(
+        store,
+        config,
+        ai=WrongTemporalPlannerAI(
+            lambda day: TaskDraft(
+                "ужинать",
+                day,
+                start_minute=14 * 60,
+                duration_minutes=60,
+            )
+        ),
+    )
+
+    replies = await service.add_from_text(
+        1,
+        "завтра в 21:00 ужинать",
+        date(2026, 10, 1),
+    )
+
+    assert "не указана причина" in replies[0]
+    payload = store.session_payload(1)
+    assert payload["draft"]["start_minute"] == 21 * 60
+    assert payload["draft"]["end_minute"] is None
+    assert payload["draft"]["duration_minutes"] == 60
+
+    saved = await service.handle_callback(1, "pl:why:skip", date(2026, 10, 1))
+    assert "21:00–22:00 — ужинать" in saved[0]
+
+    item = store.plan_items(1, date(2026, 10, 2))[0]
+    assert (item.start_minute, item.end_minute) == (21 * 60, 22 * 60)
     store.close()
 
 
