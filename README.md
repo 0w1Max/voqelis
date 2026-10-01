@@ -4,7 +4,7 @@
 
 Voqelis is a self-hosted platform that receives voice messages through Telegram, processes speech locally with AI, and turns speech into text that can later become structured information.
 
-**Current version: v0.1.0 (MVP)**
+**Development branch: v0.3.0 — Planner V1**
 
 The first version focuses on one core pipeline:
 
@@ -113,9 +113,9 @@ The point is not to predict every future feature. The point is to provide a core
 
 ---
 
-## Current MVP — v0.1.0
+## Planner V1 — development release v0.3.0
 
-The current production version provides:
+The stable production baseline remains v0.2.0 until Planner V1 is deployed and verified. The `feature/planner-v1` branch adds:
 
 - Telegram voice-message and audio-file input
 - Local speech-to-text with `faster-whisper`
@@ -126,6 +126,9 @@ The current production version provides:
 - Single transcription worker for a 1-vCPU server
 - Temporary audio cleanup after processing
 - Plain-text transcript delivery
+- Planner V1 with recurring templates, deterministic conflict-aware scheduling, review flow, and DOCX/PDF export
+- Optional Gemini-based structured task/review extraction
+- Planner timezone configured as `Europe/Moscow` by default; the planner reads this from `config/planner.json`
 - Dedicated unprivileged Linux service account
 - `systemd` deployment with service hardening
 
@@ -204,7 +207,10 @@ Local-first does not mean that every future component must be local. External AI
 
 ```text
 voqelis/
+├── config/
+│   └── planner.json
 ├── src/voqelis/
+│   ├── planner/
 │   ├── bot.py
 │   ├── audio.py
 │   ├── config.py
@@ -249,11 +255,13 @@ The roadmap is intentionally flexible. New modules can be added around the exist
 
 ## Project status
 
-**v0.1.0 — MVP**
+**v0.3.0 — Planner V1 (development branch)**
 
-Voqelis is already running as a production service on a real VPS and processing Telegram voice messages.
+Voqelis v0.2.0 remains the verified production baseline. Planner V1 is implemented on `feature/planner-v1` and must pass code/tests and a controlled VPS deployment test before being called production.
 
 The current goal is to keep the core small, reliable, and resource-aware while gradually turning it into a modular personal information-processing platform.
+
+Planner V1 uses Moscow time (`Europe/Moscow`) for Telegram date boundaries and daily planning by default. The planner configuration is kept separately in `config/planner.json`, so schedules, periods, anchors, and recurring templates can evolve without hardcoding them into the scheduling engine.
 
 **From voice transcription to a system for turning unstructured speech into structured information.**
 

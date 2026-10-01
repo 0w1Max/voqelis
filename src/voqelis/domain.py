@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-
 @dataclass(frozen=True, slots=True)
 class AudioJob:
     """A downloaded audio file waiting for transcription."""
@@ -22,3 +21,4 @@ class TranscriptionResult:
     duration_seconds: float
     duration_after_vad_seconds: float
     processing_seconds: float
+    pause_aware_text: str | None = None
