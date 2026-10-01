@@ -331,10 +331,29 @@ async def _cloudflare_call(
     latency = time.perf_counter() - started
     response.raise_for_status()
     body = response.json()
-    raw = body.get("result", {}).get("response")
-    if not isinstance(raw, str):
-        raise ValueError("Cloudflare response.result.response is not text")
-    return json.loads(raw), latency, response.status_code
+    result = body.get("result")
+    if not isinstance(result, dict):
+        raise ValueError("Cloudflare response.result is not an object")
+
+    raw = result.get("response")
+    if isinstance(raw, dict):
+        return raw, latency, response.status_code
+    if isinstance(raw, str):
+        return json.loads(raw), latency, response.status_code
+
+    choices = result.get("choices")
+    if isinstance(choices, list) and choices:
+        first = choices[0]
+        if isinstance(first, dict):
+            message = first.get("message")
+            if isinstance(message, dict):
+                content = message.get("content")
+                if isinstance(content, dict):
+                    return content, latency, response.status_code
+                if isinstance(content, str):
+                    return json.loads(content), latency, response.status_code
+
+    raise ValueError("Cloudflare returned no structured response")
 
 
 async def _run_case(
