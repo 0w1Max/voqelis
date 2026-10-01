@@ -248,7 +248,7 @@ async def test_cloudflare_normalizes_zero_length_exact_time():
                         '{"tasks":[{"title":"подготовка ко сну","day":"2026-10-02",'
                         '"start_time":"00:00","end_time":"00:00","duration_minutes":null,'
                         '"period":null,"preferred_time":null,"relation":null,'
-                        '"anchor":null,"why":null,"urgent":false}]'
+                        '"anchor":null,"why":null,"urgent":false}]}'
                     )
                 }
             }]
