@@ -203,6 +203,29 @@ def _norm(value: Any) -> Any:
     return value
 
 
+def _semantic_value(field: str, value: Any) -> Any:
+    value = _norm(value)
+    if field == "duration_minutes" and value == CONFIG.default_duration_minutes:
+        # The scheduler applies the configured default when duration is omitted.
+        return None
+    if field == "why" and isinstance(value, str):
+        value = re.sub(r"^(?:для\s+того\s+чтобы|для|чтобы)\s+", "", value)
+    if field == "anchor" and isinstance(value, str):
+        value = {
+            "завтрак": "breakfast",
+            "завтрака": "breakfast",
+            "обед": "lunch",
+            "обеда": "lunch",
+            "ужин": "dinner",
+            "ужина": "dinner",
+        }.get(value, value)
+    return value
+
+
+def _field_equal(field: str, actual: Any, expected: Any) -> bool:
+    return _semantic_value(field, actual) == _semantic_value(field, expected)
+
+
 def _projected_task(task: Any) -> dict[str, Any]:
     period_map = {
         "утро": "morning",
@@ -245,7 +268,7 @@ def _task_score(actual: dict[str, Any], expected: dict[str, Any]) -> tuple[int, 
     earned = sum(
         weight
         for field, weight in weights.items()
-        if _norm(actual.get(field)) == _norm(expected.get(field))
+        if _field_equal(field, actual.get(field), expected.get(field))
     )
     return earned, sum(weights.values())
 
@@ -534,7 +557,11 @@ async def main_async(args: argparse.Namespace) -> None:
                     mismatches = [
                         field
                         for field in expected_task
-                        if _norm(actual_task.get(field)) != _norm(expected_task.get(field))
+                        if not _field_equal(
+                            field,
+                            actual_task.get(field),
+                            expected_task.get(field),
+                        )
                     ]
                     if mismatches:
                         details = ", ".join(
