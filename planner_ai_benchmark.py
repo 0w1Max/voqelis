@@ -315,6 +315,37 @@ def _p95(values: list[float]) -> float:
     return values[min(len(values) - 1, math.ceil(0.95 * len(values)) - 1)]
 
 
+def _normalize_cloudflare_result(result: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(result)
+    raw_tasks = result.get("tasks")
+    if not isinstance(raw_tasks, list):
+        return normalized
+
+    tasks: list[Any] = []
+    for raw_task in raw_tasks:
+        if not isinstance(raw_task, dict):
+            tasks.append(raw_task)
+            continue
+
+        task = dict(raw_task)
+        start = task.get("start_time")
+        end = task.get("end_time")
+        duration = task.get("duration_minutes")
+
+        if (
+            isinstance(start, str)
+            and isinstance(end, str)
+            and start.strip() == end.strip()
+            and duration is None
+        ):
+            task["end_time"] = None
+
+        tasks.append(task)
+
+    normalized["tasks"] = tasks
+    return normalized
+
+
 async def _cloudflare_call(
     *,
     token: str,
@@ -400,7 +431,7 @@ async def _run_case(
             )
             raw, latency, status = await asyncio.wait_for(operation, timeout=timeout)
             tasks = _parse_tasks_result(
-                raw,
+                _normalize_cloudflare_result(raw),
                 provider_name="Cloudflare",
                 source_text=case.text,
                 today=TODAY,
