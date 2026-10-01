@@ -211,6 +211,13 @@ def _semantic_value(field: str, value: Any) -> Any:
         return None
     if field == "why" and isinstance(value, str):
         value = re.sub(r"^(?:для\s+того\s+чтобы|для|чтобы)\s+", "", value)
+        parts = re.split(r"\s*,\s*|\s+и\s+", value)
+        if len(parts) > 1:
+            parts = [
+                re.sub(r"^(?:для\s+того\s+чтобы|для|чтобы)\s+", "", part).strip()
+                for part in parts
+            ]
+            value = tuple(parts)
     if field == "anchor" and isinstance(value, str):
         value = {
             "завтрак": "breakfast",
