@@ -126,6 +126,49 @@ async def test_ai_cannot_override_explicit_after_lunch_relation(tmp_path: Path):
     store.close()
 
 
+@pytest.mark.asyncio
+async def test_exact_time_survives_missing_reason_flow(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    config = PlannerConfig(recurring_templates=())
+    service = PlannerService(store, config, ai=None)
+
+    replies = await service.add_from_text(
+        1,
+        "завтра в 21:00 ужинать",
+        date(2026, 10, 1),
+    )
+
+    assert "не указана причина" in replies[0]
+    payload = store.session_payload(1)
+    assert payload["draft"]["start_minute"] == 21 * 60
+    assert payload["draft"]["end_minute"] is None
+
+    saved = await service.handle_callback(1, "pl:why:skip", date(2026, 10, 1))
+    assert "21:00–22:00 — ужинать" in saved[0]
+
+    items = store.plan_items(1, date(2026, 10, 2))
+    assert len(items) == 1
+    assert (items[0].start_minute, items[0].end_minute) == (21 * 60, 22 * 60)
+    assert store.reviews(1, date(2026, 10, 2))[0].status is None
+    store.close()
+
+
+def test_new_recurring_materialization_has_no_review_status(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    config = PlannerConfig()
+    first_day = date(2026, 10, 2)
+    second_day = first_day + timedelta(days=1)
+
+    first_items = store.ensure_daily_plan(1, first_day, config)
+    store.save_review(first_items[0].id, "+", "сделал", (), None)
+
+    second_items = store.ensure_daily_plan(1, second_day, config)
+
+    assert len(second_items) == len(config.recurring_templates)
+    assert all(item.status is None for item in store.reviews(1, second_day))
+    store.close()
+
+
 def test_active_day_rolls_forward_and_materializes_new_recurring_plan(tmp_path: Path):
     store = PlannerStore(tmp_path / "planner.sqlite3")
     service = PlannerService(store, PlannerConfig())
