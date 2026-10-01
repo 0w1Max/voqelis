@@ -27,6 +27,9 @@ where = ["src"]
 line-length = 100
 target-version = "py312"
 
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
 
 [tool.ruff.lint]
 select = ["F", "I", "BLE"]
