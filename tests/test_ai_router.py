@@ -13,6 +13,7 @@ from planner_ai_benchmark import (
 from voqelis.planner.ai import (
     TASK_SCHEMA,
     AIProviderRouter,
+    CloudflarePlannerAI,
     GeminiPlannerAI,
     GroqPlannerAI,
     _parse_time,
@@ -185,6 +186,95 @@ def test_parse_time_accepts_provider_time_formats():
     assert _parse_time("20:00:00.123+03:00") == 20 * 60
     assert _parse_time("20:00+03:00") == 20 * 60
     assert _parse_time(None) is None
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_structured_output_is_parsed_without_network():
+    payload = {
+        "success": True,
+        "result": {
+            "response": {
+                "tasks": [{
+                    "title": "позвонить в сервис",
+                    "day": "2026-10-02",
+                    "start_time": "14:00",
+                    "end_time": None,
+                    "duration_minutes": None,
+                    "period": None,
+                    "preferred_time": None,
+                    "relation": None,
+                    "anchor": None,
+                    "why": "чтобы решить проблему",
+                    "urgent": True,
+                }]
+            }
+        },
+    }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "api.cloudflare.com"
+        assert "/accounts/test-account/ai/run/" in str(request.url)
+        assert request.headers["authorization"] == "Bearer test-token"
+        body = request.read()
+        assert b"response_format" in body
+        return httpx.Response(200, json=payload)
+
+    ai = CloudflarePlannerAI(
+        "test-token",
+        account_id="test-account",
+        model="@cf/meta/test",
+        transport=httpx.MockTransport(handler),
+    )
+    result = await ai.extract_tasks(
+        "завтра срочно в 14 часов позвонить в сервис чтобы решить проблему",
+        today=date(2026, 10, 1),
+        target_day=date(2026, 10, 2),
+        config=PlannerConfig(),
+    )
+
+    assert result[0].start_minute == 14 * 60
+    assert result[0].duration_minutes == 60
+    assert result[0].urgent is True
+    assert result[0].why == "чтобы решить проблему"
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_normalizes_zero_length_exact_time():
+    payload = {
+        "result": {
+            "choices": [{
+                "message": {
+                    "content": (
+                        '{"tasks":[{"title":"подготовка ко сну","day":"2026-10-02",'
+                        '"start_time":"00:00","end_time":"00:00","duration_minutes":null,'
+                        '"period":null,"preferred_time":null,"relation":null,'
+                        '"anchor":null,"why":null,"urgent":false}]'
+                    )
+                }
+            }]
+        }
+    }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(200, json=payload)
+
+    ai = CloudflarePlannerAI(
+        "test-token",
+        account_id="test-account",
+        model="@cf/meta/test",
+        transport=httpx.MockTransport(handler),
+    )
+    result = await ai.extract_tasks(
+        "завтра в 12 ночи подготовка ко сну",
+        today=date(2026, 10, 1),
+        target_day=date(2026, 10, 2),
+        config=PlannerConfig(),
+    )
+
+    assert result[0].start_minute == 0
+    assert result[0].end_minute is None
+    assert result[0].duration_minutes == 60
 
 
 @pytest.mark.asyncio
