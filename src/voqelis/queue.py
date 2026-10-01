@@ -6,7 +6,6 @@ from dataclasses import dataclass
 
 from .domain import AudioJob
 
-
 @dataclass(frozen=True, slots=True)
 class QueueSnapshot:
     queued: int
