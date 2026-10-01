@@ -122,7 +122,7 @@ class PlannerService:
                     "ai_relation=%s ai_anchor=%s deterministic_start=%s "
                     "deterministic_end=%s deterministic_duration=%s deterministic_period=%s "
                     "deterministic_preferred=%s deterministic_relation=%s deterministic_anchor=%s",
-                    provider_name if False else "service",
+                    "service",
                     draft.start_minute,
                     draft.end_minute,
                     draft.duration_minutes,
