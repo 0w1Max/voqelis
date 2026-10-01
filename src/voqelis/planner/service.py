@@ -57,7 +57,7 @@ class PlannerService:
         """Resolve active day and materialize its recurring tasks."""
         async with self._user_lock(user_id):
             active = self.store.active_plan_day(user_id)
-            if active is None or active <= today:
+            if active is None or active < today:
                 active = today + timedelta(days=1)
                 self.store.set_active_plan_day(user_id, active)
             self.store.ensure_daily_plan(user_id, active, self.config)
