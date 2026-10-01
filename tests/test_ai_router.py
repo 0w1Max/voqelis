@@ -5,6 +5,8 @@ from datetime import date
 import httpx
 import pytest
 
+from planner_ai_benchmark import _cloudflare_task_prompt
+
 from voqelis.planner.ai import (
     TASK_SCHEMA,
     AIProviderRouter,
@@ -116,6 +118,19 @@ async def test_router_switches_after_invalid_response():
     assert result == [task("fallback")]
     assert primary.calls == 1
     assert fallback.calls == 1
+
+
+def test_cloudflare_prompt_defines_strict_time_semantics():
+    prompt = _cloudflare_task_prompt(
+        "завтра после обеда прогуляться чтобы отдохнуть",
+        today=date(2026, 10, 1),
+        target_day=date(2026, 10, 2),
+    )
+
+    assert "preferred_time is ONLY an optional clock preference" in prompt
+    assert "'после обеда' -> relation='after', anchor='lunch'" in prompt
+    assert "Do not invent an anchor" in prompt
+    assert "Never return end_time unless start_time is also present" in prompt
 
 
 def test_strict_schema_closes_nested_objects():
