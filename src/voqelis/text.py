@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 def chunk_text(text: str, max_chars: int = 3800) -> list[str]:
     """Split Telegram text safely without exceeding its message limit.
 
