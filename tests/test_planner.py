@@ -19,7 +19,6 @@ from voqelis.planner.scheduler import Scheduler
 from voqelis.planner.service import PlannerService
 from voqelis.planner.store import PlannerStore
 
-
 def test_parser_understands_evening_clock_and_range():
     config = PlannerConfig(recurring_templates=())
     single = parse_voice(
@@ -303,17 +302,40 @@ def test_exact_range_can_be_scheduled_when_free(tmp_path: Path):
     store.close()
 
 
-def test_ninety_minute_task_stays_one_logical_item(tmp_path: Path):
+def test_non_hour_duration_is_rounded_up_to_hourly_slots(tmp_path: Path):
     store = PlannerStore(tmp_path / "planner.sqlite3")
     day = date(2026, 9, 23)
     store.ensure_daily_plan(1, day)
     scheduler = Scheduler(store, PlannerConfig())
-    draft = TaskDraft("Большая задача", day, start_minute=19 * 60, duration_minutes=90)
-    result = scheduler.schedule(1, draft)
+
+    ninety = TaskDraft(
+        "Задача 90 минут",
+        day,
+        start_minute=19 * 60,
+        duration_minutes=90,
+    )
+    result = scheduler.schedule(1, ninety)
     assert not isinstance(result, Conflict)
     assert result.start_minute == 19 * 60
     assert result.end_minute == 21 * 60
-    assert len([x for x in store.plan_items(1, day) if x.title == "Большая задача"]) == 1
+    assert len(
+        [x for x in store.plan_items(1, day) if x.title == "Задача 90 минут"]
+    ) == 1
+
+    two_and_half = TaskDraft(
+        "Задача 2.5 часа",
+        day,
+        start_minute=15 * 60,
+        duration_minutes=150,
+    )
+    result = scheduler.schedule(1, two_and_half)
+    assert not isinstance(result, Conflict)
+    assert result.start_minute == 15 * 60
+    assert result.end_minute == 18 * 60
+    assert len(
+        [x for x in store.plan_items(1, day) if x.title == "Задача 2.5 часа"]
+    ) == 1
+
     store.close()
 
 
