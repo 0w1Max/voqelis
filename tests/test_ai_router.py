@@ -26,7 +26,6 @@ from voqelis.planner.models import (
     TaskDraft,
 )
 
-
 class FakeProvider:
     provider_name = "fake"
 
@@ -296,6 +295,44 @@ async def test_cloudflare_structured_output_is_parsed_without_network():
     assert result[0].duration_minutes == 60
     assert result[0].urgent is True
     assert result[0].why == "чтобы решить проблему"
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_daily_quota_429_sets_cooldown_until_utc_midnight():
+    payload = {
+        "errors": [{
+            "message": "daily free allocation exhausted",
+            "code": 4006,
+        }],
+        "success": False,
+        "result": {},
+        "messages": [],
+    }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(429, json=payload)
+
+    ai = CloudflarePlannerAI(
+        "test-token",
+        account_id="test-account",
+        model="@cf/meta/test",
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(PlannerAIProviderError) as exc_info:
+        await ai.extract_tasks(
+            "завтра купить продукты",
+            today=date(2026, 10, 1),
+            target_day=date(2026, 10, 2),
+            config=PlannerConfig(),
+        )
+
+    error = exc_info.value
+    assert error.status_code == 429
+    assert error.retryable is True
+    assert error.retry_after_seconds is not None
+    assert 0 < error.retry_after_seconds <= 24 * 60 * 60
 
 
 @pytest.mark.asyncio

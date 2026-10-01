@@ -6,7 +6,8 @@ import json
 import logging
 import re
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+from datetime import time as datetime_time
 from typing import Protocol
 
 import httpx
@@ -553,6 +554,48 @@ def _provider_http_error(
     )
 
 
+def _seconds_until_next_utc_midnight() -> float:
+    now = datetime.now(timezone.utc)
+    next_midnight = datetime.combine(
+        now.date() + timedelta(days=1),
+        datetime_time.min,
+        tzinfo=timezone.utc,
+    )
+    return max(1.0, (next_midnight - now).total_seconds())
+
+
+def _cloudflare_provider_http_error(
+    response: httpx.Response,
+) -> PlannerAIProviderError:
+    base = _provider_http_error("Cloudflare", response)
+
+    if response.status_code != 429:
+        return base
+
+    try:
+        body = response.json()
+    except (TypeError, ValueError):
+        return base
+
+    errors = body.get("errors") if isinstance(body, dict) else None
+    if not isinstance(errors, list):
+        return base
+
+    daily_quota_exhausted = any(
+        isinstance(error, dict) and error.get("code") in {4006, "4006"}
+        for error in errors
+    )
+    if not daily_quota_exhausted:
+        return base
+
+    return PlannerAIProviderError(
+        "Cloudflare daily free allocation exhausted",
+        status_code=429,
+        retry_after_seconds=_seconds_until_next_utc_midnight(),
+        retryable=True,
+    )
+
+
 class GroqPlannerAI(_StructuredPlannerAI):
     provider_name = "Groq"
 
@@ -847,7 +890,7 @@ class CloudflarePlannerAI(_StructuredPlannerAI):
             ) from exc
 
         if response.status_code >= 400:
-            raise _provider_http_error("Cloudflare", response)
+            raise _cloudflare_provider_http_error(response)
 
         try:
             body = response.json()
