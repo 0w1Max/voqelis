@@ -3,7 +3,6 @@ import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
 
-
 import pytest
 
 from voqelis.planner.config import PlannerConfig, RecurringTemplateSpec
