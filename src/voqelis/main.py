@@ -9,7 +9,12 @@ from aiogram.client.default import DefaultBotProperties
 
 from .bot import cleanup_temp_dir, create_router, run_worker
 from .config import load_settings
-from .planner.ai import AIProviderRouter, GeminiPlannerAI, GroqPlannerAI
+from .planner.ai import (
+    AIProviderRouter,
+    CloudflarePlannerAI,
+    GeminiPlannerAI,
+    GroqPlannerAI,
+)
 from .planner.bot import create_planner_router
 from .planner.config import PlannerConfig
 from .planner.service import PlannerService
@@ -57,16 +62,31 @@ async def async_main() -> None:
         if settings.gemini_api_key
         else None
     )
+    cloudflare_ai = (
+        CloudflarePlannerAI(
+            settings.cloudflare_api_token,
+            account_id=settings.cloudflare_account_id,
+            model=settings.cloudflare_model,
+            timeout_seconds=settings.cloudflare_timeout_seconds,
+        )
+        if settings.cloudflare_api_token and settings.cloudflare_account_id
+        else None
+    )
     planner_ai = (
-        AIProviderRouter(primary=groq_ai, fallback=gemini_ai)
-        if groq_ai or gemini_ai
+        AIProviderRouter(
+            primary=groq_ai,
+            fallback=gemini_ai,
+            tertiary=cloudflare_ai,
+        )
+        if groq_ai or gemini_ai or cloudflare_ai
         else None
     )
     if planner_ai is not None:
         logger.info(
-            "Planner AI configured: primary=%s fallback=%s",
+            "Planner AI configured: primary=%s fallback=%s tertiary=%s",
             getattr(groq_ai, "provider_name", "none") if groq_ai else "none",
             getattr(gemini_ai, "provider_name", "none") if gemini_ai else "none",
+            getattr(cloudflare_ai, "provider_name", "none") if cloudflare_ai else "none",
         )
     planner = PlannerService(
         planner_store,
