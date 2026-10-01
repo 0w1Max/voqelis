@@ -19,7 +19,6 @@ from voqelis.planner.scheduler import Scheduler
 from voqelis.planner.service import PlannerService
 from voqelis.planner.store import PlannerStore
 
-
 def test_parser_understands_evening_clock_and_range():
     config = PlannerConfig(recurring_templates=())
     single = parse_voice(
