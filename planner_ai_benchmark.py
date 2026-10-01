@@ -268,11 +268,22 @@ FIELD_WEIGHTS = {
 
 
 def _task_score(actual: dict[str, Any], expected: dict[str, Any]) -> tuple[int, int]:
-    earned = sum(
-        weight
-        for field, weight in FIELD_WEIGHTS.items()
-        if _field_equal(field, actual.get(field), expected.get(field))
-    )
+    earned = 0
+    for field, weight in FIELD_WEIGHTS.items():
+        if field == "end_minute" and expected.get(field) is None:
+            start = actual.get("start_minute")
+            duration = actual.get("duration_minutes")
+            end = actual.get("end_minute")
+            equivalent_default_end = (
+                start is not None
+                and duration == CONFIG.default_duration_minutes
+                and end == start + CONFIG.default_duration_minutes
+            )
+            if end is None or equivalent_default_end:
+                earned += weight
+            continue
+        if _field_equal(field, actual.get(field), expected.get(field)):
+            earned += weight
     return earned, sum(FIELD_WEIGHTS.values())
 
 
