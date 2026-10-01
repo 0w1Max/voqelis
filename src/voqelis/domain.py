@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-
 @dataclass(frozen=True, slots=True)
 class AudioJob:
     """A downloaded audio file waiting for transcription."""
