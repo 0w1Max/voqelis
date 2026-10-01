@@ -544,6 +544,8 @@ async def main_async(args: argparse.Namespace) -> None:
                 print(
                     f"  mismatch {record['case']}: "
                     f"{record['score']}/{record['score_max']} "
+                    f"tasks={len(record['tasks'] or [])}/"
+                    f"{len(next(case.expected for case in CASES if case.name == record['case']))} "
                     f"status={record['status']!r}"
                 )
                 actual_tasks = record["tasks"] or []
