@@ -274,12 +274,12 @@ def _task_score(actual: dict[str, Any], expected: dict[str, Any]) -> tuple[int, 
             start = actual.get("start_minute")
             duration = actual.get("duration_minutes")
             end = actual.get("end_minute")
-            equivalent_default_end = (
+            equivalent_implied_end = (
                 start is not None
-                and duration == CONFIG.default_duration_minutes
-                and end == start + CONFIG.default_duration_minutes
+                and duration is not None
+                and end == start + duration
             )
-            if end is None or equivalent_default_end:
+            if end is None or equivalent_implied_end:
                 earned += weight
             continue
         if _field_equal(field, actual.get(field), expected.get(field)):
