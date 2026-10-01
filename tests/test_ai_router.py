@@ -7,6 +7,7 @@ import pytest
 
 from planner_ai_benchmark import (
     _cloudflare_task_prompt,
+    _field_equal,
     _normalize_cloudflare_result,
 )
 from voqelis.planner.ai import (
@@ -120,6 +121,19 @@ async def test_router_switches_after_invalid_response():
     assert result == [task("fallback")]
     assert primary.calls == 1
     assert fallback.calls == 1
+
+
+def test_benchmark_treats_why_list_conjunction_as_equivalent():
+    assert _field_equal(
+        "why",
+        "для работы, для развития",
+        "для работы и для развития",
+    )
+    assert _field_equal(
+        "why",
+        "для здоровья, для настроения, для духовного опыта",
+        "для здоровья и для настроения и для духовного опыта",
+    )
 
 
 def test_cloudflare_normalizes_equal_start_end_without_explicit_duration():
