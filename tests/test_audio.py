@@ -1,5 +1,6 @@
 from voqelis.audio import is_audio_document
 
+
 def test_audio_mime_is_accepted():
     assert is_audio_document(mime_type="audio/mpeg", file_name="unknown.bin")
 
