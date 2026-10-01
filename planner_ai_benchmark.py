@@ -385,7 +385,11 @@ async def _run_case(
                 "error": None,
             }
 
-        prompt = _task_prompt(case.text, today=TODAY, target_day=TARGET_DAY)
+        prompt = (
+            _cloudflare_task_prompt(case.text, today=TODAY, target_day=TARGET_DAY)
+            if name == "cloudflare"
+            else _task_prompt(case.text, today=TODAY, target_day=TARGET_DAY)
+        )
         if name == "cloudflare":
             operation = _cloudflare_call(
                 token=provider["token"],
