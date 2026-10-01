@@ -1,0 +1,480 @@
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import math
+import os
+import statistics
+import time
+from dataclasses import dataclass
+from datetime import date
+from pathlib import Path
+from typing import Any
+
+import httpx
+from dotenv import load_dotenv
+
+from voqelis.planner.ai import (
+    GeminiPlannerAI,
+    GroqPlannerAI,
+    TASK_SCHEMA,
+    _parse_tasks_result,
+    _strict_schema,
+    _task_prompt,
+)
+from voqelis.planner.config import PlannerConfig
+from voqelis.planner.models import PlannerAIError
+
+
+TODAY = date(2026, 10, 1)
+TARGET_DAY = date(2026, 10, 2)
+CONFIG = PlannerConfig()
+
+
+@dataclass(frozen=True, slots=True)
+class Case:
+    name: str
+    text: str
+    expected: list[dict[str, Any]]
+
+
+CASES = (
+    Case(
+        "exact_evening",
+        "завтра в 8 вечера читать книгу для здоровья, для настроения, для отдыха",
+        [{"title": "читать книгу", "day": TARGET_DAY.isoformat(), "start_minute": 1200, "end_minute": 1260, "duration_minutes": 60, "why": "для здоровья, для настроения, для отдыха", "period": None, "relation": None, "anchor": None, "urgent": False}],
+    ),
+    Case(
+        "explicit_range",
+        "завтра с 12 до 15 заниматься проектом для опыта и для резюме",
+        [{"title": "заниматься проектом", "day": TARGET_DAY.isoformat(), "start_minute": 720, "end_minute": 900, "duration_minutes": 180, "why": "для опыта и для резюме", "period": None, "relation": None, "anchor": None, "urgent": False}],
+    ),
+    Case(
+        "morning_period",
+        "завтра утром сделать зарядку для здоровья",
+        [{"title": "сделать зарядку", "day": TARGET_DAY.isoformat(), "start_minute": None, "end_minute": None, "duration_minutes": None, "why": "для здоровья", "period": "morning", "relation": None, "anchor": None, "urgent": False}],
+    ),
+    Case(
+        "evening_period",
+        "завтра вечером почитать книгу для отдыха",
+        [{"title": "почитать книгу", "day": TARGET_DAY.isoformat(), "start_minute": None, "end_minute": None, "duration_minutes": None, "why": "для отдыха", "period": "evening", "relation": None, "anchor": None, "urgent": False}],
+    ),
+    Case(
+        "after_breakfast",
+        "завтра после завтрака позвонить маме чтобы узнать как она",
+        [{"title": "позвонить маме", "day": TARGET_DAY.isoformat(), "start_minute": None, "end_minute": None, "duration_minutes": None, "why": "чтобы узнать как она", "period": None, "relation": "after", "anchor": "breakfast", "urgent": False}],
+    ),
+    Case(
+        "before_lunch",
+        "завтра перед обедом проверить почту для работы",
+        [{"title": "проверить почту", "day": TARGET_DAY.isoformat(), "start_minute": None, "end_minute": None, "duration_minutes": None, "why": "для работы", "period": None, "relation": "before", "anchor": "lunch", "urgent": False}],
+    ),
+    Case(
+        "after_lunch",
+        "завтра после обеда прогуляться чтобы отдохнуть",
+        [{"title": "прогуляться", "day": TARGET_DAY.isoformat(), "start_minute": None, "end_minute": None, "duration_minutes": None, "why": "чтобы отдохнуть", "period": None, "relation": "after", "anchor": "lunch", "urgent": False}],
+    ),
+    Case(
+        "before_dinner",
+        "завтра перед ужином сделать домашку по шагам для программы",
+        [{"title": "сделать домашку по шагам", "day": TARGET_DAY.isoformat(), "start_minute": None, "end_minute": None, "duration_minutes": None, "why": "для программы", "period": None, "relation": "before", "anchor": "dinner", "urgent": False}],
+    ),
+    Case(
+        "after_dinner",
+        "завтра после ужина подготовить вещи ко сну",
+        [{"title": "подготовить вещи ко сну", "day": TARGET_DAY.isoformat(), "start_minute": None, "end_minute": None, "why": None, "duration_minutes": None, "period": None, "relation": "after", "anchor": "dinner", "urgent": False}],
+    ),
+    Case(
+        "explicit_duration",
+        "завтра сделать резюме 90 минут для поиска работы",
+        [{"title": "сделать резюме", "day": TARGET_DAY.isoformat(), "start_minute": None, "end_minute": None, "duration_minutes": 90, "why": "для поиска работы", "period": None, "relation": None, "anchor": None, "urgent": False}],
+    ),
+    Case(
+        "exact_morning",
+        "завтра в 8 утра помолиться для спокойствия",
+        [{"title": "помолиться", "day": TARGET_DAY.isoformat(), "start_minute": 480, "end_minute": None, "duration_minutes": 60, "why": "для спокойствия", "period": None, "relation": None, "anchor": None, "urgent": False}],
+    ),
+    Case(
+        "exact_night",
+        "завтра в 12 ночи подготовка ко сну",
+        [{"title": "подготовка ко сну", "day": TARGET_DAY.isoformat(), "start_minute": 0, "end_minute": None, "duration_minutes": 60, "why": None, "period": None, "relation": None, "anchor": None, "urgent": False}],
+    ),
+    Case(
+        "urgent",
+        "завтра срочно в 14 часов позвонить в сервис чтобы решить проблему",
+        [{"title": "позвонить в сервис", "day": TARGET_DAY.isoformat(), "start_minute": 840, "end_minute": None, "duration_minutes": 60, "why": "чтобы решить проблему", "period": None, "relation": None, "anchor": None, "urgent": True}],
+    ),
+    Case(
+        "today",
+        "сегодня в 18:00 почитать документацию для проекта",
+        [{"title": "почитать документацию", "day": TODAY.isoformat(), "start_minute": 1080, "end_minute": None, "duration_minutes": 60, "why": "для проекта", "period": None, "relation": None, "anchor": None, "urgent": False}],
+    ),
+    Case(
+        "day_after_tomorrow",
+        "послезавтра в 9 утра переделать резюме для поиска работы",
+        [{"title": "переделать резюме", "day": "2026-10-03", "start_minute": 540, "end_minute": None, "duration_minutes": 60, "why": "для поиска работы", "period": None, "relation": None, "anchor": None, "urgent": False}],
+    ),
+    Case(
+        "why_pause_list",
+        "завтра в 19 читать духовную книгу для здоровья, для настроения, для духовного опыта",
+        [{"title": "читать духовную книгу", "day": TARGET_DAY.isoformat(), "start_minute": 1140, "end_minute": None, "duration_minutes": 60, "why": "для здоровья, для настроения, для духовного опыта", "period": None, "relation": None, "anchor": None, "urgent": False}],
+    ),
+    Case(
+        "two_tasks",
+        "завтра утром сделать зарядку для здоровья и вечером почитать книгу для отдыха",
+        [
+            {"title": "сделать зарядку", "day": TARGET_DAY.isoformat(), "start_minute": None, "end_minute": None, "duration_minutes": None, "why": "для здоровья", "period": "morning", "relation": None, "anchor": None, "urgent": False},
+            {"title": "почитать книгу", "day": TARGET_DAY.isoformat(), "start_minute": None, "end_minute": None, "duration_minutes": None, "why": "для отдыха", "period": "evening", "relation": None, "anchor": None, "urgent": False},
+        ],
+    ),
+    Case(
+        "three_tasks",
+        "завтра утром зарядка, днём заниматься проектом, вечером прогулка для отдыха",
+        [
+            {"title": "зарядка", "day": TARGET_DAY.isoformat(), "start_minute": None, "end_minute": None, "duration_minutes": None, "why": None, "period": "morning", "relation": None, "anchor": None, "urgent": False},
+            {"title": "заниматься проектом", "day": TARGET_DAY.isoformat(), "start_minute": None, "end_minute": None, "duration_minutes": None, "why": None, "period": "day", "relation": None, "anchor": None, "urgent": False},
+            {"title": "прогулка", "day": TARGET_DAY.isoformat(), "start_minute": None, "end_minute": None, "duration_minutes": None, "why": "для отдыха", "period": "evening", "relation": None, "anchor": None, "urgent": False},
+        ],
+    ),
+    Case(
+        "ninety_minutes",
+        "завтра в 20:00 заниматься проектом полтора часа для практики",
+        [{"title": "заниматься проектом", "day": TARGET_DAY.isoformat(), "start_minute": 1200, "end_minute": None, "duration_minutes": 90, "why": "для практики", "period": None, "relation": None, "anchor": None, "urgent": False}],
+    ),
+    Case(
+        "mixed_duration",
+        "завтра в 16 часов работать над портфолио 1 час 30 минут для резюме",
+        [{"title": "работать над портфолио", "day": TARGET_DAY.isoformat(), "start_minute": 960, "end_minute": None, "duration_minutes": 90, "why": "для резюме", "period": None, "relation": None, "anchor": None, "urgent": False}],
+    ),
+    Case(
+        "colloquial",
+        "мне завтра надо в восемь вечера почитать книгу чтобы расслабиться",
+        [{"title": "почитать книгу", "day": TARGET_DAY.isoformat(), "start_minute": 1200, "end_minute": None, "duration_minutes": 60, "why": "чтобы расслабиться", "period": None, "relation": None, "anchor": None, "urgent": False}],
+    ),
+    Case(
+        "filler",
+        "ну короче завтра после ужина я хочу ну это подготовить план на завтра для порядка",
+        [{"title": "подготовить план на завтра", "day": TARGET_DAY.isoformat(), "start_minute": None, "end_minute": None, "duration_minutes": None, "why": "для порядка", "period": None, "relation": "after", "anchor": "dinner", "urgent": False}],
+    ),
+    Case(
+        "anchor_and_why",
+        "завтра после завтрака почитать статьи для работы и для развития",
+        [{"title": "почитать статьи", "day": TARGET_DAY.isoformat(), "start_minute": None, "end_minute": None, "duration_minutes": None, "why": "для работы и для развития", "period": None, "relation": "after", "anchor": "breakfast", "urgent": False}],
+    ),
+    Case(
+        "night_period",
+        "завтра ночью написать дневник успеха для спокойствия",
+        [{"title": "написать дневник успеха", "day": TARGET_DAY.isoformat(), "start_minute": None, "end_minute": None, "duration_minutes": None, "why": "для спокойствия", "period": "night", "relation": None, "anchor": None, "urgent": False}],
+    ),
+    Case(
+        "no_why",
+        "завтра в 11 проверить документы",
+        [{"title": "проверить документы", "day": TARGET_DAY.isoformat(), "start_minute": 660, "end_minute": None, "duration_minutes": 60, "why": None, "period": None, "relation": None, "anchor": None, "urgent": False}],
+    ),
+    Case(
+        "spiritual",
+        "завтра в 21 помолиться и поблагодарить за день для спокойствия",
+        [{"title": "помолиться и поблагодарить за день", "day": TARGET_DAY.isoformat(), "start_minute": 1260, "end_minute": None, "duration_minutes": 60, "why": "для спокойствия", "period": None, "relation": None, "anchor": None, "urgent": False}],
+    ),
+    Case(
+        "health_mood",
+        "завтра вечером прогуляться для здоровья, настроения и хорошего сна",
+        [{"title": "прогуляться", "day": TARGET_DAY.isoformat(), "start_minute": None, "end_minute": None, "duration_minutes": None, "why": "для здоровья, настроения и хорошего сна", "period": "evening", "relation": None, "anchor": None, "urgent": False}],
+    ),
+    Case(
+        "relation_window",
+        "завтра после обеда и перед ужином поработать над проектом для опыта",
+        [{"title": "поработать над проектом", "day": TARGET_DAY.isoformat(), "start_minute": None, "end_minute": None, "duration_minutes": None, "why": "для опыта", "period": None, "relation": "after", "anchor": "lunch", "urgent": False}],
+    ),
+    Case(
+        "explicit_interval_colloquial",
+        "завтра с восьми вечера до девяти вечера читать книгу",
+        [{"title": "читать книгу", "day": TARGET_DAY.isoformat(), "start_minute": 1200, "end_minute": 1260, "duration_minutes": 60, "why": None, "period": None, "relation": None, "anchor": None, "urgent": False}],
+    ),
+)
+
+
+def _norm(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return " ".join(value.casefold().replace("ё", "е").split()).strip(" ,.;:-")
+    return value
+
+
+def _projected_task(task: Any) -> dict[str, Any]:
+    return {
+        "title": task.title,
+        "day": task.day.isoformat(),
+        "start_minute": task.start_minute,
+        "end_minute": task.end_minute,
+        "duration_minutes": task.duration_minutes,
+        "why": task.why,
+        "period": task.period,
+        "relation": task.relation,
+        "anchor": task.anchor,
+        "urgent": task.urgent,
+    }
+
+
+def _task_score(actual: dict[str, Any], expected: dict[str, Any]) -> tuple[int, int]:
+    weights = {
+        "title": 2,
+        "day": 1,
+        "start_minute": 1,
+        "end_minute": 1,
+        "duration_minutes": 1,
+        "why": 2,
+        "period": 1,
+        "relation": 1,
+        "anchor": 1,
+        "urgent": 1,
+    }
+    earned = sum(
+        weight
+        for field, weight in weights.items()
+        if _norm(actual.get(field)) == _norm(expected.get(field))
+    )
+    return earned, sum(weights.values())
+
+
+def _score_case(actual: list[Any] | None, expected: list[dict[str, Any]]) -> tuple[int, int]:
+    possible = 1 + 13 * len(expected)
+    if actual is None:
+        return 0, possible
+    earned = 1 if len(actual) == len(expected) else 0
+    actual_tasks = [_projected_task(x) for x in actual]
+    unused = set(range(len(actual_tasks)))
+    for expected_task in expected:
+        best_index = None
+        best_score = -1
+        for index in unused:
+            score, _ = _task_score(actual_tasks[index], expected_task)
+            if score > best_score:
+                best_score = score
+                best_index = index
+        if best_index is not None:
+            unused.remove(best_index)
+            earned += best_score
+    return earned, possible
+
+
+def _p95(values: list[float]) -> float:
+    if not values:
+        return 0.0
+    values = sorted(values)
+    return values[min(len(values) - 1, math.ceil(0.95 * len(values)) - 1)]
+
+
+async def _cloudflare_call(
+    *,
+    token: str,
+    account_id: str,
+    model: str,
+    prompt: str,
+    timeout: float,
+) -> tuple[dict[str, Any], float, int]:
+    started = time.perf_counter()
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0,
+                "max_tokens": 512,
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": _strict_schema(TASK_SCHEMA),
+                },
+            },
+            timeout=timeout,
+        )
+    latency = time.perf_counter() - started
+    response.raise_for_status()
+    body = response.json()
+    raw = body.get("result", {}).get("response")
+    if not isinstance(raw, str):
+        raise ValueError("Cloudflare response.result.response is not text")
+    return json.loads(raw), latency, response.status_code
+
+
+async def _run_case(
+    name: str,
+    provider: Any,
+    case: Case,
+    *,
+    timeout: float,
+) -> tuple[list[Any] | None, dict[str, Any]]:
+    started = time.perf_counter()
+    try:
+        prompt = _task_prompt(case.text, today=TODAY, target_day=TARGET_DAY)
+        if name == "cloudflare":
+            raw, latency, status = await _cloudflare_call(
+                token=provider["token"],
+                account_id=provider["account"],
+                model=provider["model"],
+                prompt=prompt,
+                timeout=timeout,
+            )
+            tasks = _parse_tasks_result(
+                raw,
+                provider_name="Cloudflare",
+                source_text=case.text,
+                today=TODAY,
+            )
+            return tasks, {"ok": True, "latency_ms": round(latency * 1000, 1), "status": status, "error": None}
+        tasks = await provider.extract_tasks(
+            case.text,
+            today=TODAY,
+            target_day=TARGET_DAY,
+            config=CONFIG,
+        )
+        return tasks, {
+            "ok": True,
+            "latency_ms": round((time.perf_counter() - started) * 1000, 1),
+            "status": None,
+            "error": None,
+        }
+    except PlannerAIError as exc:
+        return None, {
+            "ok": False,
+            "latency_ms": round((time.perf_counter() - started) * 1000, 1),
+            "status": getattr(exc, "status_code", None),
+            "error": str(exc),
+        }
+    except (httpx.HTTPError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        response = getattr(exc, "response", None)
+        return None, {
+            "ok": False,
+            "latency_ms": round((time.perf_counter() - started) * 1000, 1),
+            "status": response.status_code if response is not None else None,
+            "error": str(exc),
+        }
+
+
+def _providers(env_file: Path) -> dict[str, Any]:
+    load_dotenv(env_file, override=False)
+    result: dict[str, Any] = {}
+    if os.getenv("GROQ_API_KEY"):
+        result["groq"] = GroqPlannerAI(
+            os.environ["GROQ_API_KEY"],
+            model=os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b"),
+            timeout_seconds=35,
+        )
+    if os.getenv("GEMINI_API_KEY"):
+        result["gemini_current"] = GeminiPlannerAI(
+            os.environ["GEMINI_API_KEY"],
+            model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
+            timeout_seconds=35,
+        )
+        result["gemini_flash_lite"] = GeminiPlannerAI(
+            os.environ["GEMINI_API_KEY"],
+            model=os.getenv("GEMINI_BENCHMARK_LITE_MODEL", "gemini-3.5-flash-lite"),
+            timeout_seconds=35,
+        )
+    if os.getenv("CLOUDFLARE_API_TOKEN") and os.getenv("CLOUDFLARE_ACCOUNT_ID"):
+        result["cloudflare"] = {
+            "token": os.environ["CLOUDFLARE_API_TOKEN"],
+            "account": os.environ["CLOUDFLARE_ACCOUNT_ID"],
+            "model": os.getenv(
+                "CLOUDFLARE_MODEL",
+                "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+            ),
+        }
+    return result
+
+
+async def main_async(args: argparse.Namespace) -> None:
+    providers = _providers(args.env_file)
+    if not providers:
+        raise SystemExit("Нет ни одного настроенного benchmark provider.")
+    print(f"cases={len(CASES)} repeat={args.repeat}")
+    print("providers=" + ", ".join(providers))
+
+    all_results: dict[str, list[dict[str, Any]]] = {name: [] for name in providers}
+
+    for round_number in range(1, args.repeat + 1):
+        print(f"\nROUND {round_number}/{args.repeat}")
+        for case_number, case in enumerate(CASES, 1):
+            for name, provider in providers.items():
+                tasks, meta = await _run_case(name, provider, case, timeout=args.timeout)
+                earned, possible = _score_case(tasks, case.expected)
+                record = {
+                    "round": round_number,
+                    "case": case.name,
+                    "ok": meta["ok"],
+                    "latency_ms": meta["latency_ms"],
+                    "status": meta["status"],
+                    "error": meta["error"],
+                    "score": earned,
+                    "score_max": possible,
+                    "tasks": [_projected_task(x) for x in tasks] if tasks is not None else None,
+                }
+                all_results[name].append(record)
+            print(f"[{case_number:02d}/{len(CASES)}] {case.name}", end="\\n")
+
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(
+            {
+                "today": TODAY.isoformat(),
+                "target_day": TARGET_DAY.isoformat(),
+                "case_count": len(CASES),
+                "repeat": args.repeat,
+                "providers": {
+                    name: (
+                        {
+                            "provider": provider.provider_name,
+                            "model": provider.model,
+                        }
+                        if name != "cloudflare"
+                        else {"provider": "Cloudflare", "model": provider["model"]}
+                    )
+                    for name, provider in providers.items()
+                },
+                "results": all_results,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    print("\nSUMMARY")
+    for name, records in all_results.items():
+        successful = [record for record in records if record["ok"]]
+        latencies = [record["latency_ms"] for record in successful]
+        score = sum(record["score"] for record in records)
+        possible = sum(record["score_max"] for record in records)
+        error_counts: dict[str, int] = {}
+        for record in records:
+            key = str(record["status"]) if record["status"] else ("error" if record["error"] else "ok")
+            error_counts[key] = error_counts.get(key, 0) + 1
+        print(
+            f"{name:<20} accuracy={score / possible * 100:6.1f}% "
+            f"success={len(successful) / len(records) * 100:6.1f}% "
+            f"p50={statistics.median(latencies) if latencies else 0:7.0f}ms "
+            f"p95={_p95(latencies):7.0f}ms "
+            f"errors={error_counts}"
+        )
+    print(f"results={output}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--repeat", type=int, default=1)
+    parser.add_argument("--timeout", type=float, default=35.0)
+    parser.add_argument("--env-file", type=Path, default=Path("/opt/voqelis/.env"))
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("/run/voqelis/planner-ai-benchmark.json"),
+    )
+    raise SystemExit(asyncio.run(main_async(parser.parse_args())))
+
+
+if __name__ == "__main__":
+    main()
