@@ -136,7 +136,7 @@ class PlannerConfig:
 
     def period(self, name: str) -> Period | None:
         aliases = {
-            "утром": "morning", "утро": "morning",
+            "утром": "morning", "утро": "morning", "утра": "morning",
             "днём": "day", "днем": "day", "день": "day",
             "вечером": "evening", "вечер": "evening",
             "ночью": "night", "ночь": "night",
