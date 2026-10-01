@@ -96,19 +96,49 @@ class PlannerService:
                 duration = hint.duration_minutes
             elif hint.duration_minutes != config.default_duration_minutes:
                 duration = hint.duration_minutes
-            protected.append(
-                replace(
-                    draft,
-                    day=hint.day if explicit_date else draft.day,
-                    start_minute=hint.start_minute,
-                    end_minute=hint.end_minute,
-                    duration_minutes=duration,
-                    period=hint.period,
-                    preferred_minute=hint.preferred_minute,
-                    relation=hint.relation,
-                    anchor=hint.anchor,
-                )
+            protected_draft = replace(
+                draft,
+                day=hint.day if explicit_date else draft.day,
+                start_minute=hint.start_minute,
+                end_minute=hint.end_minute,
+                duration_minutes=duration,
+                period=hint.period,
+                preferred_minute=hint.preferred_minute,
+                relation=hint.relation,
+                anchor=hint.anchor,
             )
+            if (
+                draft.start_minute != protected_draft.start_minute
+                or draft.end_minute != protected_draft.end_minute
+                or draft.duration_minutes != protected_draft.duration_minutes
+                or draft.period != protected_draft.period
+                or draft.preferred_minute != protected_draft.preferred_minute
+                or draft.relation != protected_draft.relation
+                or draft.anchor != protected_draft.anchor
+            ):
+                logger.info(
+                    "PLANNER_TEMPORAL_GUARD_OVERRIDE provider=%s "
+                    "ai_start=%s ai_end=%s ai_duration=%s ai_period=%s ai_preferred=%s "
+                    "ai_relation=%s ai_anchor=%s deterministic_start=%s "
+                    "deterministic_end=%s deterministic_duration=%s deterministic_period=%s "
+                    "deterministic_preferred=%s deterministic_relation=%s deterministic_anchor=%s",
+                    provider_name if False else "service",
+                    draft.start_minute,
+                    draft.end_minute,
+                    draft.duration_minutes,
+                    draft.period,
+                    draft.preferred_minute,
+                    draft.relation,
+                    draft.anchor,
+                    protected_draft.start_minute,
+                    protected_draft.end_minute,
+                    protected_draft.duration_minutes,
+                    protected_draft.period,
+                    protected_draft.preferred_minute,
+                    protected_draft.relation,
+                    protected_draft.anchor,
+                )
+            protected.append(protected_draft)
         return protected
 
     async def _extract(self, text: str, user_id: int, today: date) -> list[TaskDraft]:
