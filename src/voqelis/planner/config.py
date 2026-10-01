@@ -6,7 +6,6 @@ from datetime import date
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-
 @dataclass(frozen=True, slots=True)
 class Period:
     name: str
