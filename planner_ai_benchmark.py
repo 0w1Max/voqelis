@@ -476,7 +476,20 @@ def _cloudflare_task_prompt(
         "For an exact start without an explicit interval, return start_time only and "
         "leave end_time null. "
         "Do not put natural-language descriptions such as 'утром', 'after breakfast', "
-        "or 'afternoon' into preferred_time."
+        "or 'afternoon' into preferred_time. "
+        "If the user says only a period such as 'вечером' or 'ночью', set period to the "
+        "matching value and keep start_time, end_time, and preferred_time null. "
+        "A period is not an exact clock time. Only set start_time when the user explicitly "
+        "gives a clock or an explicit interval. "
+        "When a purpose clause begins with 'для', 'чтобы', or 'для того чтобы', keep the "
+        "purpose in why and out of title. For example, 'перед ужином сделать домашку "
+        "по шагам для программы' must have title='сделать домашку по шагам' and "
+        "why='для программы'. "
+        "Preserve meaningful title wording from the user's task. Remove conversational "
+        "filler such as 'ну', 'короче', 'я хочу', or 'это', but do not drop meaningful "
+        "phrases such as 'на завтра' when they are part of the requested action. "
+        "Preserve the user's why wording closely; do not rewrite prepositions or conjunctions "
+        "when the meaning is already clear."
     )
 
 
