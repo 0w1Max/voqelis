@@ -75,6 +75,10 @@ class Settings:
     groq_model: str
     gemini_api_key: str
     gemini_model: str
+    cloudflare_api_token: str
+    cloudflare_account_id: str
+    cloudflare_model: str
+    cloudflare_timeout_seconds: int
     planner_ai_timeout_seconds: int
     planner_ai_fallback_timeout_seconds: int
     planner_log_content: bool
@@ -179,6 +183,17 @@ def load_settings(env_file: Path | None = None) -> Settings:
         groq_model=os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b").strip(),
         gemini_api_key=os.environ.get("GEMINI_API_KEY", "").strip(),
         gemini_model=os.environ.get("GEMINI_MODEL", "gemini-3.8-flash").strip(),
+        cloudflare_api_token=os.environ.get("CLOUDFLARE_API_TOKEN", "").strip(),
+        cloudflare_account_id=os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip(),
+        cloudflare_model=os.environ.get(
+            "CLOUDFLARE_MODEL",
+            "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+        ).strip(),
+        cloudflare_timeout_seconds=_positive_int(
+            os.environ.get("CLOUDFLARE_TIMEOUT_SECONDS", "15"),
+            name="CLOUDFLARE_TIMEOUT_SECONDS",
+            minimum=5,
+        ),
         planner_ai_timeout_seconds=_positive_int(os.environ.get("PLANNER_AI_TIMEOUT_SECONDS", "30"), name="PLANNER_AI_TIMEOUT_SECONDS", minimum=5),
         planner_ai_fallback_timeout_seconds=_positive_int(
             os.environ.get("PLANNER_AI_FALLBACK_TIMEOUT_SECONDS", "12"),
