@@ -344,7 +344,7 @@ async def _cloudflare_call(
     body = response.json()
     result = body.get("result")
     if not isinstance(result, dict):
-        raise ValueError("Cloudflare response.result is not an object")
+        raise TypeError("Cloudflare response.result is not an object")
 
     raw = result.get("response")
     if isinstance(raw, dict):
