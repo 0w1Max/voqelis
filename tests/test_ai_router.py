@@ -6,7 +6,6 @@ import httpx
 import pytest
 
 from planner_ai_benchmark import _cloudflare_task_prompt
-
 from voqelis.planner.ai import (
     TASK_SCHEMA,
     AIProviderRouter,
