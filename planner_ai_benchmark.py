@@ -27,7 +27,6 @@ from voqelis.planner.config import PlannerConfig
 from voqelis.planner.models import PlannerAIError
 from voqelis.planner.parser import parse_voice
 
-
 TODAY = date(2026, 10, 1)
 TARGET_DAY = date(2026, 10, 2)
 CONFIG = PlannerConfig()
