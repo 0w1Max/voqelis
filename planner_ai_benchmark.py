@@ -25,6 +25,7 @@ from voqelis.planner.ai import (
 )
 from voqelis.planner.config import PlannerConfig
 from voqelis.planner.models import PlannerAIError
+from voqelis.planner.parser import parse_voice
 
 
 TODAY = date(2026, 10, 1)
@@ -309,33 +310,57 @@ async def _run_case(
 ) -> tuple[list[Any] | None, dict[str, Any]]:
     started = time.perf_counter()
     try:
+        if name == "local":
+            tasks = parse_voice(case.text, today=TODAY, config=CONFIG)
+            return tasks, {
+                "ok": True,
+                "latency_ms": round((time.perf_counter() - started) * 1000, 1),
+                "status": None,
+                "error": None,
+            }
+
         prompt = _task_prompt(case.text, today=TODAY, target_day=TARGET_DAY)
         if name == "cloudflare":
-            raw, latency, status = await _cloudflare_call(
+            operation = _cloudflare_call(
                 token=provider["token"],
                 account_id=provider["account"],
                 model=provider["model"],
                 prompt=prompt,
                 timeout=timeout,
             )
+            raw, latency, status = await asyncio.wait_for(operation, timeout=timeout)
             tasks = _parse_tasks_result(
                 raw,
                 provider_name="Cloudflare",
                 source_text=case.text,
                 today=TODAY,
             )
-            return tasks, {"ok": True, "latency_ms": round(latency * 1000, 1), "status": status, "error": None}
-        tasks = await provider.extract_tasks(
+            return tasks, {
+                "ok": True,
+                "latency_ms": round(latency * 1000, 1),
+                "status": status,
+                "error": None,
+            }
+
+        operation = provider.extract_tasks(
             case.text,
             today=TODAY,
             target_day=TARGET_DAY,
             config=CONFIG,
         )
+        tasks = await asyncio.wait_for(operation, timeout=timeout)
         return tasks, {
             "ok": True,
             "latency_ms": round((time.perf_counter() - started) * 1000, 1),
             "status": None,
             "error": None,
+        }
+    except asyncio.TimeoutError:
+        return None, {
+            "ok": False,
+            "latency_ms": round((time.perf_counter() - started) * 1000, 1),
+            "status": "timeout",
+            "error": f"hard timeout after {timeout:.1f}s",
         }
     except PlannerAIError as exc:
         return None, {
@@ -356,7 +381,7 @@ async def _run_case(
 
 def _providers(env_file: Path) -> dict[str, Any]:
     load_dotenv(env_file, override=False)
-    result: dict[str, Any] = {}
+    result: dict[str, Any] = {"local": None}
     if os.getenv("GROQ_API_KEY"):
         result["groq"] = GroqPlannerAI(
             os.environ["GROQ_API_KEY"],
@@ -387,10 +412,18 @@ def _providers(env_file: Path) -> dict[str, Any]:
 
 
 async def main_async(args: argparse.Namespace) -> None:
-    providers = _providers(args.env_file)
-    if not providers:
-        raise SystemExit("Нет ни одного настроенного benchmark provider.")
-    print(f"cases={len(CASES)} repeat={args.repeat}")
+    available = _providers(args.env_file)
+    if args.provider == "all":
+        providers = available
+    else:
+        if args.provider not in available:
+            configured = ", ".join(available) or "none"
+            raise SystemExit(
+                f"Provider {args.provider!r} не настроен. Доступны: {configured}"
+            )
+        providers = {args.provider: available[args.provider]}
+
+    print(f"cases={len(CASES)} repeat={args.repeat} timeout={args.timeout:.1f}s")
     print("providers=" + ", ".join(providers))
 
     all_results: dict[str, list[dict[str, Any]]] = {name: [] for name in providers}
@@ -426,12 +459,19 @@ async def main_async(args: argparse.Namespace) -> None:
                 "repeat": args.repeat,
                 "providers": {
                     name: (
-                        {
-                            "provider": provider.provider_name,
-                            "model": provider.model,
-                        }
-                        if name != "cloudflare"
-                        else {"provider": "Cloudflare", "model": provider["model"]}
+                        {"provider": "Local parser", "model": None}
+                        if name == "local"
+                        else (
+                            {
+                                "provider": provider.provider_name,
+                                "model": provider.model,
+                            }
+                            if name != "cloudflare"
+                            else {
+                                "provider": "Cloudflare",
+                                "model": provider["model"],
+                            }
+                        )
                     )
                     for name, provider in providers.items()
                 },
@@ -466,7 +506,19 @@ async def main_async(args: argparse.Namespace) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repeat", type=int, default=1)
-    parser.add_argument("--timeout", type=float, default=35.0)
+    parser.add_argument(
+        "--provider",
+        choices=(
+            "all",
+            "local",
+            "groq",
+            "gemini_current",
+            "gemini_flash_lite",
+            "cloudflare",
+        ),
+        default="local",
+    )
+    parser.add_argument("--timeout", type=float, default=15.0)
     parser.add_argument("--env-file", type=Path, default=Path("/opt/voqelis/.env"))
     parser.add_argument(
         "--output",
