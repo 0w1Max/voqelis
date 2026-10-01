@@ -56,6 +56,7 @@ def _period(text: str) -> str | None:
     for value in (
         "утром",
         "утро",
+        "утра",
         "днём",
         "днем",
         "день",
@@ -91,7 +92,7 @@ def parse_voice(text: str, *, today: date, config: PlannerConfig) -> list[TaskDr
     chunks = [
         chunk.strip(" ,;")
         for chunk in re.split(
-            r"[.!?]+|,\s*(?=(?:а\s+)?(?:сегодня|завтра|послезавтра|также|потом|ещё|еще|утром|днём|днем|вечером|вечер)\b)",
+            r"[.!?]+|,\s*(?=(?:а\s+)?(?:сегодня|завтра|послезавтра|также|потом|ещё|еще|утром|днём|днем|вечером|вечер|утра)\b)",
             text,
             flags=re.IGNORECASE,
         )
@@ -193,7 +194,7 @@ def parse_voice(text: str, *, today: date, config: PlannerConfig) -> list[TaskDr
             flags=re.IGNORECASE,
         )
         cleaned = re.sub(
-            r"\b(?:утром|утро|днём|днем|день|вечером|вечер|ночью|ночь)\b",
+            r"\b(?:утром|утро|утра|днём|днем|день|вечером|вечер|ночью|ночь)\b",
             "",
             cleaned,
             flags=re.IGNORECASE,
