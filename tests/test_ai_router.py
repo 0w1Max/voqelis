@@ -130,6 +130,9 @@ def test_cloudflare_prompt_defines_strict_time_semantics():
     assert "'после обеда' -> relation='after', anchor='lunch'" in prompt
     assert "Do not invent an anchor" in prompt
     assert "Never return end_time unless start_time is also present" in prompt
+    assert "A period is not an exact clock time" in prompt
+    assert "must have title='сделать домашку по шагам'" in prompt
+    assert "do not drop meaningful phrases such as 'на завтра'" in prompt
 
 
 def test_strict_schema_closes_nested_objects():
