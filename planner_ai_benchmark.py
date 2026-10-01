@@ -253,29 +253,31 @@ def _projected_task(task: Any) -> dict[str, Any]:
     }
 
 
+FIELD_WEIGHTS = {
+    "title": 2,
+    "day": 1,
+    "start_minute": 1,
+    "end_minute": 1,
+    "duration_minutes": 1,
+    "why": 2,
+    "period": 1,
+    "relation": 1,
+    "anchor": 1,
+    "urgent": 1,
+}
+
+
 def _task_score(actual: dict[str, Any], expected: dict[str, Any]) -> tuple[int, int]:
-    weights = {
-        "title": 2,
-        "day": 1,
-        "start_minute": 1,
-        "end_minute": 1,
-        "duration_minutes": 1,
-        "why": 2,
-        "period": 1,
-        "relation": 1,
-        "anchor": 1,
-        "urgent": 1,
-    }
     earned = sum(
         weight
-        for field, weight in weights.items()
+        for field, weight in FIELD_WEIGHTS.items()
         if _field_equal(field, actual.get(field), expected.get(field))
     )
-    return earned, sum(weights.values())
+    return earned, sum(FIELD_WEIGHTS.values())
 
 
 def _score_case(actual: list[Any] | None, expected: list[dict[str, Any]]) -> tuple[int, int]:
-    possible = 1 + 13 * len(expected)
+    possible = 1 + sum(FIELD_WEIGHTS.values()) * len(expected)
     if actual is None:
         return 0, possible
     earned = 1 if len(actual) == len(expected) else 0
