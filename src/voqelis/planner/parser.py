@@ -91,7 +91,7 @@ def parse_voice(text: str, *, today: date, config: PlannerConfig) -> list[TaskDr
     chunks = [
         chunk.strip(" ,;")
         for chunk in re.split(
-            r"[.!?]+|,\s*(?=(?:а\s+)?(?:также|потом|ещё|еще|утром|днём|днем|вечером|вечер)\b)",
+            r"[.!?]+|,\s*(?=(?:а\s+)?(?:сегодня|завтра|послезавтра|также|потом|ещё|еще|утром|днём|днем|вечером|вечер)\b)",
             text,
             flags=re.IGNORECASE,
         )

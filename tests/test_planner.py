@@ -19,6 +19,7 @@ from voqelis.planner.scheduler import Scheduler
 from voqelis.planner.service import PlannerService
 from voqelis.planner.store import PlannerStore
 
+
 def test_parser_understands_evening_clock_and_range():
     config = PlannerConfig(recurring_templates=())
     single = parse_voice(
@@ -47,6 +48,15 @@ class FailingPlannerAI:
         raise PlannerAIProviderError("providers unavailable")
 
 
+class WrongTemporalPlannerAI:
+    def __init__(self, draft_factory):
+        self.draft_factory = draft_factory
+
+    async def extract_tasks(self, text, *, today, target_day, config):
+        del text, today, config
+        return [self.draft_factory(target_day)]
+
+
 @pytest.mark.asyncio
 async def test_service_falls_back_to_local_parser_when_ai_is_unavailable(tmp_path: Path):
     store = PlannerStore(tmp_path / "planner.sqlite3")
@@ -63,6 +73,68 @@ async def test_service_falls_back_to_local_parser_when_ai_is_unavailable(tmp_pat
     items = store.plan_items(1, date(2026, 9, 30))
     assert len(items) == 1
     assert items[0].start_minute == 20 * 60
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_ai_cannot_override_explicit_evening_period(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    config = PlannerConfig(recurring_templates=())
+    service = PlannerService(
+        store,
+        config,
+        ai=WrongTemporalPlannerAI(
+            lambda day: TaskDraft(
+                "пойти погулять",
+                day,
+                start_minute=9 * 60,
+                period="morning",
+            )
+        ),
+    )
+    replies = await service.add_from_text(
+        1,
+        "завтра вечером пойти погулять для отдыха",
+        date(2026, 10, 1),
+    )
+    assert "17:00–18:00 — пойти погулять" in replies[0]
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_ai_cannot_override_explicit_after_lunch_relation(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    config = PlannerConfig(recurring_templates=())
+    service = PlannerService(
+        store,
+        config,
+        ai=WrongTemporalPlannerAI(
+            lambda day: TaskDraft(
+                "читать книгу",
+                day,
+                start_minute=9 * 60,
+            )
+        ),
+    )
+    replies = await service.add_from_text(
+        1,
+        "завтра после обеда читать книгу для развития кругозора",
+        date(2026, 10, 1),
+    )
+    assert "16:00–17:00 — читать книгу" in replies[0]
+    store.close()
+
+
+def test_active_day_rolls_forward_and_materializes_new_recurring_plan(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    service = PlannerService(store, PlannerConfig())
+    store.set_active_plan_day(1, date(2026, 9, 30))
+
+    active = asyncio.run(service.resolve_active_day(1, date(2026, 10, 1)))
+
+    assert active == date(2026, 10, 2)
+    assert store.active_plan_day(1) == date(2026, 10, 2)
+    assert len(store.plan_items(1, date(2026, 10, 2))) == 3
     store.close()
 
 
@@ -165,13 +237,8 @@ def test_legacy_thirteen_recurring_tasks_are_migrated(tmp_path: Path):
     assert len(migrated) == 3
     assert len(store.recurring(1)) == 3
     old_day_items = store.plan_items(1, date(2026, 9, 23))
-    assert {
-        (item.title, item.start_minute, item.end_minute)
-        for item in old_day_items
-    } == {
-        ("Проснуться + молитва + умыться + зарядка", 540, 600),
-        ("Завтрак + душ", 600, 660),
-    }
+    assert len(old_day_items) == 13
+    assert all(item.kind == TaskKind.RECURRING for item in old_day_items)
     store.close()
 
 
@@ -391,6 +458,32 @@ def test_clear_day_preserves_recurring_tasks_by_default(tmp_path: Path):
     remaining = store.plan_items(1, day)
     assert len(remaining) == 3
     assert all(item.kind == TaskKind.RECURRING for item in remaining)
+    store.close()
+
+
+def test_clear_ordinary_items_preserves_recurring_after_refresh(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    service = PlannerService(store, PlannerConfig())
+    store.ensure_daily_plan(1, day)
+    store.add_item(
+        PlanItem(
+            0,
+            1,
+            day,
+            "Обычная задача",
+            None,
+            15 * 60,
+            16 * 60,
+            TaskKind.ORDINARY,
+        )
+    )
+
+    assert store.clear_ordinary_items(1, day) == 1
+    assert len(store.plan_items(1, day)) == 3
+
+    asyncio.run(service.show_plan(1, day))
+    assert len(store.plan_items(1, day)) == 3
     store.close()
 
 

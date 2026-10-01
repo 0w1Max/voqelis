@@ -311,16 +311,7 @@ class PlannerStore:
                 "UPDATE recurring_templates SET active=0 WHERE id=?",
                 (template_id,),
             )
-            self.db.execute(
-                "DELETE FROM plan_items "
-                "WHERE user_id=? AND kind=? AND recurring_template_id=?",
-                (user_id, TaskKind.RECURRING.value, template_id),
-            )
-            # Removed recurring materializations must not leave orphaned reviews.
-            self.db.execute(
-                "DELETE FROM task_reviews "
-                "WHERE plan_item_id NOT IN (SELECT id FROM plan_items)"
-            )
+            # Deactivate obsolete templates without mutating historical plan rows.
 
         current_keys = {
             (
@@ -372,7 +363,7 @@ class PlannerStore:
     def is_day_cleared(self, user_id: int, day: date) -> bool:
         return self.db.execute("SELECT 1 FROM planner_day_clearances WHERE user_id=? AND day=?", (user_id, day.isoformat())).fetchone() is not None
 
-    def clear_day(self, user_id: int, day: date, *, include_recurring: bool = False) -> int:
+    def _clear_items(self, user_id: int, day: date, *, include_recurring: bool) -> int:
         try:
             self.db.execute("BEGIN IMMEDIATE")
             if include_recurring:
@@ -382,25 +373,15 @@ class PlannerStore:
                 ).fetchall()
             else:
                 rows = self.db.execute(
-                    "SELECT id FROM plan_items "
-                    "WHERE user_id=? AND day=? AND kind!=?",
+                    "SELECT id FROM plan_items WHERE user_id=? AND day=? AND kind!=?",
                     (user_id, day.isoformat(), TaskKind.RECURRING.value),
                 ).fetchall()
             ids = [int(row["id"]) for row in rows]
             if ids:
                 placeholders = ",".join("?" for _ in ids)
-                self.db.execute(
-                    f"DELETE FROM task_reviews WHERE plan_item_id IN ({placeholders})",
-                    ids,
-                )
-                self.db.execute(
-                    f"DELETE FROM plan_items WHERE id IN ({placeholders})",
-                    ids,
-                )
-            self.db.execute(
-                "DELETE FROM day_reviews WHERE user_id=? AND day=?",
-                (user_id, day.isoformat()),
-            )
+                self.db.execute(f"DELETE FROM task_reviews WHERE plan_item_id IN ({placeholders})", ids)
+                self.db.execute(f"DELETE FROM plan_items WHERE id IN ({placeholders})", ids)
+            self.db.execute("DELETE FROM day_reviews WHERE user_id=? AND day=?", (user_id, day.isoformat()))
             if include_recurring:
                 self.db.execute(
                     "INSERT INTO planner_day_clearances(user_id,day) VALUES(?,?) "
@@ -412,6 +393,16 @@ class PlannerStore:
         except Exception:
             self.db.rollback()
             raise
+
+    def clear_ordinary_items(self, user_id: int, day: date) -> int:
+        return self._clear_items(user_id, day, include_recurring=False)
+
+    def clear_all_items(self, user_id: int, day: date) -> int:
+        return self._clear_items(user_id, day, include_recurring=True)
+
+    def clear_day(self, user_id: int, day: date, *, include_recurring: bool = False) -> int:
+        """Backward-compatible wrapper around explicit clear operations."""
+        return self.clear_all_items(user_id, day) if include_recurring else self.clear_ordinary_items(user_id, day)
 
     def delete_plan_item(self, user_id: int, item_id: int) -> PlanItem:
         try:

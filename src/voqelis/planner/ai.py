@@ -252,6 +252,16 @@ def _task_prompt(text: str, *, today: date, target_day: date) -> str:
         "For ranges, normalize both endpoints: 'с 8 вечера до 9 вечера' = '20:00' to '21:00'. "
         "Do not interpret a clock expression as duration. "
         "Resolve relative dates from the supplied today date. "
+        "Map explicit periods exactly: 'утром' -> period='morning', "
+        "'днём/днем' -> period='day', 'вечером' -> period='evening', "
+        "'ночью' -> period='night'. A period is not an exact clock time. "
+        "Map explicit meal relations exactly: 'после завтрака' -> "
+        "relation='after', anchor='breakfast'; 'после обеда' -> "
+        "relation='after', anchor='lunch'; 'после ужина' -> "
+        "relation='after', anchor='dinner'; 'до/перед завтраком' -> "
+        "relation='before', anchor='breakfast'; 'до/перед обедом' -> "
+        "relation='before', anchor='lunch'; 'до/перед ужином' -> "
+        "relation='before', anchor='dinner'. Never invent a relation or anchor. "
         "If no exact time, duration, period, or relation is stated, keep those fields null. "
         "Do not invent a reason, urgency, or schedule. "
         f"Today is {today.isoformat()}; default planning day is {target_day.isoformat()}. "
@@ -358,6 +368,7 @@ def _parse_tasks_result(
     return drafts
 
 
+
 def _validate_full_review_item(item: object, *, provider_name: str) -> dict:
     if not isinstance(item, dict):
         raise PlannerAIInvalidResponse(
@@ -449,11 +460,18 @@ class _StructuredPlannerAI:
         result = await self._json_call(
             _task_prompt(text, today=today, target_day=target_day), TASK_SCHEMA
         )
-        return _parse_tasks_result(
+        drafts = _parse_tasks_result(
             result,
             provider_name=self.provider_name,
             source_text=text,
             today=today,
+        )
+        return _protect_explicit_temporal_constraints(
+            drafts,
+            text=text,
+            today=today,
+            config=config,
+            provider_name=self.provider_name,
         )
 
     async def extract_review(
@@ -934,17 +952,23 @@ class CloudflarePlannerAI(_StructuredPlannerAI):
         target_day: date,
         config: PlannerConfig,
     ) -> list[TaskDraft]:
-        del config
         result = await self._json_call(
             _cloudflare_task_prompt(text, today=today, target_day=target_day),
             TASK_SCHEMA,
         )
         result = _normalize_cloudflare_task_result(result)
-        return _parse_tasks_result(
+        drafts = _parse_tasks_result(
             result,
             provider_name=self.provider_name,
             source_text=text,
             today=today,
+        )
+        return _protect_explicit_temporal_constraints(
+            drafts,
+            text=text,
+            today=today,
+            config=config,
+            provider_name=self.provider_name,
         )
 
 

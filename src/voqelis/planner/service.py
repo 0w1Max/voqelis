@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import asdict, replace
 from datetime import date, timedelta
 from pathlib import Path
@@ -48,8 +49,67 @@ class PlannerService:
     async def start_planning(self, user_id: int, day: date) -> str:
         async with self._user_lock(user_id):
             self.store.ensure_daily_plan(user_id, day, self.config)
+            self.store.set_active_plan_day(user_id, day)
             self.store.set_session(user_id, "planning", day, {})
             return ""
+
+    async def resolve_active_day(self, user_id: int, today: date) -> date:
+        """Resolve active day and materialize its recurring tasks."""
+        async with self._user_lock(user_id):
+            active = self.store.active_plan_day(user_id)
+            if active is None or active <= today:
+                active = today + timedelta(days=1)
+                self.store.set_active_plan_day(user_id, active)
+            self.store.ensure_daily_plan(user_id, active, self.config)
+            return active
+
+
+    @staticmethod
+    def _protect_explicit_temporal_constraints(
+        drafts: list[TaskDraft],
+        *,
+        text: str,
+        today: date,
+        config: PlannerConfig,
+    ) -> list[TaskDraft]:
+        """Make explicit temporal constraints authoritative over AI output."""
+        hints = parse_voice(text, today=today, config=config)
+        if not hints or len(hints) != len(drafts):
+            logger.warning(
+                "PLANNER_TEMPORAL_GUARD_MISMATCH ai_tasks=%s deterministic_tasks=%s",
+                len(drafts),
+                len(hints),
+            )
+            return hints or drafts
+
+        protected: list[TaskDraft] = []
+        for draft, hint in zip(drafts, hints):
+            explicit_date = bool(
+                re.search(
+                    r"\b(?:сегодня|завтра|послезавтра)\b",
+                    hint.source_text,
+                    re.IGNORECASE,
+                )
+            )
+            duration = draft.duration_minutes
+            if hint.start_minute is not None and hint.end_minute is not None:
+                duration = hint.duration_minutes
+            elif hint.duration_minutes != config.default_duration_minutes:
+                duration = hint.duration_minutes
+            protected.append(
+                replace(
+                    draft,
+                    day=hint.day if explicit_date else draft.day,
+                    start_minute=hint.start_minute,
+                    end_minute=hint.end_minute,
+                    duration_minutes=duration,
+                    period=hint.period,
+                    preferred_minute=hint.preferred_minute,
+                    relation=hint.relation,
+                    anchor=hint.anchor,
+                )
+            )
+        return protected
 
     async def _extract(self, text: str, user_id: int, today: date) -> list[TaskDraft]:
         session = self.store.session(user_id)
@@ -59,7 +119,10 @@ class PlannerService:
                 drafts = await self.ai.extract_tasks(
                     text, today=today, target_day=target, config=self.config
                 )
-            except PlannerAIError as exc:
+                drafts = self._protect_explicit_temporal_constraints(
+                    drafts, text=text, today=today, config=self.config
+                )
+            except (PlannerAIError, ValueError, TypeError) as exc:
                 logger.warning(
                     "PLANNER_AI_LOCAL_FALLBACK reason=%s",
                     exc,
@@ -843,6 +906,8 @@ class PlannerService:
         if selected < today - timedelta(days=30) or selected > today + timedelta(days=30):
             return ["Эта дата вне доступного диапазона истории."]
 
+        if selected > today:
+            self.store.set_active_plan_day(user_id, selected)
         self.store.set_session(user_id, "planning", selected, {})
         if selected > today:
             items = self.store.ensure_daily_plan(user_id, selected, self.config)
@@ -908,10 +973,10 @@ class PlannerService:
             return ["Очистка отменена."]
         if answer not in {"да", "д", "yes"}:
             return ["Выбери вариант очистки или напиши «нет»."]
-        count = self.store.clear_day(
-            user_id,
-            day,
-            include_recurring=include_recurring,
+        count = (
+            self.store.clear_all_items(user_id, day)
+            if include_recurring
+            else self.store.clear_ordinary_items(user_id, day)
         )
         self.store.set_session(user_id, "planning", day, {})
         suffix = " вместе с ежедневными задачами" if include_recurring else " (ежедневные задачи сохранены)"
