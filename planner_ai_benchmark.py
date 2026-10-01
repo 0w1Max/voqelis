@@ -205,6 +205,17 @@ def _norm(value: Any) -> Any:
 
 
 def _projected_task(task: Any) -> dict[str, Any]:
+    period_map = {
+        "утро": "morning",
+        "утром": "morning",
+        "день": "day",
+        "днем": "day",
+        "днём": "day",
+        "вечер": "evening",
+        "вечером": "evening",
+        "ночь": "night",
+        "ночью": "night",
+    }
     return {
         "title": task.title,
         "day": task.day.isoformat(),
@@ -212,7 +223,7 @@ def _projected_task(task: Any) -> dict[str, Any]:
         "end_minute": task.end_minute,
         "duration_minutes": task.duration_minutes,
         "why": task.why,
-        "period": task.period,
+        "period": period_map.get(task.period, task.period),
         "relation": task.relation,
         "anchor": task.anchor,
         "urgent": task.urgent,
