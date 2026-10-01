@@ -6,7 +6,6 @@ from .config import PlannerConfig
 from .models import PlanItem, ReviewItem
 from .scheduler import fmt_time
 
-
 def _rows_for_plan(items: list[PlanItem], config: PlannerConfig) -> list[tuple[int, int, PlanItem | None]]:
     rows = []
     cursor = config.plan_start_minute
