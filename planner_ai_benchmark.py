@@ -445,6 +445,37 @@ async def _run_case(
         }
 
 
+def _cloudflare_task_prompt(
+    text: str,
+    *,
+    today: date,
+    target_day: date,
+) -> str:
+    return _task_prompt(text, today=today, target_day=target_day) + (
+        "\n\nCLOUDFLARE OUTPUT RULES:\n"
+        "The following field meanings are strict. Use only the values described below. "
+        "preferred_time is ONLY an optional clock preference and must be an HH:MM time "
+        "string or null; never put words, periods, meals, relations, or phrases there. "
+        "Use period for explicit time-of-day words: 'утром' -> 'morning', "
+        "'днём/днем' -> 'day', 'вечером' -> 'evening', 'ночью' -> 'night'. "
+        "Use relation and anchor for explicit meal relations: 'после завтрака' -> "
+        "relation='after', anchor='breakfast'; 'перед/до обеда' -> "
+        "relation='before', anchor='lunch'; 'после обеда' -> "
+        "relation='after', anchor='lunch'; 'перед/до ужина' -> "
+        "relation='before', anchor='dinner'; 'после ужина' -> "
+        "relation='after', anchor='dinner'. "
+        "Do not invent an anchor. Never use breakfast as a generic default for morning, "
+        "afternoon, or an unrelated task. If a task has a relation but no explicit clock, "
+        "leave start_time, end_time, and preferred_time null. "
+        "Never return end_time unless start_time is also present. "
+        "For an exact interval, return both start_time and end_time. "
+        "For an exact start without an explicit interval, return start_time only and "
+        "leave end_time null. "
+        "Do not put natural-language descriptions such as 'утром', 'after breakfast', "
+        "or 'afternoon' into preferred_time."
+    )
+
+
 def _providers(env_file: Path) -> dict[str, Any]:
     load_dotenv(env_file, override=False)
     result: dict[str, Any] = {"local": None}
