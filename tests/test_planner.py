@@ -89,6 +89,7 @@ async def test_ai_cannot_override_explicit_evening_period(tmp_path: Path):
                 day,
                 start_minute=9 * 60,
                 period="morning",
+                why="для отдыха",
             )
         ),
     )
@@ -113,6 +114,7 @@ async def test_ai_cannot_override_explicit_after_lunch_relation(tmp_path: Path):
                 "читать книгу",
                 day,
                 start_minute=9 * 60,
+                why="для развития кругозора",
             )
         ),
     )
@@ -136,6 +138,28 @@ def test_active_day_rolls_forward_and_materializes_new_recurring_plan(tmp_path: 
     assert store.active_plan_day(1) == date(2026, 10, 2)
     assert len(store.plan_items(1, date(2026, 10, 2))) == 3
     store.close()
+
+
+def test_active_day_today_is_preserved_for_review(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    service = PlannerService(store, PlannerConfig())
+    today = date(2026, 10, 1)
+    store.set_active_plan_day(1, today)
+
+    active = asyncio.run(service.resolve_active_day(1, today))
+
+    assert active == today
+    assert store.active_plan_day(1) == today
+    store.close()
+
+
+def test_parser_understands_morning_genitive():
+    draft = parse_voice(
+        "завтра с утра сходить в магазин",
+        today=date(2026, 10, 1),
+        config=PlannerConfig(recurring_templates=()),
+    )[0]
+    assert draft.period == "утра"
 
 
 def test_period_and_duration_extraction():
