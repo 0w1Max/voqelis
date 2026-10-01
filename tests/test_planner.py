@@ -141,7 +141,7 @@ async def test_exact_time_survives_missing_reason_flow(tmp_path: Path):
     assert "не указана причина" in replies[0]
     payload = store.session_payload(1)
     assert payload["draft"]["start_minute"] == 21 * 60
-    assert payload["draft"]["end_minute"] is None
+    assert payload["draft"]["end_minute"] == 22 * 60
 
     saved = await service.handle_callback(1, "pl:why:skip", date(2026, 10, 1))
     assert "21:00–22:00 — ужинать" in saved[0]
