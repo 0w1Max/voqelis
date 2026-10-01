@@ -460,18 +460,11 @@ class _StructuredPlannerAI:
         result = await self._json_call(
             _task_prompt(text, today=today, target_day=target_day), TASK_SCHEMA
         )
-        drafts = _parse_tasks_result(
+        return _parse_tasks_result(
             result,
             provider_name=self.provider_name,
             source_text=text,
             today=today,
-        )
-        return _protect_explicit_temporal_constraints(
-            drafts,
-            text=text,
-            today=today,
-            config=config,
-            provider_name=self.provider_name,
         )
 
     async def extract_review(
@@ -957,18 +950,11 @@ class CloudflarePlannerAI(_StructuredPlannerAI):
             TASK_SCHEMA,
         )
         result = _normalize_cloudflare_task_result(result)
-        drafts = _parse_tasks_result(
+        return _parse_tasks_result(
             result,
             provider_name=self.provider_name,
             source_text=text,
             today=today,
-        )
-        return _protect_explicit_temporal_constraints(
-            drafts,
-            text=text,
-            today=today,
-            config=config,
-            provider_name=self.provider_name,
         )
 
 
