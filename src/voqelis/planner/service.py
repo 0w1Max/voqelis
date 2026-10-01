@@ -4,9 +4,10 @@ import asyncio
 import logging
 import re
 from dataclasses import asdict, replace
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from .ai import PlannerAI
 from .config import PlannerConfig
@@ -30,6 +31,15 @@ logger = logging.getLogger(__name__)
 
 
 class PlannerService:
+    _REVIEW_STATES = frozenset({
+        "review_full_input",
+        "review_full_confirm",
+        "review_edit_select",
+        "review_status",
+        "review_detail",
+        "review_final1",
+        "review_final2",
+    })
     def __init__(
         self,
         store: PlannerStore,
@@ -45,6 +55,16 @@ class PlannerService:
         self.export_dir = export_dir
         self.log_content = log_content
         self._user_locks: dict[int, asyncio.Lock] = {}
+
+    def _planner_today(self) -> date:
+        return datetime.now(ZoneInfo(self.config.timezone)).date()
+
+    @staticmethod
+    def _future_review_message(day: date) -> str:
+        return (
+            f"⏳ Анализ дня {day.strftime('%d.%m.%Y')} пока недоступен: "
+            "этот день ещё не наступил."
+        )
 
     async def start_planning(self, user_id: int, day: date) -> str:
         async with self._user_lock(user_id):
@@ -398,7 +418,12 @@ class PlannerService:
             return replies
         return [reply]
 
-    async def start_review(self, user_id: int, day: date) -> str:
+    async def start_review(
+        self, user_id: int, day: date, today: date | None = None
+    ) -> str:
+        today = today or self._planner_today()
+        if day > today:
+            return self._future_review_message(day)
         async with self._user_lock(user_id):
             self.store.ensure_daily_plan(user_id, day, self.config)
             pending_item = next((x for x in self.store.reviews(user_id, day) if x.status is None), None)
@@ -429,7 +454,12 @@ class PlannerService:
 
             return "Все задачи этого дня уже проанализированы."
 
-    async def start_full_review(self, user_id: int, day: date) -> str:
+    async def start_full_review(
+        self, user_id: int, day: date, today: date | None = None
+    ) -> str:
+        today = today or self._planner_today()
+        if day > today:
+            return self._future_review_message(day)
         async with self._user_lock(user_id):
             self.store.ensure_daily_plan(user_id, day, self.config)
             day_review = self.store.day_review(user_id, day)
@@ -552,7 +582,12 @@ class PlannerService:
             )
         ]
 
-    async def start_review_edit(self, user_id: int, day: date) -> str:
+    async def start_review_edit(
+        self, user_id: int, day: date, today: date | None = None
+    ) -> str:
+        today = today or self._planner_today()
+        if day > today:
+            return self._future_review_message(day)
         async with self._user_lock(user_id):
             items = [x for x in self.store.reviews(user_id, day) if x.status is not None]
             if not items:
@@ -766,6 +801,9 @@ class PlannerService:
             return []
         state = session["state"]
         day = date.fromisoformat(session["target_day"]) if session["target_day"] else today
+        if state in self._REVIEW_STATES and day > today:
+            self.store.clear_session(user_id)
+            return [self._future_review_message(day)]
         if state == "history_select":
             return await self._history_select(user_id, text, today)
         if state == "plan_delete_select":
@@ -808,6 +846,11 @@ class PlannerService:
         """Handle inline Planner actions and reject stale buttons safely."""
         session = self.store.session(user_id)
         state = session["state"] if session else None
+        if session and state in self._REVIEW_STATES and session["target_day"]:
+            session_day = date.fromisoformat(session["target_day"])
+            if session_day > today:
+                self.store.clear_session(user_id)
+                return [self._future_review_message(session_day)]
 
         if callback_data.startswith("pl:why:"):
             if state != "planning_why":
