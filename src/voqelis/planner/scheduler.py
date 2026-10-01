@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 from .config import PlannerConfig
 from .models import (
     Conflict,
