@@ -28,7 +28,8 @@ line-length = 100
 target-version = "py312"
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
 
 
 [tool.ruff.lint]
@@ -37,6 +38,3 @@ select = ["F", "I", "BLE"]
 known-first-party = ["voqelis"]
 lines-after-imports = 1
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["src"]
