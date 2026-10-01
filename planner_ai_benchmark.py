@@ -16,9 +16,9 @@ import httpx
 from dotenv import load_dotenv
 
 from voqelis.planner.ai import (
+    TASK_SCHEMA,
     GeminiPlannerAI,
     GroqPlannerAI,
-    TASK_SCHEMA,
     _parse_tasks_result,
     _strict_schema,
     _task_prompt,
@@ -457,7 +457,7 @@ async def main_async(args: argparse.Namespace) -> None:
                     "tasks": [_projected_task(x) for x in tasks] if tasks is not None else None,
                 }
                 all_results[name].append(record)
-            print(f"[{case_number:02d}/{len(CASES)}] {case.name}", end="\\n")
+            print(f"[{case_number:02d}/{len(CASES)}] {case.name}")
 
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -497,6 +497,10 @@ async def main_async(args: argparse.Namespace) -> None:
     print("\nSUMMARY")
     for name, records in all_results.items():
         successful = [record for record in records if record["ok"]]
+        exact_cases = [
+            record for record in records
+            if record["ok"] and record["score"] == record["score_max"]
+        ]
         latencies = [record["latency_ms"] for record in successful]
         score = sum(record["score"] for record in records)
         possible = sum(record["score_max"] for record in records)
@@ -506,11 +510,19 @@ async def main_async(args: argparse.Namespace) -> None:
             error_counts[key] = error_counts.get(key, 0) + 1
         print(
             f"{name:<20} accuracy={score / possible * 100:6.1f}% "
+            f"exact={len(exact_cases) / len(records) * 100:6.1f}% "
             f"success={len(successful) / len(records) * 100:6.1f}% "
             f"p50={statistics.median(latencies) if latencies else 0:7.0f}ms "
             f"p95={_p95(latencies):7.0f}ms "
             f"errors={error_counts}"
         )
+        for record in records:
+            if record["score"] != record["score_max"]:
+                print(
+                    f"  mismatch {record['case']}: "
+                    f"{record['score']}/{record['score_max']} "
+                    f"status={record['status']!r}"
+                )
     print(f"results={output}")
 
 
