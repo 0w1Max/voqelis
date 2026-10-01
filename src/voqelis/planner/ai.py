@@ -252,7 +252,7 @@ def _task_prompt(text: str, *, today: date, target_day: date) -> str:
         "For ranges, normalize both endpoints: 'с 8 вечера до 9 вечера' = '20:00' to '21:00'. "
         "Do not interpret a clock expression as duration. "
         "Resolve relative dates from the supplied today date. "
-        "Map explicit periods exactly: 'утром' -> period='morning', "
+        "Map explicit periods exactly: 'утром'/'с утра' -> period='morning', "
         "'днём/днем' -> period='day', 'вечером' -> period='evening', "
         "'ночью' -> period='night'. A period is not an exact clock time. "
         "Map explicit meal relations exactly: 'после завтрака' -> "
