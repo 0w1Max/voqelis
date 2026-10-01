@@ -5,7 +5,10 @@ from datetime import date
 import httpx
 import pytest
 
-from planner_ai_benchmark import _cloudflare_task_prompt
+from planner_ai_benchmark import (
+    _cloudflare_task_prompt,
+    _normalize_cloudflare_result,
+)
 from voqelis.planner.ai import (
     TASK_SCHEMA,
     AIProviderRouter,
@@ -117,6 +120,27 @@ async def test_router_switches_after_invalid_response():
     assert result == [task("fallback")]
     assert primary.calls == 1
     assert fallback.calls == 1
+
+
+def test_cloudflare_normalizes_equal_start_end_without_explicit_duration():
+    result = {
+        "tasks": [
+            {
+                "title": "подготовка ко сну",
+                "day": "2026-10-02",
+                "start_time": "00:00",
+                "end_time": "00:00",
+                "duration_minutes": None,
+            }
+        ]
+    }
+
+    normalized = _normalize_cloudflare_result(result)
+
+    assert normalized["tasks"][0]["start_time"] == "00:00"
+    assert normalized["tasks"][0]["end_time"] is None
+    assert normalized["tasks"][0]["duration_minutes"] is None
+    assert result["tasks"][0]["end_time"] == "00:00"
 
 
 def test_cloudflare_prompt_defines_strict_time_semantics():
