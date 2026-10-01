@@ -911,13 +911,14 @@ class AIProviderRouter:
         *,
         primary: PlannerAI | None,
         fallback: PlannerAI | None,
+        tertiary: PlannerAI | None = None,
     ):
-        if primary is None and fallback is None:
+        if primary is None and fallback is None and tertiary is None:
             raise PlannerAIUnavailable("No planner AI provider is configured")
         self.primary = primary
         self.fallback = fallback
-        self._blocked_until = 0.0
-        self._fallback_blocked_until = 0.0
+        self.tertiary = tertiary
+        self._blocked_until = [0.0, 0.0, 0.0]
         self._lock = asyncio.Lock()
 
     @staticmethod
@@ -946,84 +947,58 @@ class AIProviderRouter:
             return 30.0
         return 60.0
 
-    async def _available(self) -> bool:
+    async def _available(self, index: int, provider: PlannerAI | None) -> bool:
+        if provider is None:
+            return False
         async with self._lock:
-            return (
-                self.primary is not None
-                and time.monotonic() >= self._blocked_until
-            )
+            return time.monotonic() >= self._blocked_until[index]
 
-    async def _fallback_available(self) -> bool:
-        async with self._lock:
-            return (
-                self.fallback is not None
-                and time.monotonic() >= self._fallback_blocked_until
-            )
-
-    async def _block_primary(self, error: PlannerAIError) -> float:
+    async def _block(self, index: int, error: PlannerAIError) -> float:
         cooldown = self._cooldown_for_error(error)
         async with self._lock:
-            self._blocked_until = max(
-                self._blocked_until,
+            self._blocked_until[index] = max(
+                self._blocked_until[index],
                 time.monotonic() + cooldown,
             )
         return cooldown
 
-    async def _block_fallback(self, error: PlannerAIError) -> float:
-        cooldown = self._cooldown_for_error(error)
+    async def _reset(self, index: int) -> None:
         async with self._lock:
-            self._fallback_blocked_until = max(
-                self._fallback_blocked_until,
-                time.monotonic() + cooldown,
-            )
-        return cooldown
+            self._blocked_until[index] = 0.0
 
     async def _call(self, method: str, *args, **kwargs):
-        primary_name = self._name(self.primary)
-        fallback_name = self._name(self.fallback)
+        providers = (self.primary, self.fallback, self.tertiary)
+        last_error: PlannerAIError | None = None
 
-        if await self._available():
+        for index, provider in enumerate(providers):
+            if provider is None or not await self._available(index, provider):
+                continue
+
             try:
-                return await getattr(self.primary, method)(*args, **kwargs)
+                result = await getattr(provider, method)(*args, **kwargs)
             except (
                 PlannerAIProviderError,
                 PlannerAIInvalidResponse,
                 PlannerAIUnavailable,
             ) as exc:
-                cooldown = await self._block_primary(exc)
+                last_error = exc
+                cooldown = await self._block(index, exc)
                 logger.warning(
-                    "PLANNER_AI_FAILOVER primary=%s fallback=%s reason=%s cooldown=%.1fs",
-                    primary_name,
-                    fallback_name,
+                    "PLANNER_AI_FAILOVER provider=%s next=%s reason=%s cooldown=%.1fs",
+                    self._name(provider),
+                    self._name(providers[index + 1]) if index + 1 < len(providers) else "local",
                     exc,
                     cooldown,
                 )
+                continue
 
-        if not await self._fallback_available():
-            raise PlannerAIUnavailable(
-                f"{fallback_name} is temporarily unavailable"
-            )
+            await self._reset(index)
+            logger.info("PLANNER_AI_PROVIDER provider=%s", self._name(provider))
+            return result
 
-        try:
-            result = await getattr(self.fallback, method)(*args, **kwargs)
-        except (
-            PlannerAIProviderError,
-            PlannerAIInvalidResponse,
-            PlannerAIUnavailable,
-        ) as exc:
-            cooldown = await self._block_fallback(exc)
-            logger.error(
-                "PLANNER_AI_FALLBACK_FAILED provider=%s reason=%s cooldown=%.1fs",
-                fallback_name,
-                exc,
-                cooldown,
-            )
-            raise
-
-        async with self._lock:
-            self._fallback_blocked_until = 0.0
-        logger.info("PLANNER_AI_PROVIDER provider=%s", fallback_name)
-        return result
+        if last_error is not None:
+            raise last_error
+        raise PlannerAIUnavailable("All planner AI providers are temporarily unavailable")
 
     async def extract_tasks(
         self,
