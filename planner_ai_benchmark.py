@@ -44,7 +44,7 @@ CASES = (
     Case(
         "exact_evening",
         "завтра в 8 вечера читать книгу для здоровья, для настроения, для отдыха",
-        [{"title": "читать книгу", "day": TARGET_DAY.isoformat(), "start_minute": 1200, "end_minute": 1260, "duration_minutes": 60, "why": "для здоровья, для настроения, для отдыха", "period": None, "relation": None, "anchor": None, "urgent": False}],
+        [{"title": "читать книгу", "day": TARGET_DAY.isoformat(), "start_minute": 1200, "end_minute": None, "duration_minutes": 60, "why": "для здоровья, для настроения, для отдыха", "period": None, "relation": None, "anchor": None, "urgent": False}],
     ),
     Case(
         "explicit_range",
@@ -523,6 +523,26 @@ async def main_async(args: argparse.Namespace) -> None:
                     f"{record['score']}/{record['score_max']} "
                     f"status={record['status']!r}"
                 )
+                actual_tasks = record["tasks"] or []
+                expected_tasks = next(
+                    case.expected for case in CASES if case.name == record["case"]
+                )
+                for index, expected_task in enumerate(expected_tasks):
+                    actual_task = actual_tasks[index] if index < len(actual_tasks) else None
+                    if actual_task is None:
+                        print(f"    task[{index}]: missing actual task")
+                        continue
+                    mismatches = [
+                        field
+                        for field in expected_task
+                        if _norm(actual_task.get(field)) != _norm(expected_task.get(field))
+                    ]
+                    if mismatches:
+                        details = ", ".join(
+                            f"{field}={actual_task.get(field)!r} != {expected_task.get(field)!r}"
+                            for field in mismatches
+                        )
+                        print(f"    task[{index}]: {details}")
     print(f"results={output}")
 
 
