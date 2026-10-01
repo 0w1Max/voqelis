@@ -80,6 +80,66 @@ async def test_router_prefers_primary():
 
 
 @pytest.mark.asyncio
+async def test_router_uses_tertiary_after_primary_and_fallback_fail():
+    primary = FakeProvider(
+        error=PlannerAIProviderError("primary down", status_code=429, retry_after_seconds=60)
+    )
+    fallback = FakeProvider(error=PlannerAIProviderError("fallback down", status_code=503))
+    tertiary = FakeProvider([task("tertiary")])
+    router = AIProviderRouter(
+        primary=primary,
+        fallback=fallback,
+        tertiary=tertiary,
+    )
+
+    result = await router.extract_tasks(
+        "завтра тест",
+        today=date(2026, 9, 25),
+        target_day=date(2026, 9, 26),
+        config=PlannerConfig(),
+    )
+
+    assert result == [task("tertiary")]
+    assert primary.calls == 1
+    assert fallback.calls == 1
+    assert tertiary.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_router_keeps_tertiary_cooldown_independent():
+    primary = FakeProvider([task("primary")])
+    fallback = FakeProvider([task("fallback")])
+    tertiary = FakeProvider(
+        error=PlannerAIProviderError("tertiary quota", status_code=429, retry_after_seconds=600)
+    )
+    router = AIProviderRouter(
+        primary=primary,
+        fallback=fallback,
+        tertiary=tertiary,
+    )
+
+    await router.extract_tasks(
+        "завтра тест",
+        today=date(2026, 9, 25),
+        target_day=date(2026, 9, 26),
+        config=PlannerConfig(),
+    )
+    assert tertiary.calls == 0
+
+    primary.error = PlannerAIProviderError(
+        "primary quota", status_code=429, retry_after_seconds=600
+    )
+    result = await router.extract_tasks(
+        "завтра ещё тест",
+        today=date(2026, 9, 25),
+        target_day=date(2026, 9, 26),
+        config=PlannerConfig(),
+    )
+    assert result == [task("fallback")]
+    assert tertiary.calls == 0
+
+
+@pytest.mark.asyncio
 async def test_router_switches_after_429_and_keeps_primary_blocked():
     primary = FakeProvider(
         error=PlannerAIProviderError(
