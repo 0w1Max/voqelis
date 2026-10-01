@@ -817,6 +817,48 @@ def test_callback_conflict_confirmation_uses_same_resolution_path(tmp_path: Path
     store.close()
 
 
+def test_start_review_rejects_future_day(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    service = PlannerService(store, PlannerConfig())
+    future = date(2026, 10, 3)
+    result = asyncio.run(service.start_review(1, future, today=date(2026, 10, 2)))
+    assert "ещё не наступил" in result
+    assert store.session(1) is None
+    store.close()
+
+
+def test_start_full_review_rejects_future_day(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    service = PlannerService(store, PlannerConfig())
+    future = date(2026, 10, 3)
+    result = asyncio.run(service.start_full_review(1, future, today=date(2026, 10, 2)))
+    assert "ещё не наступил" in result
+    assert store.session(1) is None
+    store.close()
+
+
+def test_review_callback_cannot_resume_future_day_session(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    service = PlannerService(store, PlannerConfig())
+    future = date(2026, 10, 3)
+    store.set_session(1, "review_status", future, {"current_item_id": 1})
+    replies = asyncio.run(service.handle_callback(1, "pl:review:+", date(2026, 10, 2)))
+    assert "ещё не наступил" in replies[0]
+    assert store.session(1) is None
+    store.close()
+
+
+def test_review_text_cannot_resume_future_day_session(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    service = PlannerService(store, PlannerConfig())
+    future = date(2026, 10, 3)
+    store.set_session(1, "review_detail", future, {"plan_item_id": 1})
+    replies = asyncio.run(service.handle_text(1, "сделал", date(2026, 10, 2)))
+    assert "ещё не наступил" in replies[0]
+    assert store.session(1) is None
+    store.close()
+
+
 def test_review_status_callback_sets_detail_state(tmp_path: Path):
 
     store = PlannerStore(tmp_path / "planner.sqlite3")
