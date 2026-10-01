@@ -464,9 +464,17 @@ async def main_async(args: argparse.Namespace) -> None:
 
     all_results: dict[str, list[dict[str, Any]]] = {name: [] for name in providers}
 
+    selected_cases = CASES[args.start : args.start + args.limit]
+    if not selected_cases:
+        raise SystemExit("Диапазон benchmark cases пуст.")
+    print(
+        f"cases_selected={len(selected_cases)} "
+        f"range={args.start + 1}-{args.start + len(selected_cases)}"
+    )
+
     for round_number in range(1, args.repeat + 1):
         print(f"\nROUND {round_number}/{args.repeat}")
-        for case_number, case in enumerate(CASES, 1):
+        for case_number, case in enumerate(selected_cases, args.start + 1):
             for name, provider in providers.items():
                 tasks, meta = await _run_case(name, provider, case, timeout=args.timeout)
                 earned, possible = _score_case(tasks, case.expected)
@@ -491,7 +499,8 @@ async def main_async(args: argparse.Namespace) -> None:
             {
                 "today": TODAY.isoformat(),
                 "target_day": TARGET_DAY.isoformat(),
-                "case_count": len(CASES),
+                "case_count": len(selected_cases),
+                "case_start": args.start,
                 "repeat": args.repeat,
                 "providers": {
                     name: (
@@ -523,19 +532,19 @@ async def main_async(args: argparse.Namespace) -> None:
     for name, records in all_results.items():
         successful = [record for record in records if record["ok"]]
         exact_cases = [
-            record for record in records
-            if record["ok"] and record["score"] == record["score_max"]
+            record for record in successful
+            if record["score"] == record["score_max"]
         ]
         latencies = [record["latency_ms"] for record in successful]
-        score = sum(record["score"] for record in records)
-        possible = sum(record["score_max"] for record in records)
+        score = sum(record["score"] for record in successful)
+        possible = sum(record["score_max"] for record in successful)
         error_counts: dict[str, int] = {}
         for record in records:
             key = str(record["status"]) if record["status"] else ("error" if record["error"] else "ok")
             error_counts[key] = error_counts.get(key, 0) + 1
         print(
-            f"{name:<20} accuracy={score / possible * 100:6.1f}% "
-            f"exact={len(exact_cases) / len(records) * 100:6.1f}% "
+            f"{name:<20} quality={score / possible * 100 if possible else 0:6.1f}% "
+            f"exact={len(exact_cases) / len(successful) * 100 if successful else 0:6.1f}% "
             f"success={len(successful) / len(records) * 100:6.1f}% "
             f"p50={statistics.median(latencies) if latencies else 0:7.0f}ms "
             f"p95={_p95(latencies):7.0f}ms "
@@ -552,7 +561,7 @@ async def main_async(args: argparse.Namespace) -> None:
                 )
                 actual_tasks = record["tasks"] or []
                 expected_tasks = next(
-                    case.expected for case in CASES if case.name == record["case"]
+                    case.expected for case in selected_cases if case.name == record["case"]
                 )
                 for index, expected_task in enumerate(expected_tasks):
                     actual_task = actual_tasks[index] if index < len(actual_tasks) else None
@@ -580,6 +589,8 @@ async def main_async(args: argparse.Namespace) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repeat", type=int, default=1)
+    parser.add_argument("--start", type=int, default=0)
+    parser.add_argument("--limit", type=int, default=len(CASES))
     parser.add_argument(
         "--provider",
         choices=(
