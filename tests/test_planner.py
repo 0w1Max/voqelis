@@ -92,7 +92,7 @@ async def test_empty_ai_result_falls_back_to_deterministic_task(tmp_path: Path):
 
     replies = await service.add_from_text(
         1,
-        "завтра в 21.00 уже нати",
+        "завтра в 21.00 уже нати для здоровья",
         date(2026, 10, 4),
     )
 
