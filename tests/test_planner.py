@@ -39,6 +39,29 @@ def test_parser_understands_evening_clock_and_range():
     assert ranged.duration_minutes == 60
 
 
+@pytest.mark.asyncio
+async def test_stale_planning_session_rolls_to_next_day(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    config = PlannerConfig(recurring_templates=())
+    service = PlannerService(store, config)
+
+    stale_day = date(2026, 10, 3)
+    today = date(2026, 10, 4)
+    store.set_active_plan_day(1, stale_day)
+    store.set_session(1, "planning", stale_day, {"draft": "stale"})
+
+    await service.handle_text(1, "завтра читать книгу", today)
+
+    session = store.session(1)
+    assert session is not None
+    assert session["state"] == "planning"
+    assert session["target_day"] == "2026-10-05"
+    assert store.active_plan_day(1) == date(2026, 10, 5)
+    assert store.session_payload(1) == {}
+
+    store.close()
+
+
 class FailingPlannerAI:
     async def extract_tasks(self, text, *, today, target_day, config):
         del text, today, target_day, config
