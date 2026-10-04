@@ -78,6 +78,33 @@ async def test_stale_planning_session_rolls_to_next_day(tmp_path: Path):
     store.close()
 
 
+class EmptyPlannerAI:
+    async def extract_tasks(self, text, *, today, target_day, config):
+        del text, today, target_day, config
+        return []
+
+
+@pytest.mark.asyncio
+async def test_empty_ai_result_falls_back_to_deterministic_task(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    config = PlannerConfig(recurring_templates=())
+    service = PlannerService(store, config, ai=EmptyPlannerAI())
+
+    replies = await service.add_from_text(
+        1,
+        "завтра в 21.00 уже нати",
+        date(2026, 10, 4),
+    )
+
+    assert "21:00–22:00 — ужинать" in replies[0]
+    item = store.plan_items(1, date(2026, 10, 5))[0]
+    assert item.title == "ужинать"
+    assert item.start_minute == 21 * 60
+    assert item.end_minute == 22 * 60
+    assert item.source_text == "завтра в 21.00 уже нати"
+    store.close()
+
+
 class FailingPlannerAI:
     async def extract_tasks(self, text, *, today, target_day, config):
         del text, today, target_day, config
