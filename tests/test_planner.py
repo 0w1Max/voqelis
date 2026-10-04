@@ -72,6 +72,35 @@ class FailingPlannerAI:
         raise PlannerAIProviderError("providers unavailable")
 
 
+def test_temporal_guard_preserves_ai_time_when_parser_has_no_clock(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    config = PlannerConfig(recurring_templates=())
+    ai_draft = TaskDraft(
+        title="ужинать",
+        day=date(2026, 10, 5),
+        start_minute=21 * 60,
+        end_minute=None,
+        duration_minutes=60,
+        why=None,
+        source_text="завтра в 21:00 ужинать",
+    )
+    hints = parse_voice("завтра ужинать", today=date(2026, 10, 4), config=config)
+
+    protected = PlannerService._protect_explicit_temporal_constraints(
+        [ai_draft],
+        text="завтра ужинать",
+        today=date(2026, 10, 4),
+        config=config,
+    )
+
+    assert len(hints) == 1
+    assert hints[0].start_minute is None
+    assert protected[0].start_minute == 21 * 60
+    assert protected[0].duration_minutes == 60
+    store.close()
+
+
+@pytest.mark.asyncio
 class WrongTemporalPlannerAI:
     def __init__(self, draft_factory):
         self.draft_factory = draft_factory
