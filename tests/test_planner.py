@@ -72,6 +72,21 @@ class FailingPlannerAI:
         raise PlannerAIProviderError("providers unavailable")
 
 
+def test_parser_accepts_dot_separated_time(tmp_path: Path):
+    config = PlannerConfig(recurring_templates=())
+
+    drafts = parse_voice(
+        "завтра в 21.00 ужинать",
+        today=date(2026, 10, 4),
+        config=config,
+    )
+
+    assert len(drafts) == 1
+    assert drafts[0].start_minute == 21 * 60
+    assert drafts[0].end_minute is None
+    assert drafts[0].duration_minutes == 60
+
+
 def test_temporal_guard_preserves_ai_time_when_parser_has_no_clock(tmp_path: Path):
     store = PlannerStore(tmp_path / "planner.sqlite3")
     config = PlannerConfig(recurring_templates=())
