@@ -131,21 +131,44 @@ class PlannerService:
                     re.IGNORECASE,
                 )
             )
+            has_explicit_clock = hint.start_minute is not None
+            has_explicit_period = hint.period is not None
+            has_explicit_preference = hint.preferred_minute is not None
+            has_explicit_relation = hint.relation is not None or hint.anchor is not None
+
             duration = draft.duration_minutes
             if hint.start_minute is not None and hint.end_minute is not None:
                 duration = hint.duration_minutes
             elif hint.duration_minutes != config.default_duration_minutes:
                 duration = hint.duration_minutes
+
+            temporal_fields = {}
+            if has_explicit_clock:
+                temporal_fields.update(
+                    start_minute=hint.start_minute,
+                    end_minute=hint.end_minute,
+                    duration_minutes=duration,
+                )
+            elif has_explicit_period:
+                temporal_fields.update(
+                    start_minute=None,
+                    end_minute=None,
+                    period=hint.period,
+                )
+            if has_explicit_preference:
+                temporal_fields["preferred_minute"] = hint.preferred_minute
+            if has_explicit_relation:
+                temporal_fields.update(
+                    relation=hint.relation,
+                    anchor=hint.anchor,
+                    start_minute=None,
+                    end_minute=None,
+                )
+
             protected_draft = replace(
                 draft,
                 day=hint.day if explicit_date else draft.day,
-                start_minute=hint.start_minute,
-                end_minute=hint.end_minute,
-                duration_minutes=duration,
-                period=hint.period,
-                preferred_minute=hint.preferred_minute,
-                relation=hint.relation,
-                anchor=hint.anchor,
+                **temporal_fields,
             )
             if (
                 draft.start_minute != protected_draft.start_minute
