@@ -85,6 +85,19 @@ def test_parser_accepts_bare_hour(tmp_path: Path):
     assert drafts[0].start_minute == 21 * 60
 
 
+def test_parser_does_not_split_dotted_clock(tmp_path: Path):
+    config = PlannerConfig(recurring_templates=())
+
+    drafts = parse_voice(
+        "завтра в 21.00 ужинать",
+        today=date(2026, 10, 4),
+        config=config,
+    )
+
+    assert len(drafts) == 1
+    assert drafts[0].title == "ужинать"
+
+
 def test_parser_accepts_dot_separated_time(tmp_path: Path):
     config = PlannerConfig(recurring_templates=())
 
