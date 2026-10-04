@@ -54,10 +54,12 @@ async def test_stale_planning_session_rolls_to_next_day(tmp_path: Path):
 
     session = store.session(1)
     assert session is not None
-    assert session["state"] == "planning"
+    assert session["state"] == "planning_why"
     assert session["target_day"] == "2026-10-05"
     assert store.active_plan_day(1) == date(2026, 10, 5)
-    assert store.session_payload(1) == {}
+    payload = store.session_payload(1)
+    assert payload["draft"]["day"] == "2026-10-05"
+    assert payload["draft"]["title"] == "читать книгу"
 
     store.close()
 
