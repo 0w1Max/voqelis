@@ -39,6 +39,20 @@ def test_parser_understands_evening_clock_and_range():
     assert ranged.duration_minutes == 60
 
 
+def test_parser_normalizes_known_whisper_title_alias() -> None:
+    config = PlannerConfig(recurring_templates=())
+
+    drafts = parse_voice(
+        "завтра в 21.00 уже нати",
+        today=date(2026, 10, 4),
+        config=config,
+    )
+
+    assert len(drafts) == 1
+    assert drafts[0].title == "ужинать"
+    assert drafts[0].start_minute == 21 * 60
+
+
 @pytest.mark.asyncio
 async def test_stale_planning_session_rolls_to_next_day(tmp_path: Path):
     store = PlannerStore(tmp_path / "planner.sqlite3")
