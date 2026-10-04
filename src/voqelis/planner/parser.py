@@ -29,6 +29,11 @@ _TITLE_ASR_ALIASES = {
     "уже нати": "ужинать",
 }
 
+
+def normalize_asr_title(title: str) -> str:
+    """Normalize narrow, production-observed Whisper title errors."""
+    return _TITLE_ASR_ALIASES.get(title.strip().casefold(), title.strip())
+
 _DURATION_HOURS_AND_MINUTES = re.compile(
     r"\b(\d+(?:[.,]\d+)?)\s*(?:час(?:а|ов)?|ч)\s*(?:и\s*)?"
     r"(\d+)\s*(?:минут(?:а|ы)?|мин\b)",
@@ -231,7 +236,7 @@ def parse_voice(text: str, *, today: date, config: PlannerConfig) -> list[TaskDr
         )
 
         title = re.sub(r"\s{2,}", " ", cleaned).strip(" ,:-")
-        title = _TITLE_ASR_ALIASES.get(title.casefold(), title)
+        title = normalize_asr_title(title)
         why = _why(chunk)
         if why:
             title = re.split(
