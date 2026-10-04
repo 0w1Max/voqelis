@@ -66,6 +66,25 @@ class PlannerService:
             "этот день ещё не наступил."
         )
 
+    def _sync_stale_planning_session(self, user_id: int, today: date) -> None:
+        session = self.store.session(user_id)
+        if not session or session["state"] != "planning" or not session["target_day"]:
+            return
+        target_day = date.fromisoformat(session["target_day"])
+        if target_day >= today:
+            return
+        active = self.store.active_plan_day(user_id)
+        next_day = active if active is not None and active >= today else today + timedelta(days=1)
+        self.store.set_active_plan_day(user_id, next_day)
+        self.store.ensure_daily_plan(user_id, next_day, self.config)
+        self.store.set_session(user_id, "planning", next_day, {})
+        logger.info(
+            "PLANNER_STALE_PLANNING_SESSION_ROLLED user=%s old_day=%s new_day=%s",
+            user_id,
+            target_day,
+            next_day,
+        )
+
     async def start_planning(self, user_id: int, day: date) -> str:
         async with self._user_lock(user_id):
             self.store.ensure_daily_plan(user_id, day, self.config)
@@ -81,6 +100,7 @@ class PlannerService:
                 active = today + timedelta(days=1)
                 self.store.set_active_plan_day(user_id, active)
             self.store.ensure_daily_plan(user_id, active, self.config)
+            self._sync_stale_planning_session(user_id, today)
             return active
 
 
@@ -840,6 +860,7 @@ class PlannerService:
 
     async def handle_text(self, user_id: int, text: str, today: date) -> list[str]:
         async with self._user_lock(user_id):
+            self._sync_stale_planning_session(user_id, today)
             return await self._handle_text(user_id, text, today)
 
     async def _handle_callback(self, user_id: int, callback_data: str, today: date) -> list[str]:
