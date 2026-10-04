@@ -15,7 +15,7 @@ _TIME_BARE = re.compile(r"\b(\d{1,2})(?::|\.)(\d{2})\b")
 _RANGE = re.compile(
     r"\b(?:с\s+)?(\d{1,2})(?:(?::|\.)(\d{2}))?\s*"
     r"(?:час(?:а|ов)?|ч)?\s*(утра|дня|вечера|ночи)?\s*"
-    r"(?:до|-)\s*(\d{1,2})(?::(\d{2}))?\s*"
+    r"(?:до|-)\s*(\d{1,2})(?:(?::|\.)(\d{2}))?\s*"
     r"(?:час(?:а|ов)?|ч)?\s*(утра|дня|вечера|ночи)?\b",
     re.IGNORECASE,
 )
@@ -236,7 +236,6 @@ def parse_voice(text: str, *, today: date, config: PlannerConfig) -> list[TaskDr
         )
 
         title = re.sub(r"\s{2,}", " ", cleaned).strip(" ,:-")
-        title = normalize_asr_title(title)
         why = _why(chunk)
         if why:
             title = re.split(
@@ -245,6 +244,7 @@ def parse_voice(text: str, *, today: date, config: PlannerConfig) -> list[TaskDr
                 maxsplit=1,
                 flags=re.IGNORECASE,
             )[0].strip(" ,:-")
+        title = normalize_asr_title(title)
         if not title:
             continue
 
