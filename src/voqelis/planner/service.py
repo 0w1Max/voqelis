@@ -22,7 +22,7 @@ from .models import (
     TaskDraft,
     TaskKind,
 )
-from .parser import parse_voice
+from .parser import normalize_asr_title, parse_voice
 from .render import render_full_review_proposal, render_plan_text, render_review_prompt
 from .scheduler import Scheduler, fmt_time
 from .store import PlannerStore
@@ -167,6 +167,7 @@ class PlannerService:
 
             protected_draft = replace(
                 draft,
+                title=normalize_asr_title(draft.title),
                 day=hint.day if explicit_date else draft.day,
                 **temporal_fields,
             )
