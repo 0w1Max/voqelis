@@ -27,6 +27,7 @@ _DURATION_MINUTES = re.compile(
 # these are transcription aliases, not scheduling rules.
 _TITLE_ASR_ALIASES = {
     "уже нати": "ужинать",
+    "уже найти": "ужинать",
 }
 
 
