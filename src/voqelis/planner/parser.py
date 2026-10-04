@@ -23,6 +23,12 @@ _DURATION = re.compile(r"\b(\d+(?:[.,]\d+)?)\s*(?:час(?:а|ов)?|ч)\b", re.
 _DURATION_MINUTES = re.compile(
     r"\b(\d+)\s*(?:минут(?:а|ы)?|мин\b)", re.IGNORECASE
 )
+# Rare, exact Whisper splits observed in production. Keep this list narrow:
+# these are transcription aliases, not scheduling rules.
+_TITLE_ASR_ALIASES = {
+    "уже нати": "ужинать",
+}
+
 _DURATION_HOURS_AND_MINUTES = re.compile(
     r"\b(\d+(?:[.,]\d+)?)\s*(?:час(?:а|ов)?|ч)\s*(?:и\s*)?"
     r"(\d+)\s*(?:минут(?:а|ы)?|мин\b)",
@@ -225,6 +231,7 @@ def parse_voice(text: str, *, today: date, config: PlannerConfig) -> list[TaskDr
         )
 
         title = re.sub(r"\s{2,}", " ", cleaned).strip(" ,:-")
+        title = _TITLE_ASR_ALIASES.get(title.casefold(), title)
         why = _why(chunk)
         if why:
             title = re.split(
