@@ -169,6 +169,54 @@ def test_parser_accepts_dot_separated_time(tmp_path: Path):
     assert drafts[0].duration_minutes == 60
 
 
+
+def test_temporal_guard_keeps_ai_clock_with_explicit_relation(tmp_path: Path):
+    config = PlannerConfig(recurring_templates=())
+    ai_draft = TaskDraft(
+        title="читать книгу",
+        day=date(2026, 10, 5),
+        start_minute=16 * 60,
+        end_minute=None,
+        duration_minutes=90,
+        why="для развития",
+        source_text="завтра после обеда в 16:00 читать книгу для развития",
+    )
+
+    protected = PlannerService._protect_explicit_temporal_constraints(
+        [ai_draft],
+        text="завтра после обеда в 16:00 читать книгу для развития",
+        today=date(2026, 10, 4),
+        config=config,
+    )
+
+    assert protected[0].start_minute == 16 * 60
+    assert protected[0].end_minute is None
+    assert protected[0].duration_minutes == 60
+    assert protected[0].relation == "after"
+    assert protected[0].anchor == "обеда"
+
+
+def test_temporal_guard_normalizes_ai_title_on_count_mismatch():
+    config = PlannerConfig(recurring_templates=())
+    ai_draft = TaskDraft(
+        title="уже нати",
+        day=date(2026, 10, 5),
+        start_minute=21 * 60,
+        duration_minutes=60,
+        source_text="завтра в 21.00 уже нати",
+    )
+
+    protected = PlannerService._protect_explicit_temporal_constraints(
+        [ai_draft],
+        text="завтра в 21.00 уже нати",
+        today=date(2026, 10, 4),
+        config=config,
+    )
+
+    assert protected[0].title == "ужинать"
+    assert protected[0].start_minute == 21 * 60
+
+
 def test_temporal_guard_preserves_ai_time_when_parser_has_no_clock(tmp_path: Path):
     store = PlannerStore(tmp_path / "planner.sqlite3")
     config = PlannerConfig(recurring_templates=())
@@ -197,7 +245,6 @@ def test_temporal_guard_preserves_ai_time_when_parser_has_no_clock(tmp_path: Pat
     store.close()
 
 
-@pytest.mark.asyncio
 class WrongTemporalPlannerAI:
     def __init__(self, draft_factory):
         self.draft_factory = draft_factory
