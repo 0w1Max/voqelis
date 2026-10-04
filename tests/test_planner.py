@@ -43,7 +43,7 @@ def test_parser_normalizes_known_whisper_title_alias() -> None:
     config = PlannerConfig(recurring_templates=())
 
     drafts = parse_voice(
-        "завтра в 21.00 уже нати",
+        "завтра в 21.00 уже нати для здоровья",
         today=date(2026, 10, 4),
         config=config,
     )
@@ -101,7 +101,8 @@ async def test_empty_ai_result_falls_back_to_deterministic_task(tmp_path: Path):
     assert item.title == "ужинать"
     assert item.start_minute == 21 * 60
     assert item.end_minute == 22 * 60
-    assert item.source_text == "завтра в 21.00 уже нати"
+    assert item.source_text == "завтра в 21.00 уже нати для здоровья"
+    assert item.why == "здоровья"
     store.close()
 
 
