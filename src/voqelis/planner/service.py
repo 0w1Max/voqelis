@@ -114,13 +114,17 @@ class PlannerService:
     ) -> list[TaskDraft]:
         """Make explicit temporal constraints authoritative over AI output."""
         hints = parse_voice(text, today=today, config=config)
+        normalized_drafts = [
+            replace(draft, title=normalize_asr_title(draft.title))
+            for draft in drafts
+        ]
         if not hints or len(hints) != len(drafts):
             logger.warning(
                 "PLANNER_TEMPORAL_GUARD_MISMATCH ai_tasks=%s deterministic_tasks=%s",
                 len(drafts),
                 len(hints),
             )
-            return hints or drafts
+            return hints or normalized_drafts
 
         protected: list[TaskDraft] = []
         for draft, hint in zip(drafts, hints):
@@ -136,18 +140,13 @@ class PlannerService:
             has_explicit_preference = hint.preferred_minute is not None
             has_explicit_relation = hint.relation is not None or hint.anchor is not None
 
-            duration = draft.duration_minutes
-            if hint.start_minute is not None and hint.end_minute is not None:
-                duration = hint.duration_minutes
-            elif hint.duration_minutes != config.default_duration_minutes:
-                duration = hint.duration_minutes
+            duration = hint.duration_minutes
 
-            temporal_fields = {}
+            temporal_fields = {"duration_minutes": duration}
             if has_explicit_clock:
                 temporal_fields.update(
                     start_minute=hint.start_minute,
                     end_minute=hint.end_minute,
-                    duration_minutes=duration,
                 )
             elif has_explicit_period:
                 temporal_fields.update(
@@ -161,9 +160,12 @@ class PlannerService:
                 temporal_fields.update(
                     relation=hint.relation,
                     anchor=hint.anchor,
-                    start_minute=None,
-                    end_minute=None,
                 )
+                if not has_explicit_clock:
+                    temporal_fields.update(
+                        start_minute=None,
+                        end_minute=None,
+                    )
 
             protected_draft = replace(
                 draft,
