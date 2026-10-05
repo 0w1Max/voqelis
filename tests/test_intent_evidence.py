@@ -62,7 +62,7 @@ def test_shared_single_date_is_inherited_by_tasks_without_date_in_excerpt():
     second_start = text.index("вечером прогулка")
     second_span = SourceSpan(second_start, len(text), "вечером прогулка")
 
-    facts = evidence.for_task(second_span, task_count=2)
+    facts = evidence.for_task(second_span)
 
     assert facts.day == date(2026, 10, 5)
     assert facts.period == "evening"
