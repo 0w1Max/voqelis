@@ -9,7 +9,7 @@ from voqelis.planner.evidence import (
     locate_source_span,
     recognize_intent_evidence,
 )
-from voqelis.planner.intent_validation import (\n    IntentValidationError,\n    validate_task_intents,\n)
+from voqelis.planner.intent_validation import IntentValidationError, validate_task_intents
 from voqelis.planner.models import TaskDraft
 
 
@@ -26,7 +26,17 @@ def test_recognizer_returns_canonical_entities_with_source_spans():
     assert time_entity.span.text == "в 21.00"
 
 
-def test_span_offsets_reference_original_source_without_losing_leading_spaces():\n    text = '  завтра в 21:00 ужинать'\n    evidence = recognize_intent_evidence(text, today=date(2026, 10, 4))\n\n    date_entity, time_entity = evidence.entities\n\n    assert text[date_entity.span.start:date_entity.span.end] == 'завтра'\n    assert text[time_entity.span.start:time_entity.span.end] == 'в 21:00'\n\n\ndef test_clock_meridiem_is_normalized_without_becoming_a_period_constraint():
+def test_span_offsets_reference_original_source_without_losing_leading_spaces():
+    text = "  завтра в 21:00 ужинать"
+    evidence = recognize_intent_evidence(text, today=date(2026, 10, 4))
+
+    date_entity, time_entity = evidence.entities
+
+    assert text[date_entity.span.start:date_entity.span.end] == "завтра"
+    assert text[time_entity.span.start:time_entity.span.end] == "в 21:00"
+
+
+def test_clock_meridiem_is_normalized_without_becoming_a_period_constraint():
     text = "завтра в 8 утра отжаться"
     evidence = recognize_intent_evidence(text, today=date(2026, 10, 4))
 
@@ -48,11 +58,29 @@ def test_recognizer_captures_range_period_and_relation():
         for entity in evidence.entities
     )
     assert any(
+        entity.kind == EvidenceKind.PERIOD and entity.period == "day"
+        for entity in evidence.entities
+    )
+    assert any(
         entity.kind == EvidenceKind.RELATION
         and entity.relation == "after"
         and entity.anchor == "lunch"
         for entity in evidence.entities
     )
+
+
+def test_recognizer_accepts_hyphenated_time_range():
+    text = "завтра 12:00-14:00 читать"
+    evidence = recognize_intent_evidence(text, today=date(2026, 10, 4))
+
+    ranges = [
+        entity
+        for entity in evidence.entities
+        if entity.kind == EvidenceKind.TIME_RANGE
+    ]
+    assert len(ranges) == 1
+    assert ranges[0].start_minute == 12 * 60
+    assert ranges[0].end_minute == 14 * 60
 
 
 def test_shared_single_date_is_inherited_by_tasks_without_date_in_excerpt():
@@ -154,24 +182,6 @@ def test_overlapping_task_excerpts_are_rejected():
         )
 
 
-def test_single_task_may_use_title_only_excerpt_when_no_explicit_constraint_exists():
-    text = "ужинать"
-    evidence = recognize_intent_evidence(text, today=date(2026, 10, 4))
-    draft = TaskDraft(
-        "ужинать",
-        date(2026, 10, 5),
-        source_text=text,
-        source_excerpt="ужинать",
-    )
-
-    validate_task_intents(
-        [draft],
-        source_text=text,
-        today=date(2026, 10, 4),
-        evidence=evidence,
-    )
-
-
 def test_single_task_uses_the_whole_source_as_authoritative_evidence():
     text = "завтра в 21:00 ужинать"
     evidence = recognize_intent_evidence(text, today=date(2026, 10, 4))
@@ -189,3 +199,23 @@ def test_single_task_uses_the_whole_source_as_authoritative_evidence():
         today=date(2026, 10, 4),
         evidence=evidence,
     )
+
+
+def test_single_task_contradicting_time_is_rejected():
+    text = "завтра в 21:00 ужинать"
+    evidence = recognize_intent_evidence(text, today=date(2026, 10, 4))
+    draft = TaskDraft(
+        "ужинать",
+        date(2026, 10, 5),
+        start_minute=20 * 60,
+        source_text=text,
+        source_excerpt="ужинать",
+    )
+
+    with pytest.raises(IntentValidationError, match="явное время"):
+        validate_task_intents(
+            [draft],
+            source_text=text,
+            today=date(2026, 10, 4),
+            evidence=evidence,
+        )
