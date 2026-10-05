@@ -97,7 +97,7 @@ def test_intent_validation_requires_distinct_source_for_multiple_tasks():
             date(2026, 10, 5),
             period="evening",
             source_text=text,
-            source_excerpt="завтра вечером прогулка",
+            source_excerpt="вечером прогулка",
         ),
     ]
     validate_task_intents(drafts, source_text=text, today=date(2026, 10, 4), config=config)
