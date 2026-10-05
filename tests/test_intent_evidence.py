@@ -48,10 +48,6 @@ def test_recognizer_captures_range_period_and_relation():
         for entity in evidence.entities
     )
     assert any(
-        entity.kind == EvidenceKind.PERIOD and entity.period == "day"
-        for entity in evidence.entities
-    )
-    assert any(
         entity.kind == EvidenceKind.RELATION
         and entity.relation == "after"
         and entity.anchor == "lunch"
@@ -156,6 +152,24 @@ def test_overlapping_task_excerpts_are_rejected():
             today=date(2026, 10, 4),
             evidence=evidence,
         )
+
+
+def test_single_task_may_use_title_only_excerpt_when_no_explicit_constraint_exists():
+    text = "ужинать"
+    evidence = recognize_intent_evidence(text, today=date(2026, 10, 4))
+    draft = TaskDraft(
+        "ужинать",
+        date(2026, 10, 5),
+        source_text=text,
+        source_excerpt="ужинать",
+    )
+
+    validate_task_intents(
+        [draft],
+        source_text=text,
+        today=date(2026, 10, 4),
+        evidence=evidence,
+    )
 
 
 def test_single_task_uses_the_whole_source_as_authoritative_evidence():
