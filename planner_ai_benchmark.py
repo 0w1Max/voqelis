@@ -26,7 +26,6 @@ from voqelis.planner.ai import (
 )
 from voqelis.planner.config import PlannerConfig
 from voqelis.planner.models import PlannerAIError
-from voqelis.planner.parser import parse_voice
 
 TODAY = date(2026, 10, 1)
 TARGET_DAY = date(2026, 10, 2)
@@ -414,15 +413,6 @@ async def _run_case(
 ) -> tuple[list[Any] | None, dict[str, Any]]:
     started = time.perf_counter()
     try:
-        if name == "local":
-            tasks = parse_voice(case.text, today=TODAY, config=CONFIG)
-            return tasks, {
-                "ok": True,
-                "latency_ms": round((time.perf_counter() - started) * 1000, 1),
-                "status": None,
-                "error": None,
-            }
-
         prompt = (
             _cloudflare_task_prompt(case.text, today=TODAY, target_day=TARGET_DAY)
             if name == "cloudflare"
@@ -533,7 +523,7 @@ def _cloudflare_task_prompt(
 
 def _providers(env_file: Path) -> dict[str, Any]:
     load_dotenv(env_file, override=False)
-    result: dict[str, Any] = {"local": None}
+    result: dict[str, Any] = {}
     if os.getenv("GROQ_API_KEY"):
         result["groq"] = GroqPlannerAI(
             os.environ["GROQ_API_KEY"],
@@ -711,7 +701,6 @@ def main() -> None:
         "--provider",
         choices=(
             "all",
-            "local",
             "groq",
             "gemini_current",
             "gemini_flash_lite",
