@@ -12,6 +12,7 @@ from .models import (
 )
 from .store import PlannerStore
 
+
 class Scheduler:
     def __init__(self, store: PlannerStore, config: PlannerConfig):
         self.store = store
