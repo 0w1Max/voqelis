@@ -26,6 +26,7 @@ from voqelis.planner.models import (
     TaskDraft,
 )
 
+
 class FakeProvider:
     provider_name = "fake"
 
