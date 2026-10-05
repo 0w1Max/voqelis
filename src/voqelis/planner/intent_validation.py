@@ -1,156 +1,68 @@
 from __future__ import annotations
 
-import re
-from dataclasses import dataclass
-from datetime import date, timedelta
-
-from .config import PlannerConfig
-
-_CLOCK = r"(\d{1,2})(?:(?::|\.)(\d{2}))?"
-_CLOCK_CONTEXT = re.compile(
-    rf"\b(?:в|к)\s+{_CLOCK}\s*(?:час(?:а|ов)?|ч)?\s*"
-    r"(утра|дня|вечера|ночи)?\b",
-    re.IGNORECASE,
+from .evidence import (
+    EvidenceRecognitionError,
+    IntentEvidence,
+    SourceSpan,
+    TaskEvidence,
+    locate_source_span,
+    recognize_intent_evidence,
 )
-_RANGE = re.compile(
-    rf"\b(?:с\s+)?{_CLOCK}\s*(?:час(?:а|ов)?|ч)?\s*"
-    r"(утра|дня|вечера|ночи)?\s*(?:до|-)\s*"
-    rf"{_CLOCK}\s*(?:час(?:а|ов)?|ч)?\s*(утра|дня|вечера|ночи)?\b",
-    re.IGNORECASE,
-)
-_PERIODS = {
-    "утром": "morning",
-    "утро": "morning",
-    "утра": "morning",
-    "днём": "day",
-    "днем": "day",
-    "день": "day",
-    "вечером": "evening",
-    "вечер": "evening",
-    "ночью": "night",
-    "ночь": "night",
-}
-_RELATIONS = {
-    "завтрака": "breakfast",
-    "завтраком": "breakfast",
-    "завтрак": "breakfast",
-    "обеда": "lunch",
-    "обедом": "lunch",
-    "обед": "lunch",
-    "ужина": "dinner",
-    "ужином": "dinner",
-    "ужин": "dinner",
-}
-_DATE_WORDS = (
-    ("послезавтра", 2),
-    ("завтра", 1),
-    ("сегодня", 0),
-)
-
-
-@dataclass(frozen=True, slots=True)
-class ExplicitConstraints:
-    day: date | None = None
-    start_minute: int | None = None
-    end_minute: int | None = None
-    period: str | None = None
-    relation: str | None = None
-    anchor: str | None = None
-    evidence: str = ""
 
 
 class IntentValidationError(ValueError):
-    """The model output contradicts explicit user constraints or lacks evidence."""
+    """The model output contradicts explicit source evidence."""
 
 
-def _minute(hour: str, minute: str | None, part: str | None) -> int:
-    value = int(hour) * 60 + int(minute or 0)
-    suffix = (part or "").casefold()
-    if suffix in {"дня", "вечера"} and 1 <= int(hour) < 12:
-        value += 12 * 60
-    elif suffix == "ночи" and int(hour) == 12:
-        value = int(minute or 0)
-    if not 0 <= value < 24 * 60:
-        raise IntentValidationError("Временная граница вне суток.")
-    return value
+def _validate_task_span_overlaps(spans: list[SourceSpan]) -> None:
+    ordered = sorted(spans, key=lambda span: (span.start, span.end))
+    for previous, current in zip(ordered, ordered[1:]):
+        if previous.overlaps(current):
+            raise IntentValidationError(
+                "Источники нескольких задач перекрываются."
+            )
 
 
-def explicit_constraints(text: str, *, today: date, config: PlannerConfig) -> ExplicitConstraints:
-    del config
-    source = text.strip()
-    if not source:
-        return ExplicitConstraints()
-
-    lowered = source.casefold()
-    day = None
-    for word, offset in _DATE_WORDS:
-        if re.search(rf"\b{re.escape(word)}\b", lowered):
-            day = today + timedelta(days=offset)
-            break
-
-    start = end = None
-    evidence_parts: list[str] = []
-    range_match = _RANGE.search(source)
-    if range_match:
-        start = _minute(range_match.group(1), range_match.group(2), range_match.group(3))
-        end = _minute(range_match.group(4), range_match.group(5), range_match.group(6))
-        if start >= end:
-            raise IntentValidationError("Явный временной диапазон некорректен.")
-        evidence_parts.append(range_match.group(0))
-    else:
-        clock = _CLOCK_CONTEXT.search(source)
-        if clock:
-            start = _minute(clock.group(1), clock.group(2), clock.group(3))
-            evidence_parts.append(clock.group(0))
-
-    periods = {
-        value
-        for phrase, value in _PERIODS.items()
-        if re.search(rf"\b{re.escape(phrase)}\b", lowered)
+def _validate_entity_coverage(
+    evidence: IntentEvidence,
+    spans: list[SourceSpan],
+) -> None:
+    date_values = {
+        entity.day
+        for entity in evidence.entities
+        if entity.day is not None
     }
-    if len(periods) > 1:
-        raise IntentValidationError("В одном фрагменте обнаружены разные периоды суток.")
-    period = next(iter(periods), None)
 
-    relation_match = re.search(
-        r"\b(после|перед|до)\s+(завтрака|завтраком|завтрак|обеда|обедом|обед|ужина|ужином|ужин)\b",
-        lowered,
-    )
-    relation = anchor = None
-    if relation_match:
-        relation = "after" if relation_match.group(1) == "после" else "before"
-        anchor = _RELATIONS[relation_match.group(2)]
-        evidence_parts.append(relation_match.group(0))
-
-    return ExplicitConstraints(
-        day=day,
-        start_minute=start,
-        end_minute=end,
-        period=period,
-        relation=relation,
-        anchor=anchor,
-        evidence="; ".join(evidence_parts),
-    )
-
-def _canonical_source(text: str) -> str:
-    return " ".join(text.casefold().split())
-
-
-def _contains_excerpt(source: str, excerpt: str) -> bool:
-    return _canonical_source(excerpt) in _canonical_source(source)
+    for entity in evidence.entities:
+        covered = any(entity.span.overlaps(span) for span in spans)
+        if covered:
+            continue
+        if entity.day is not None and len(date_values) == 1:
+            continue
+        raise IntentValidationError(
+            "Явное ограничение в исходном тексте не связано ни с одной задачей."
+        )
 
 
 def validate_task_intents(
     intents,
     *,
     source_text: str,
-    today: date,
-    config: PlannerConfig,
+    today,
+    evidence: IntentEvidence | None = None,
+    config=None,
 ) -> None:
+    del config
     if not intents:
         return
 
-    seen_excerpts: set[str] = set()
+    if evidence is None:
+        try:
+            evidence = recognize_intent_evidence(source_text, today=today)
+        except EvidenceRecognitionError as exc:
+            raise IntentValidationError(str(exc)) from exc
+
+    spans: list[SourceSpan] = []
     for intent in intents:
         excerpt = (intent.source_excerpt or "").strip()
         if not excerpt:
@@ -159,14 +71,21 @@ def validate_task_intents(
                     "Для нескольких задач модель обязана указать источник каждой задачи."
                 )
             excerpt = source_text.strip()
-        if not _contains_excerpt(source_text, excerpt):
-            raise IntentValidationError("Источник задачи не совпадает с исходным текстом.")
 
-        if excerpt in seen_excerpts:
-            raise IntentValidationError("Две задачи ссылаются на один и тот же фрагмент.")
-        seen_excerpts.add(excerpt)
+        try:
+            span = locate_source_span(source_text, excerpt)
+        except EvidenceRecognitionError as exc:
+            raise IntentValidationError(str(exc)) from exc
+        spans.append(span)
 
-        facts = explicit_constraints(excerpt, today=today, config=config)
+    _validate_task_span_overlaps(spans)
+    _validate_entity_coverage(evidence, spans)
+
+    for intent, span in zip(intents, spans):
+        try:
+            facts = evidence.for_task(span, task_count=len(intents))
+        except EvidenceRecognitionError as exc:
+            raise IntentValidationError(str(exc)) from exc
 
         if facts.day is not None and intent.day != facts.day:
             raise IntentValidationError(
@@ -211,3 +130,19 @@ def validate_task_intents(
             raise IntentValidationError(
                 "Модель придумала период суток, которого нет в источнике."
             )
+
+
+def explicit_constraints(
+    text: str,
+    *,
+    today,
+    config=None,
+) -> TaskEvidence:
+    """Compatibility facade for existing internal tests/callers."""
+    del config
+    try:
+        evidence = recognize_intent_evidence(text, today=today)
+        span = SourceSpan(0, len(text), text)
+        return evidence.for_task(span, task_count=1)
+    except EvidenceRecognitionError as exc:
+        raise IntentValidationError(str(exc)) from exc
