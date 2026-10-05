@@ -56,7 +56,7 @@ class IntentEvidence:
     source_text: str
     entities: tuple[ExplicitEntity, ...]
 
-    def for_task(self, span: SourceSpan, *, task_count: int) -> TaskEvidence:
+    def for_task(self, span: SourceSpan) -> TaskEvidence:
         relevant = [entity for entity in self.entities if entity.span.overlaps(span)]
 
         date_values = {
@@ -64,7 +64,7 @@ class IntentEvidence:
             for entity in relevant
             if entity.kind == EvidenceKind.DATE and entity.day is not None
         }
-        if not date_values and task_count > 1:
+        if not date_values:
             global_date_values = {
                 entity.day
                 for entity in self.entities
@@ -77,7 +77,6 @@ class IntentEvidence:
                     "Для задачи не удалось однозначно определить явную дату."
                 )
 
-        day = _single_value(date_values, "дат")
         starts = {
             entity.start_minute
             for entity in relevant
@@ -87,7 +86,8 @@ class IntentEvidence:
         ends = {
             entity.end_minute
             for entity in relevant
-            if entity.kind == EvidenceKind.TIME_RANGE and entity.end_minute is not None
+            if entity.kind == EvidenceKind.TIME_RANGE
+            and entity.end_minute is not None
         }
         periods = {
             entity.period
@@ -100,10 +100,14 @@ class IntentEvidence:
             if entity.kind == EvidenceKind.RELATION
         }
 
+        day = _single_value(date_values, "дат")
         start_minute = _single_value(starts, "времени")
         end_minute = _single_value(ends, "конца диапазона")
         period = _single_value(periods, "периода")
-        relation_pair = _single_value(relations, "отношения к приёму пищи")
+        relation_pair = _single_value(
+            relations,
+            "отношения к приёму пищи",
+        )
         relation, anchor = relation_pair if relation_pair else (None, None)
 
         evidence_text = "; ".join(entity.span.text for entity in relevant)
@@ -126,20 +130,31 @@ def _single_value(values: set, label: str):
     return next(iter(values), None)
 
 
+def _span(source: str, match: re.Match[str]) -> SourceSpan:
+    start = match.start()
+    end = match.end()
+    while start < end and source[start].isspace():
+        start += 1
+    while end > start and source[end - 1].isspace():
+        end -= 1
+    return SourceSpan(start, end, source[start:end])
+
+
 _CLOCK = r"(?P<hour>\d{1,2})(?:(?::|\.)(?P<minute>\d{2}))?"
 _RANGE = re.compile(
-    rf"\bс\s+"
+    rf"\b(?:с\s+)?"
     rf"(?P<sh>\d{{1,2}})(?:(?::|\.)(?P<sm>\d{{2}}))?\s*"
     rf"(?:час(?:а|ов)?|ч)?\s*(?P<sp>утра|дня|вечера|ночи)?\s+"
     rf"до\s+"
     rf"(?P<eh>\d{{1,2}})(?:(?::|\.)(?P<em>\d{{2}}))?\s*"
-    rf"(?:час(?:а|ов)?|ч)?\s*(?P<ep>утра|дня|вечера|ночи)?\b",
+    rf"(?:час(?:а|ов)?|ч)?\s*(?P<ep>утра|дня|вечера|ночи)?"
+    rf"(?=\s|[,.;!?]|$)",
     re.IGNORECASE,
 )
 _CLOCK = re.compile(
     rf"\b(?:в|к)\s+{_CLOCK}\s*"
     rf"(?:час(?:а|ов)?|ч)?\s*(?P<part>утра|дня|вечера|ночи)?"
-    rf"(?!\s+(?:день|дня|дней|раз|раза|час|часа|часов|минут|минуты|минуту)\b)\b",
+    rf"(?=\s|[,.;!?]|$)",
     re.IGNORECASE,
 )
 _DATE = re.compile(r"\b(послезавтра|завтра|сегодня)\b", re.IGNORECASE)
@@ -152,6 +167,7 @@ _RELATION = re.compile(
     r"(завтрака|завтраком|завтрак|обеда|обедом|обед|ужина|ужином|ужин)\b",
     re.IGNORECASE,
 )
+
 _RELATIONS = {
     "завтрака": "breakfast",
     "завтраком": "breakfast",
@@ -193,14 +209,6 @@ def _minute(hour: str, minute: str | None, part: str | None) -> int:
     return value
 
 
-def _span(source: str, match: re.Match[str]) -> SourceSpan:
-    return SourceSpan(match.start(), match.end(), source[match.start():match.end()])
-
-
-def _entity_overlaps(entity: ExplicitEntity, spans: list[SourceSpan]) -> bool:
-    return any(entity.span.overlaps(span) for span in spans)
-
-
 def recognize_intent_evidence(source_text: str, *, today: date) -> IntentEvidence:
     source = source_text.strip()
     if not source:
@@ -209,7 +217,9 @@ def recognize_intent_evidence(source_text: str, *, today: date) -> IntentEvidenc
     entities: list[ExplicitEntity] = []
 
     for match in _DATE.finditer(source):
-        offset = {"сегодня": 0, "завтра": 1, "послезавтра": 2}[match.group(1).casefold()]
+        offset = {"сегодня": 0, "завтра": 1, "послезавтра": 2}[
+            match.group(1).casefold()
+        ]
         entities.append(
             ExplicitEntity(
                 kind=EvidenceKind.DATE,
@@ -241,9 +251,7 @@ def recognize_intent_evidence(source_text: str, *, today: date) -> IntentEvidenc
 
     for match in _CLOCK.finditer(source):
         span = _span(source, match)
-        if _entity_overlaps(
-            ExplicitEntity(EvidenceKind.TIME, span), range_spans
-        ):
+        if any(span.overlaps(range_span) for range_span in range_spans):
             continue
         entities.append(
             ExplicitEntity(
@@ -268,7 +276,11 @@ def recognize_intent_evidence(source_text: str, *, today: date) -> IntentEvidenc
         )
 
     for match in _RELATION.finditer(source):
-        relation = "after" if match.group(1).casefold() == "после" else "before"
+        relation = (
+            "after"
+            if match.group(1).casefold() == "после"
+            else "before"
+        )
         entities.append(
             ExplicitEntity(
                 kind=EvidenceKind.RELATION,
