@@ -14,69 +14,19 @@ from voqelis.planner.models import (
     TaskDraft,
     TaskKind,
 )
-from voqelis.planner.parser import parse_voice
 from voqelis.planner.scheduler import Scheduler
+from voqelis.planner.intent_validation import explicit_constraints, validate_task_intents, IntentValidationError
 from voqelis.planner.service import PlannerService
 from voqelis.planner.store import PlannerStore
 
-def test_parser_understands_evening_clock_and_range():
-    config = PlannerConfig(recurring_templates=())
-    single = parse_voice(
-        "завтра в 8 вечера читать книгу для отдыха",
-        today=date(2026, 9, 24),
-        config=config,
-    )[0]
-    assert single.start_minute == 20 * 60
-    assert single.duration_minutes == 60
 
-    ranged = parse_voice(
-        "завтра с 8 вечера до 9 вечера читать книгу",
-        today=date(2026, 9, 24),
-        config=config,
-    )[0]
-    assert ranged.start_minute == 20 * 60
-    assert ranged.end_minute == 21 * 60
-    assert ranged.duration_minutes == 60
+class FixedPlannerAI:
+    def __init__(self, drafts):
+        self.drafts = drafts
 
-
-def test_parser_normalizes_known_whisper_title_alias() -> None:
-    config = PlannerConfig(recurring_templates=())
-
-    drafts = parse_voice(
-        "завтра в 21.00 уже нати для здоровья",
-        today=date(2026, 10, 4),
-        config=config,
-    )
-
-    assert len(drafts) == 1
-    assert drafts[0].title == "ужинать"
-    assert drafts[0].start_minute == 21 * 60
-
-
-@pytest.mark.asyncio
-async def test_stale_planning_session_rolls_to_next_day(tmp_path: Path):
-    store = PlannerStore(tmp_path / "planner.sqlite3")
-    config = PlannerConfig(recurring_templates=())
-    service = PlannerService(store, config)
-
-    stale_day = date(2026, 10, 3)
-    today = date(2026, 10, 4)
-    store.set_active_plan_day(1, stale_day)
-    store.set_session(1, "planning", stale_day, {"draft": "stale"})
-
-    await service.handle_text(1, "завтра читать книгу", today)
-
-    session = store.session(1)
-    assert session is not None
-    assert session["state"] == "planning_why"
-    assert session["target_day"] == "2026-10-05"
-    assert store.active_plan_day(1) == date(2026, 10, 5)
-    payload = store.session_payload(1)
-    assert payload["draft"]["day"] == "2026-10-05"
-    assert payload["draft"]["title"] == "читать книгу"
-
-    store.close()
-
+    async def extract_tasks(self, text, *, today, target_day, config):
+        del text, today, target_day, config
+        return list(self.drafts)
 
 class EmptyPlannerAI:
     async def extract_tasks(self, text, *, today, target_day, config):
@@ -112,137 +62,6 @@ class FailingPlannerAI:
         from voqelis.planner.models import PlannerAIProviderError
 
         raise PlannerAIProviderError("providers unavailable")
-
-
-def test_parser_accepts_bare_hour(tmp_path: Path):
-    config = PlannerConfig(recurring_templates=())
-
-    drafts = parse_voice(
-        "завтра в 21 ужинать",
-        today=date(2026, 10, 4),
-        config=config,
-    )
-
-    assert len(drafts) == 1
-    assert drafts[0].start_minute == 21 * 60
-
-
-def test_parser_does_not_split_dotted_clock(tmp_path: Path):
-    config = PlannerConfig(recurring_templates=())
-
-    drafts = parse_voice(
-        "завтра в 21.00 ужинать",
-        today=date(2026, 10, 4),
-        config=config,
-    )
-
-    assert len(drafts) == 1
-    assert drafts[0].title == "ужинать"
-
-
-def test_parser_normalizes_observed_whisper_dinner_split():
-    config = PlannerConfig(recurring_templates=())
-
-    drafts = parse_voice(
-        "завтра в 21.00 уже нати",
-        today=date(2026, 10, 4),
-        config=config,
-    )
-
-    assert len(drafts) == 1
-    assert drafts[0].title == "ужинать"
-    assert drafts[0].start_minute == 21 * 60
-
-
-def test_parser_accepts_dot_separated_time(tmp_path: Path):
-    config = PlannerConfig(recurring_templates=())
-
-    drafts = parse_voice(
-        "завтра в 21.00 ужинать",
-        today=date(2026, 10, 4),
-        config=config,
-    )
-
-    assert len(drafts) == 1
-    assert drafts[0].start_minute == 21 * 60
-    assert drafts[0].end_minute is None
-    assert drafts[0].duration_minutes == 60
-
-
-
-def test_temporal_guard_keeps_ai_clock_with_explicit_relation(tmp_path: Path):
-    config = PlannerConfig(recurring_templates=())
-    ai_draft = TaskDraft(
-        title="читать книгу",
-        day=date(2026, 10, 5),
-        start_minute=16 * 60,
-        end_minute=None,
-        duration_minutes=90,
-        why="для развития",
-        source_text="завтра после обеда в 16:00 читать книгу для развития",
-    )
-
-    protected = PlannerService._protect_explicit_temporal_constraints(
-        [ai_draft],
-        text="завтра после обеда в 16:00 читать книгу для развития",
-        today=date(2026, 10, 4),
-        config=config,
-    )
-
-    assert protected[0].start_minute == 16 * 60
-    assert protected[0].end_minute is None
-    assert protected[0].duration_minutes == 60
-    assert protected[0].relation == "after"
-    assert protected[0].anchor == "обеда"
-
-
-def test_temporal_guard_normalizes_ai_title_on_count_mismatch():
-    config = PlannerConfig(recurring_templates=())
-    ai_draft = TaskDraft(
-        title="уже нати",
-        day=date(2026, 10, 5),
-        start_minute=21 * 60,
-        duration_minutes=60,
-        source_text="завтра в 21.00 уже нати",
-    )
-
-    protected = PlannerService._protect_explicit_temporal_constraints(
-        [ai_draft],
-        text="завтра в 21.00 уже нати",
-        today=date(2026, 10, 4),
-        config=config,
-    )
-
-    assert protected[0].title == "ужинать"
-    assert protected[0].start_minute == 21 * 60
-
-
-def test_temporal_guard_preserves_ai_time_when_parser_has_no_clock(tmp_path: Path):
-    store = PlannerStore(tmp_path / "planner.sqlite3")
-    config = PlannerConfig(recurring_templates=())
-    ai_draft = TaskDraft(
-        title="ужинать",
-        day=date(2026, 10, 5),
-        start_minute=21 * 60,
-        end_minute=None,
-        duration_minutes=60,
-        why=None,
-        source_text="завтра в 21:00 ужинать",
-    )
-    hints = parse_voice("завтра ужинать", today=date(2026, 10, 4), config=config)
-
-    protected = PlannerService._protect_explicit_temporal_constraints(
-        [ai_draft],
-        text="завтра ужинать",
-        today=date(2026, 10, 4),
-        config=config,
-    )
-
-    assert len(hints) == 1
-    assert hints[0].start_minute is None
-    assert protected[0].start_minute == 21 * 60
-    assert protected[0].duration_minutes == 60
-    store.close()
 
 
 class WrongTemporalPlannerAI:
@@ -328,7 +147,7 @@ async def test_ai_cannot_override_explicit_after_lunch_relation(tmp_path: Path):
 async def test_exact_time_survives_missing_reason_flow(tmp_path: Path):
     store = PlannerStore(tmp_path / "planner.sqlite3")
     config = PlannerConfig(recurring_templates=())
-    service = PlannerService(store, config, ai=None)
+    service = PlannerService(store, config, ai=FixedPlannerAI([TaskDraft("ужинать", date(2026, 10, 2), start_minute=21 * 60, source_text="завтра в 21:00 ужинать", source_excerpt="завтра в 21:00 ужинать")]))
 
     replies = await service.add_from_text(
         1,
@@ -429,62 +248,6 @@ def test_active_day_today_is_preserved_for_review(tmp_path: Path):
     assert active == today
     assert store.active_plan_day(1) == today
     store.close()
-
-
-def test_parser_understands_morning_genitive():
-    draft = parse_voice(
-        "завтра с утра сходить в магазин",
-        today=date(2026, 10, 1),
-        config=PlannerConfig(recurring_templates=()),
-    )[0]
-    assert draft.period == "утра"
-
-
-def test_period_and_duration_extraction():
-    drafts = parse_voice(
-        "Завтра днем с 12 до 15 заниматься проектом",
-        today=date(2026, 9, 22),
-        config=PlannerConfig(),
-    )
-    assert len(drafts) == 1
-    assert drafts[0].start_minute == 12 * 60
-    assert drafts[0].end_minute == 15 * 60
-
-
-def test_parser_supports_natural_daytime_range_without_duration_bug():
-    drafts = parse_voice(
-        "завтра 12 часов дня до 4 дня заниматься своими проектами",
-        today=date(2026, 9, 24),
-        config=PlannerConfig(recurring_templates=()),
-    )
-    assert len(drafts) == 1
-    assert drafts[0].start_minute == 12 * 60
-    assert drafts[0].end_minute == 16 * 60
-    assert drafts[0].duration_minutes == 4 * 60
-    assert drafts[0].title == "заниматься своими проектами"
-
-
-def test_parser_does_not_treat_exact_hour_as_duration():
-    draft = parse_voice(
-        "завтра в 14 часов заниматься проектом",
-        today=date(2026, 9, 24),
-        config=PlannerConfig(recurring_templates=()),
-    )[0]
-    assert draft.start_minute == 14 * 60
-    assert draft.duration_minutes == 60
-
-
-def test_parser_supports_minute_and_mixed_durations():
-    config = PlannerConfig()
-    minute = parse_voice("завтра делать проект 90 минут", today=date(2026, 9, 22), config=config)[0]
-    mixed = parse_voice("завтра делать проект 1 час 30 минут", today=date(2026, 9, 22), config=config)[0]
-    assert minute.duration_minutes == 90
-    assert mixed.duration_minutes == 90
-
-
-def test_default_duration_is_one_hour():
-    drafts = parse_voice("Завтра делать резюме", today=date(2026, 9, 22), config=PlannerConfig())
-    assert drafts[0].duration_minutes == 60
 
 
 def test_planner_markup_is_absent_without_active_session(tmp_path: Path):
@@ -1380,7 +1143,7 @@ def test_planning_prompts_for_missing_reason_and_reuses_previous_reason(tmp_path
     store = PlannerStore(tmp_path / "planner.sqlite3")
     day = date(2026, 9, 23)
     config = PlannerConfig(recurring_templates=())
-    service = PlannerService(store, config, ai=None)
+    service = PlannerService(store, config, ai=FixedPlannerAI([TaskDraft("Позвонить клиенту", day + timedelta(days=1), source_text="завтра позвонить клиенту", source_excerpt="завтра позвонить клиенту")]))
 
     store.add_item(
         PlanItem(
@@ -1398,6 +1161,7 @@ def test_planning_prompts_for_missing_reason_and_reuses_previous_reason(tmp_path
     item = store.plan_items(1, day + timedelta(days=1))[-1]
     assert item.why == "Чтобы закрыть вопрос"
 
+    service.ai = FixedPlannerAI([TaskDraft("проверить почту", day + timedelta(days=1), source_text="завтра проверить почту", source_excerpt="завтра проверить почту")])
     replies = asyncio.run(service.add_from_text(1, "завтра проверить почту", day))
     assert "не указана причина" in replies[0]
     assert store.session(1)["state"] == "planning_why"
