@@ -201,6 +201,7 @@ def test_cloudflare_normalizes_equal_start_end_without_explicit_duration():
         "tasks": [
             {
                 "title": "подготовка ко сну",
+                "source_excerpt": "test excerpt",
                 "day": "2026-10-02",
                 "start_time": "00:00",
                 "end_time": "00:00",
@@ -255,6 +256,7 @@ async def test_cloudflare_structured_output_is_parsed_without_network():
             "response": {
                 "tasks": [{
                     "title": "позвонить в сервис",
+                    "source_excerpt": "test excerpt",
                     "day": "2026-10-02",
                     "start_time": "14:00",
                     "end_time": None,
