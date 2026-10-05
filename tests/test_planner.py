@@ -28,6 +28,73 @@ class FixedPlannerAI:
         del text, today, target_day, config
         return list(self.drafts)
 
+def test_explicit_constraints_capture_clock_range_period_and_relation():
+    config = PlannerConfig(recurring_templates=())
+    facts = explicit_constraints(
+        "завтра после обеда в 16.00 читать книгу",
+        today=date(2026, 10, 4),
+        config=config,
+    )
+    assert facts.day == date(2026, 10, 5)
+    assert facts.start_minute == 16 * 60
+    assert facts.relation == "after"
+    assert facts.anchor == "lunch"
+
+
+def test_intent_validation_rejects_ai_time_not_supported_by_source():
+    config = PlannerConfig(recurring_templates=())
+    draft = TaskDraft(
+        "ужинать",
+        date(2026, 10, 5),
+        start_minute=14 * 60,
+        source_text="завтра в 21.00 ужинать",
+        source_excerpt="завтра в 21.00 ужинать",
+    )
+    with pytest.raises(IntentValidationError):
+        validate_task_intents(
+            [draft],
+            source_text=draft.source_text,
+            today=date(2026, 10, 4),
+            config=config,
+        )
+
+
+def test_intent_validation_accepts_ai_result_with_explicit_source_evidence():
+    config = PlannerConfig(recurring_templates=())
+    draft = TaskDraft(
+        "ужинать",
+        date(2026, 10, 5),
+        start_minute=21 * 60,
+        duration_minutes=60,
+        source_text="завтра в 21.00 ужинать",
+        source_excerpt="завтра в 21.00 ужинать",
+    )
+    validate_task_intents(
+        [draft],
+        source_text=draft.source_text,
+        today=date(2026, 10, 4),
+        config=config,
+    )
+
+
+def test_intent_validation_requires_distinct_source_for_multiple_tasks():
+    config = PlannerConfig(recurring_templates=())
+    text = "завтра утром зарядка и вечером прогулка"
+    drafts = [
+        TaskDraft("зарядка", date(2026, 10, 5), source_text=text, source_excerpt="завтра утром зарядка"),
+        TaskDraft("прогулка", date(2026, 10, 5), source_text=text, source_excerpt="завтра вечером прогулка"),
+    ]
+    validate_task_intents(drafts, source_text=text, today=date(2026, 10, 4), config=config)
+
+
+def test_planner_refuses_semantic_extraction_without_ai(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    service = PlannerService(store, PlannerConfig(recurring_templates=()), ai=None)
+    replies = asyncio.run(service.add_from_text(1, "завтра в 21.00 ужинать", date(2026, 10, 4)))
+    assert "Не удалось разобрать задачу" in replies[0]
+    assert store.plan_items(1, date(2026, 10, 5)) == []
+    store.close()
+
 class EmptyPlannerAI:
     async def extract_tasks(self, text, *, today, target_day, config):
         del text, today, target_day, config
