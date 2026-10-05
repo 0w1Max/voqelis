@@ -17,6 +17,7 @@ from .models import (
     ConflictProposal,
     PlanItem,
     PlannerAIError,
+    PlannerAIUnavailable,
     ScheduleMove,
     ScheduleValidationError,
     TaskDraft,
