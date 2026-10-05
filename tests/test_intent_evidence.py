@@ -9,7 +9,7 @@ from voqelis.planner.evidence import (
     locate_source_span,
     recognize_intent_evidence,
 )
-from voqelis.planner.intent_validation import IntentValidationError, validate_task_intents
+from voqelis.planner.intent_validation import (\n    IntentValidationError,\n    validate_task_intents,\n)
 from voqelis.planner.models import TaskDraft
 
 
@@ -26,7 +26,7 @@ def test_recognizer_returns_canonical_entities_with_source_spans():
     assert time_entity.span.text == "в 21.00"
 
 
-def test_clock_meridiem_is_normalized_without_becoming_a_period_constraint():
+def test_span_offsets_reference_original_source_without_losing_leading_spaces():\n    text = '  завтра в 21:00 ужинать'\n    evidence = recognize_intent_evidence(text, today=date(2026, 10, 4))\n\n    date_entity, time_entity = evidence.entities\n\n    assert text[date_entity.span.start:date_entity.span.end] == 'завтра'\n    assert text[time_entity.span.start:time_entity.span.end] == 'в 21:00'\n\n\ndef test_clock_meridiem_is_normalized_without_becoming_a_period_constraint():
     text = "завтра в 8 утра отжаться"
     evidence = recognize_intent_evidence(text, today=date(2026, 10, 4))
 
