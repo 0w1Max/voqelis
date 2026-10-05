@@ -210,9 +210,9 @@ def _minute(hour: str, minute: str | None, part: str | None) -> int:
 
 
 def recognize_intent_evidence(source_text: str, *, today: date) -> IntentEvidence:
-    source = source_text.strip()
-    if not source:
+    if not source_text.strip():
         return IntentEvidence(source_text=source_text, entities=())
+    source = source_text
 
     entities: list[ExplicitEntity] = []
 
