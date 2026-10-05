@@ -10,6 +10,7 @@ from .render import _rows_for_plan
 from .scheduler import fmt_time
 from .store import PlannerStore
 
+
 def _actual_text(review) -> str:
     if not review:
         return ""
