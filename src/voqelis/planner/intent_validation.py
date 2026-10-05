@@ -28,8 +28,6 @@ def _validate_task_span_overlaps(spans: list[SourceSpan]) -> None:
 def _validate_entity_coverage(
     evidence: IntentEvidence,
     spans: list[SourceSpan],
-    *,
-    allow_shared_date: bool,
 ) -> None:
     date_values = {
         entity.day
@@ -41,10 +39,65 @@ def _validate_entity_coverage(
         covered = any(entity.span.overlaps(span) for span in spans)
         if covered:
             continue
-        if allow_shared_date and entity.day is not None and len(date_values) == 1:
+
+        # A single explicit date may be shared by several tasks. Other
+        # constraints (time, range, period, relation) must be bound by the
+        # task's own source span.
+        if entity.day is not None and len(date_values) == 1:
             continue
+
         raise IntentValidationError(
             "Явное ограничение в исходном тексте не связано ни с одной задачей."
+        )
+
+
+def _validate_intent(
+    intent,
+    *,
+    facts: TaskEvidence,
+) -> None:
+    if facts.day is not None and intent.day != facts.day:
+        raise IntentValidationError(
+            f"Модель изменила явную дату {facts.day.isoformat()}."
+        )
+
+    if facts.start_minute is not None and intent.start_minute != facts.start_minute:
+        raise IntentValidationError(
+            f"Модель изменила явное время {facts.start_minute}."
+        )
+
+    if facts.end_minute is not None and intent.end_minute != facts.end_minute:
+        raise IntentValidationError(
+            f"Модель изменила явный конец диапазона {facts.end_minute}."
+        )
+
+    if facts.period is not None and intent.period != facts.period:
+        raise IntentValidationError(
+            f"Модель изменила явный период {facts.period}."
+        )
+
+    if facts.relation is not None:
+        if intent.relation != facts.relation or intent.anchor != facts.anchor:
+            raise IntentValidationError(
+                "Модель изменила явное отношение к приёму пищи."
+            )
+    elif intent.relation is not None or intent.anchor is not None:
+        raise IntentValidationError(
+            "Модель добавила отношение к приёму пищи, которого нет в источнике."
+        )
+
+    if (
+        facts.start_minute is None
+        and facts.end_minute is None
+        and intent.start_minute is not None
+    ):
+        raise IntentValidationError(
+            "Модель придумала точное время, которого нет в источнике."
+        )
+
+    if facts.period is None and intent.period is not None:
+        raise IntentValidationError(
+            "Модель придумала период суток, которого нет в источнике."
         )
 
 
@@ -56,6 +109,7 @@ def validate_task_intents(
     evidence: IntentEvidence | None = None,
     config=None,
 ) -> None:
+    """Validate AI task drafts against independently recognized source evidence."""
     del config
     if not intents:
         return
@@ -66,7 +120,7 @@ def validate_task_intents(
         except EvidenceRecognitionError as exc:
             raise IntentValidationError(str(exc)) from exc
 
-    spans: list[SourceSpan] = []
+    task_spans: list[SourceSpan] = []
     for intent in intents:
         excerpt = (intent.source_excerpt or "").strip()
         if not excerpt:
@@ -77,67 +131,32 @@ def validate_task_intents(
             excerpt = source_text.strip()
 
         try:
-            span = locate_source_span(source_text, excerpt)
+            task_spans.append(locate_source_span(source_text, excerpt))
         except EvidenceRecognitionError as exc:
             raise IntentValidationError(str(exc)) from exc
-        spans.append(span)
 
-    _validate_task_span_overlaps(spans)
-    _validate_entity_coverage(
-        evidence,
-        spans,
-        allow_shared_date=len(spans) > 1,
-    )
+    _validate_task_span_overlaps(task_spans)
 
-    for intent, span in zip(intents, spans):
+    # Single-task input is explicitly authoritative: when the model identifies
+    # only one task, every explicit source constraint belongs to that task.
+    # This is intentionally different from multi-task inputs, where non-date
+    # constraints must be tied to their own source spans.
+    if len(task_spans) == 1:
+        authoritative_span = SourceSpan(0, len(source_text), source_text)
+        _validate_entity_coverage(evidence, [authoritative_span])
+        facts_by_task = [evidence.for_task(authoritative_span)]
+    else:
+        _validate_entity_coverage(evidence, task_spans)
+        facts_by_task = [
+            evidence.for_task(span)
+            for span in task_spans
+        ]
+
+    for intent, facts in zip(intents, facts_by_task):
         try:
-            facts = evidence.for_task(span)
+            _validate_intent(intent, facts=facts)
         except EvidenceRecognitionError as exc:
             raise IntentValidationError(str(exc)) from exc
-
-        if facts.day is not None and intent.day != facts.day:
-            raise IntentValidationError(
-                f"Модель изменила явную дату {facts.day.isoformat()}."
-            )
-
-        if facts.start_minute is not None and intent.start_minute != facts.start_minute:
-            raise IntentValidationError(
-                f"Модель изменила явное время {facts.start_minute}."
-            )
-
-        if facts.end_minute is not None and intent.end_minute != facts.end_minute:
-            raise IntentValidationError(
-                f"Модель изменила явный конец диапазона {facts.end_minute}."
-            )
-
-        if facts.period is not None and intent.period != facts.period:
-            raise IntentValidationError(
-                f"Модель изменила явный период {facts.period}."
-            )
-
-        if facts.relation is not None:
-            if intent.relation != facts.relation or intent.anchor != facts.anchor:
-                raise IntentValidationError(
-                    "Модель изменила явное отношение к приёму пищи."
-                )
-        elif intent.relation is not None or intent.anchor is not None:
-            raise IntentValidationError(
-                "Модель добавила отношение к приёму пищи, которого нет в источнике."
-            )
-
-        if (
-            facts.start_minute is None
-            and facts.end_minute is None
-            and intent.start_minute is not None
-        ):
-            raise IntentValidationError(
-                "Модель придумала точное время, которого нет в источнике."
-            )
-
-        if facts.period is None and intent.period is not None:
-            raise IntentValidationError(
-                "Модель придумала период суток, которого нет в источнике."
-            )
 
 
 def explicit_constraints(
