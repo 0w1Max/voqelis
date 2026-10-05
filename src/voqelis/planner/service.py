@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 from dataclasses import asdict, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -12,6 +11,7 @@ from zoneinfo import ZoneInfo
 from .ai import PlannerAI
 from .config import PlannerConfig
 from .export import build_docx, build_pdf
+from .intent_validation import IntentValidationError, validate_task_intents
 from .models import (
     Conflict,
     ConflictProposal,
@@ -23,7 +23,6 @@ from .models import (
     TaskDraft,
     TaskKind,
 )
-from .intent_validation import IntentValidationError, validate_task_intents
 from .render import render_full_review_proposal, render_plan_text, render_review_prompt
 from .scheduler import Scheduler, fmt_time
 from .store import PlannerStore
