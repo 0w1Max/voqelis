@@ -7,7 +7,7 @@ import time
 from faster_whisper import WhisperModel
 
 from .config import Settings
-from .domain import TranscriptionResult
+from .domain import TranscriptSegment, TranscriptionResult
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,7 @@ class Transcriber:
             vad_parameters={
                 "min_silence_duration_ms": self.settings.vad_min_silence_ms,
             },
-            without_timestamps=True,
+            without_timestamps=False,
             word_timestamps=False,
         )
 
@@ -81,6 +81,18 @@ class Transcriber:
         pause_aware_text = " ".join(pause_parts).replace(" ,", ",").strip()
         elapsed = time.monotonic() - started
 
+        transcript_segments = tuple(
+            TranscriptSegment(
+                text=segment.text.strip(),
+                start_seconds=float(segment.start),
+                end_seconds=float(segment.end),
+                average_logprob=float(segment.avg_logprob),
+                no_speech_probability=float(segment.no_speech_prob),
+            )
+            for segment in segment_list
+            if segment.text.strip()
+        )
+
         return TranscriptionResult(
             text=text,
             language=info.language or self.settings.language or "unknown",
@@ -89,6 +101,7 @@ class Transcriber:
             duration_after_vad_seconds=float(info.duration_after_vad),
             processing_seconds=elapsed,
             pause_aware_text=pause_aware_text,
+            segments=transcript_segments,
         )
 
     async def transcribe(self, audio_path: str) -> TranscriptionResult:
