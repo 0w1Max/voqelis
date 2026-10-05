@@ -423,7 +423,7 @@ async def test_gemini_interactions_response_is_parsed():
             "type": "model_output",
             "content": [{
                 "type": "text",
-                "text": "{\"tasks\":[{\"title\":\"сходить в магазин\",\"day\":\"2026-09-26\",\"start_time\":\"20:00\",\"end_time\":null,\"duration_minutes\":60,\"period\":null,\"preferred_time\":null,\"relation\":null,\"anchor\":null,\"why\":\"купить продукты\",\"urgent\":false}]}"
+                "text": "{\"tasks\":[{\"title\":\"сходить в магазин\",\"source_excerpt\":\"завтра в 8 вечера сходить в магазин\",\"day\":\"2026-09-26\",\"start_time\":\"20:00\",\"end_time\":null,\"duration_minutes\":60,\"period\":null,\"preferred_time\":null,\"relation\":null,\"anchor\":null,\"why\":\"купить продукты\",\"urgent\":false}]}"
             }]
         }],
     }
