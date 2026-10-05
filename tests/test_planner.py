@@ -85,8 +85,20 @@ def test_intent_validation_requires_distinct_source_for_multiple_tasks():
     config = PlannerConfig(recurring_templates=())
     text = "завтра утром зарядка и вечером прогулка"
     drafts = [
-        TaskDraft("зарядка", date(2026, 10, 5), source_text=text, source_excerpt="завтра утром зарядка"),
-        TaskDraft("прогулка", date(2026, 10, 5), source_text=text, source_excerpt="завтра вечером прогулка"),
+        TaskDraft(
+            "зарядка",
+            date(2026, 10, 5),
+            period="morning",
+            source_text=text,
+            source_excerpt="завтра утром зарядка",
+        ),
+        TaskDraft(
+            "прогулка",
+            date(2026, 10, 5),
+            period="evening",
+            source_text=text,
+            source_excerpt="завтра вечером прогулка",
+        ),
     ]
     validate_task_intents(drafts, source_text=text, today=date(2026, 10, 4), config=config)
 
