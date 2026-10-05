@@ -15,7 +15,11 @@ from voqelis.planner.models import (
     TaskKind,
 )
 from voqelis.planner.scheduler import Scheduler
-from voqelis.planner.intent_validation import (\n    IntentValidationError,\n    explicit_constraints,\n    validate_task_intents,\n)
+from voqelis.planner.intent_validation import (
+    IntentValidationError,
+    explicit_constraints,
+    validate_task_intents,
+)
 from voqelis.planner.service import PlannerService
 from voqelis.planner.store import PlannerStore
 
