@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from itertools import pairwise
+
 from .evidence import (
     EvidenceRecognitionError,
     IntentEvidence,
@@ -16,7 +18,7 @@ class IntentValidationError(ValueError):
 
 def _validate_task_span_overlaps(spans: list[SourceSpan]) -> None:
     ordered = sorted(spans, key=lambda span: (span.start, span.end))
-    for previous, current in zip(ordered, ordered[1:]):
+    for previous, current in pairwise(ordered):
         if previous.overlaps(current):
             raise IntentValidationError(
                 "Источники нескольких задач перекрываются."
@@ -83,7 +85,7 @@ def validate_task_intents(
 
     for intent, span in zip(intents, spans):
         try:
-            facts = evidence.for_task(span, task_count=len(intents))
+            facts = evidence.for_task(span)
         except EvidenceRecognitionError as exc:
             raise IntentValidationError(str(exc)) from exc
 
@@ -143,6 +145,6 @@ def explicit_constraints(
     try:
         evidence = recognize_intent_evidence(text, today=today)
         span = SourceSpan(0, len(text), text)
-        return evidence.for_task(span, task_count=1)
+        return evidence.for_task(span)
     except EvidenceRecognitionError as exc:
         raise IntentValidationError(str(exc)) from exc
