@@ -610,19 +610,15 @@ async def main_async(args: argparse.Namespace) -> None:
                 "repeat": args.repeat,
                 "providers": {
                     name: (
-                        {"provider": "Local parser", "model": None}
-                        if name == "local"
-                        else (
-                            {
-                                "provider": provider.provider_name,
-                                "model": provider.model,
-                            }
-                            if name != "cloudflare"
-                            else {
-                                "provider": "Cloudflare",
-                                "model": provider["model"],
-                            }
-                        )
+                        {
+                            "provider": provider.provider_name,
+                            "model": provider.model,
+                        }
+                        if name != "cloudflare"
+                        else {
+                            "provider": "Cloudflare",
+                            "model": provider["model"],
+                        }
                     )
                     for name, provider in providers.items()
                 },
