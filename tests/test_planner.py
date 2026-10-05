@@ -308,7 +308,7 @@ def test_conflict_is_not_auto_rescheduled(tmp_path: Path):
     day = date(2026, 9, 23)
     store.ensure_daily_plan(1, day)
     scheduler = Scheduler(store, PlannerConfig())
-    draft = parse_voice("завтра в 10 делать резюме", today=date(2026, 9, 22), config=PlannerConfig())[0]
+    draft = TaskDraft("делать резюме", date(2026, 9, 23), start_minute=10 * 60)
     result = scheduler.schedule(1, draft)
     assert isinstance(result, Conflict)
     assert result.proposal.conflicts[0].kind == TaskKind.RECURRING
@@ -320,7 +320,7 @@ def test_exact_range_can_be_scheduled_when_free(tmp_path: Path):
     day = date(2026, 9, 23)
     store.ensure_daily_plan(1, day)
     scheduler = Scheduler(store, PlannerConfig())
-    draft = parse_voice("завтра с 12 до 13 заниматься проектом", today=date(2026, 9, 22), config=PlannerConfig())[0]
+    draft = TaskDraft("заниматься проектом", date(2026, 9, 23), start_minute=12 * 60, end_minute=13 * 60)
     result = scheduler.schedule(1, draft)
     assert not isinstance(result, Conflict)
     assert result.start_minute == 12 * 60
