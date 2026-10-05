@@ -22,7 +22,7 @@ from .models import (
     TaskDraft,
     TaskKind,
 )
-from .parser import normalize_asr_title, parse_voice
+from .intent_validation import IntentValidationError, validate_task_intents
 from .render import render_full_review_proposal, render_plan_text, render_review_prompt
 from .scheduler import Scheduler, fmt_time
 from .store import PlannerStore
@@ -105,136 +105,50 @@ class PlannerService:
 
 
     @staticmethod
-    def _protect_explicit_temporal_constraints(
+    def _validate_extracted_intents(
         drafts: list[TaskDraft],
         *,
         text: str,
         today: date,
         config: PlannerConfig,
     ) -> list[TaskDraft]:
-        """Make explicit temporal constraints authoritative over AI output."""
-        hints = parse_voice(text, today=today, config=config)
-        normalized_drafts = [
-            replace(draft, title=normalize_asr_title(draft.title))
-            for draft in drafts
-        ]
-        if not hints or len(hints) != len(drafts):
-            logger.warning(
-                "PLANNER_TEMPORAL_GUARD_MISMATCH ai_tasks=%s deterministic_tasks=%s",
-                len(drafts),
-                len(hints),
+        """Validate AI semantics against explicit evidence in the source text."""
+        try:
+            validate_task_intents(
+                drafts,
+                source_text=text,
+                today=today,
+                config=config,
             )
-            return hints or normalized_drafts
-
-        protected: list[TaskDraft] = []
-        for draft, hint in zip(drafts, hints):
-            explicit_date = bool(
-                re.search(
-                    r"\b(?:сегодня|завтра|послезавтра)\b",
-                    hint.source_text,
-                    re.IGNORECASE,
-                )
-            )
-            has_explicit_clock = hint.start_minute is not None
-            has_explicit_period = hint.period is not None
-            has_explicit_preference = hint.preferred_minute is not None
-            has_explicit_relation = hint.relation is not None or hint.anchor is not None
-
-            duration = hint.duration_minutes
-
-            temporal_fields = {"duration_minutes": duration}
-            if has_explicit_clock:
-                temporal_fields.update(
-                    start_minute=hint.start_minute,
-                    end_minute=hint.end_minute,
-                )
-            elif has_explicit_period:
-                temporal_fields.update(
-                    start_minute=None,
-                    end_minute=None,
-                    period=hint.period,
-                )
-            if has_explicit_preference:
-                temporal_fields["preferred_minute"] = hint.preferred_minute
-            if has_explicit_relation:
-                temporal_fields.update(
-                    relation=hint.relation,
-                    anchor=hint.anchor,
-                )
-                if not has_explicit_clock:
-                    temporal_fields.update(
-                        start_minute=None,
-                        end_minute=None,
-                    )
-
-            protected_draft = replace(
-                draft,
-                title=normalize_asr_title(draft.title),
-                day=hint.day if explicit_date else draft.day,
-                **temporal_fields,
-            )
-            if (
-                draft.start_minute != protected_draft.start_minute
-                or draft.end_minute != protected_draft.end_minute
-                or draft.duration_minutes != protected_draft.duration_minutes
-                or draft.period != protected_draft.period
-                or draft.preferred_minute != protected_draft.preferred_minute
-                or draft.relation != protected_draft.relation
-                or draft.anchor != protected_draft.anchor
-            ):
-                logger.info(
-                    "PLANNER_TEMPORAL_GUARD_OVERRIDE provider=%s "
-                    "ai_start=%s ai_end=%s ai_duration=%s ai_period=%s ai_preferred=%s "
-                    "ai_relation=%s ai_anchor=%s deterministic_start=%s "
-                    "deterministic_end=%s deterministic_duration=%s deterministic_period=%s "
-                    "deterministic_preferred=%s deterministic_relation=%s deterministic_anchor=%s",
-                    "service",
-                    draft.start_minute,
-                    draft.end_minute,
-                    draft.duration_minutes,
-                    draft.period,
-                    draft.preferred_minute,
-                    draft.relation,
-                    draft.anchor,
-                    protected_draft.start_minute,
-                    protected_draft.end_minute,
-                    protected_draft.duration_minutes,
-                    protected_draft.period,
-                    protected_draft.preferred_minute,
-                    protected_draft.relation,
-                    protected_draft.anchor,
-                )
-            protected.append(protected_draft)
-        return protected
+        except IntentValidationError as exc:
+            logger.warning("PLANNER_INTENT_VALIDATION_FAILED reason=%s", exc)
+            raise PlannerAIError(str(exc)) from exc
+        return drafts
 
     async def _extract(self, text: str, user_id: int, today: date) -> list[TaskDraft]:
         session = self.store.session(user_id)
-        target = date.fromisoformat(session["target_day"]) if session and session["target_day"] else today + timedelta(days=1)
-        if self.ai is not None:
-            try:
-                drafts = await self.ai.extract_tasks(
-                    text, today=today, target_day=target, config=self.config
-                )
-                drafts = self._protect_explicit_temporal_constraints(
-                    drafts, text=text, today=today, config=self.config
-                )
-            except (PlannerAIError, ValueError, TypeError) as exc:
-                logger.warning(
-                    "PLANNER_AI_LOCAL_FALLBACK reason=%s",
-                    exc,
-                )
-                drafts = parse_voice(text, today=today, config=self.config)
-        else:
-            # Explicit fallback remains available to unit tests/local development.
-            drafts = parse_voice(text, today=today, config=self.config)
-        if self.log_content:
-            logger.info(
-                "PLANNER_DRAFTS user=%s drafts=%r",
-                user_id,
-                [asdict(draft) for draft in drafts],
+        target = (
+            date.fromisoformat(session["target_day"])
+            if session and session["target_day"]
+            else today + timedelta(days=1)
+        )
+        if self.ai is None:
+            raise PlannerAIUnavailable(
+                "Planner AI is not configured; semantic extraction is unavailable."
             )
-        return drafts
 
+        drafts = await self.ai.extract_tasks(
+            text,
+            today=today,
+            target_day=target,
+            config=self.config,
+        )
+        return self._validate_extracted_intents(
+            drafts,
+            text=text,
+            today=today,
+            config=self.config,
+        )
     @staticmethod
     def _proposal_payload(proposal: Conflict, pending: list[TaskDraft]) -> dict:
         p = proposal.proposal
@@ -263,6 +177,7 @@ class PlannerService:
             preferred_minute=data.get("preferred_minute"), relation=data.get("relation"),
             anchor=data.get("anchor"), why=data.get("why"), urgent=bool(data.get("urgent")),
             source_text=data.get("source_text", ""),
+            source_excerpt=data.get("source_excerpt"),
         )
 
     def _conflict_text(self, conflict: Conflict) -> str:
