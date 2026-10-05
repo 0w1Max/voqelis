@@ -44,6 +44,7 @@ class TaskDraft:
     why: str | None = None
     urgent: bool = False
     source_text: str = ""
+    source_excerpt: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
