@@ -7,6 +7,11 @@ import pytest
 
 from voqelis.planner.config import PlannerConfig, RecurringTemplateSpec
 from voqelis.planner.export import build_docx, build_pdf
+from voqelis.planner.intent_validation import (
+    IntentValidationError,
+    explicit_constraints,
+    validate_task_intents,
+)
 from voqelis.planner.models import (
     Conflict,
     PlanItem,
@@ -15,11 +20,6 @@ from voqelis.planner.models import (
     TaskKind,
 )
 from voqelis.planner.scheduler import Scheduler
-from voqelis.planner.intent_validation import (
-    IntentValidationError,
-    explicit_constraints,
-    validate_task_intents,
-)
 from voqelis.planner.service import PlannerService
 from voqelis.planner.store import PlannerStore
 
