@@ -60,16 +60,27 @@ def test_recognizer_captures_range_period_and_relation():
         and entity.end_minute == 14 * 60
         for entity in evidence.entities
     )
-    assert any(
-        entity.kind == EvidenceKind.PERIOD and entity.period == "day"
-        for entity in evidence.entities
-    )
+    assert not any(entity.kind == EvidenceKind.PERIOD for entity in evidence.entities)
     assert any(
         entity.kind == EvidenceKind.RELATION
         and entity.relation == "after"
         and entity.anchor == "lunch"
         for entity in evidence.entities
     )
+
+
+def test_explicit_period_is_recognized_independently_from_relations():
+    text = "завтра днём читать книгу"
+    evidence = recognize_intent_evidence(text, today=date(2026, 10, 4))
+
+    periods = [
+        entity
+        for entity in evidence.entities
+        if entity.kind == EvidenceKind.PERIOD
+    ]
+    assert len(periods) == 1
+    assert periods[0].period == "day"
+    assert periods[0].span.text == "днём"
 
 
 def test_recognizer_accepts_hyphenated_time_range():
