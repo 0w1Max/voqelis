@@ -9,7 +9,10 @@ from voqelis.planner.evidence import (
     locate_source_span,
     recognize_intent_evidence,
 )
-from voqelis.planner.intent_validation import IntentValidationError, validate_task_intents
+from voqelis.planner.intent_validation import (
+    IntentValidationError,
+    validate_task_intents,
+)
 from voqelis.planner.models import TaskDraft
 
 
