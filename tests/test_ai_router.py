@@ -344,7 +344,7 @@ async def test_cloudflare_normalizes_zero_length_exact_time():
             "choices": [{
                 "message": {
                     "content": (
-                        '{"tasks":[{"title":"подготовка ко сну","day":"2026-10-02",'
+                        '{"tasks":[{"title":"подготовка ко сну","source_excerpt":"test excerpt","day":"2026-10-02",'
                         '"start_time":"00:00","end_time":"00:00","duration_minutes":null,'
                         '"period":null,"preferred_time":null,"relation":null,'
                         '"anchor":null,"why":null,"urgent":false}]}'
@@ -381,7 +381,7 @@ async def test_groq_structured_output_is_parsed_without_network():
     payload = {
         "choices": [{
             "message": {
-                "content": '{"tasks":[{"title":"сходить в магазин","day":"2026-09-26",'
+                "content": '{"tasks":[{"title":"сходить в магазин","source_excerpt":"test excerpt","day":"2026-09-26",'
                 '"start_time":"20:00:00+03:00","end_time":null,"duration_minutes":60,'
                 '"period":null,"preferred_time":null,"relation":null,"anchor":null,'
                 '"why":"купить продукты","urgent":false}]}'
