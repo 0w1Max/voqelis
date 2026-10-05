@@ -1103,39 +1103,3 @@ class AIProviderRouter:
             text,
             items=items,
         )
-
-
-class FallbackPlannerAI:
-    provider_name = "parser"
-
-    def __init__(self, parser):
-        self.parser = parser
-
-    async def extract_tasks(
-        self,
-        text: str,
-        *,
-        today: date,
-        target_day: date,
-        config: PlannerConfig,
-    ) -> list[TaskDraft]:
-        del target_day
-        return self.parser(text, today=today, config=config)
-
-    async def extract_review(
-        self,
-        text: str,
-        *,
-        task_title: str,
-    ) -> tuple[str | None, tuple[str, ...], str | None]:
-        del task_title
-        return text.strip() or None, (), None
-
-    async def extract_full_review(
-        self,
-        text: str,
-        *,
-        items: list[dict],
-    ) -> list[dict]:
-        del text, items
-        return []
