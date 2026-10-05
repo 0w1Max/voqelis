@@ -203,6 +203,8 @@ def _clean_task_title(value: str) -> str:
 
 
 def _validate_task_draft(draft: TaskDraft, *, today: date) -> None:
+    if not draft.source_excerpt or not draft.source_excerpt.strip():
+        raise PlannerAIInvalidResponse("AI returned an empty source excerpt")
     if not draft.title.strip():
         raise PlannerAIInvalidResponse("AI returned an empty task title")
     if not today <= draft.day <= today + timedelta(days=2):
