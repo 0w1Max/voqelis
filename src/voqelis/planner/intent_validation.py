@@ -28,6 +28,8 @@ def _validate_task_span_overlaps(spans: list[SourceSpan]) -> None:
 def _validate_entity_coverage(
     evidence: IntentEvidence,
     spans: list[SourceSpan],
+    *,
+    allow_shared_date: bool,
 ) -> None:
     date_values = {
         entity.day
@@ -39,7 +41,7 @@ def _validate_entity_coverage(
         covered = any(entity.span.overlaps(span) for span in spans)
         if covered:
             continue
-        if entity.day is not None and len(date_values) == 1:
+        if allow_shared_date and entity.day is not None and len(date_values) == 1:
             continue
         raise IntentValidationError(
             "Явное ограничение в исходном тексте не связано ни с одной задачей."
@@ -81,7 +83,11 @@ def validate_task_intents(
         spans.append(span)
 
     _validate_task_span_overlaps(spans)
-    _validate_entity_coverage(evidence, spans)
+    _validate_entity_coverage(
+        evidence,
+        spans,
+        allow_shared_date=len(spans) > 1,
+    )
 
     for intent, span in zip(intents, spans):
         try:
