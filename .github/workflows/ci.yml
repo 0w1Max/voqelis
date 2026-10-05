@@ -23,7 +23,7 @@ jobs:
         run: python -m pip install -r requirements-dev.txt
       - name: Ruff
         run: |
-          python -m ruff check --isolated --fix src tests
+          python -m ruff check --isolated --fix src tests || true
           git diff -- src tests
           python -m ruff check --isolated src tests
       - name: Compile
