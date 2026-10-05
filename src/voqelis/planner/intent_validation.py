@@ -6,16 +6,16 @@ from datetime import date, timedelta
 
 from .config import PlannerConfig
 
-_CLOCK = r"(\\d{1,2})(?:(?::|\\.)(\\d{2}))?"
+_CLOCK = r"(\d{1,2})(?:(?::|\.)(\d{2}))?"
 _CLOCK_CONTEXT = re.compile(
-    rf"\\b(?:в|к)\\s+{_CLOCK}\\s*(?:час(?:а|ов)?|ч)?\\s*"
-    r"(утра|дня|вечера|ночи)?\\b",
+    rf"\b(?:в|к)\s+{_CLOCK}\s*(?:час(?:а|ов)?|ч)?\s*"
+    r"(утра|дня|вечера|ночи)?\b",
     re.IGNORECASE,
 )
 _RANGE = re.compile(
-    rf"\\b(?:с\\s+)?{_CLOCK}\\s*(?:час(?:а|ов)?|ч)?\\s*"
-    r"(утра|дня|вечера|ночи)?\\s*(?:до|-)\\s*"
-    rf"{_CLOCK}\\s*(?:час(?:а|ов)?|ч)?\\s*(утра|дня|вечера|ночи)?\\b",
+    rf"\b(?:с\s+)?{_CLOCK}\s*(?:час(?:а|ов)?|ч)?\s*"
+    r"(утра|дня|вечера|ночи)?\s*(?:до|-)\s*"
+    rf"{_CLOCK}\s*(?:час(?:а|ов)?|ч)?\s*(утра|дня|вечера|ночи)?\b",
     re.IGNORECASE,
 )
 _PERIODS = {
@@ -84,7 +84,7 @@ def explicit_constraints(text: str, *, today: date, config: PlannerConfig) -> Ex
     lowered = source.casefold()
     day = None
     for word, offset in _DATE_WORDS:
-        if re.search(rf"\\b{re.escape(word)}\\b", lowered):
+        if re.search(rf"\b{re.escape(word)}\b", lowered):
             day = today + timedelta(days=offset)
             break
 
@@ -112,14 +112,14 @@ def explicit_constraints(text: str, *, today: date, config: PlannerConfig) -> Ex
     periods = {
         value
         for phrase, value in _PERIODS.items()
-        if re.search(rf"\\b{re.escape(phrase)}\\b", lowered)
+        if re.search(rf"\b{re.escape(phrase)}\b", lowered)
     }
     period = next(iter(periods)) if len(periods) == 1 else None
     if len(periods) > 1:
         raise IntentValidationError("В одном фрагменте обнаружены разные периоды суток.")
 
     relation_match = re.search(
-        r"\\b(после|перед|до)\\s+(завтрака|завтраком|завтрак|обеда|обедом|обед|ужина|ужином|ужин)\\b",
+        r"\b(после|перед|до)\s+(завтрака|завтраком|завтрак|обеда|обедом|обед|ужина|ужином|ужин)\b",
         lowered,
     )
     if relation_match:
