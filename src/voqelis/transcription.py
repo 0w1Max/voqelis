@@ -7,7 +7,7 @@ import time
 from faster_whisper import WhisperModel
 
 from .config import Settings
-from .domain import TranscriptSegment, TranscriptionResult
+from .domain import TranscriptionResult, TranscriptSegment
 
 logger = logging.getLogger(__name__)
 
