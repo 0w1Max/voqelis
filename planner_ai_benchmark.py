@@ -25,6 +25,7 @@ from voqelis.planner.ai import (
     _task_prompt,
 )
 from voqelis.planner.config import PlannerConfig
+from voqelis.planner.intent_validation import IntentValidationError, validate_task_intents
 from voqelis.planner.models import PlannerAIError
 
 TODAY = date(2026, 10, 1)
@@ -433,6 +434,12 @@ async def _run_case(
                 source_text=case.text,
                 today=TODAY,
             )
+            validate_task_intents(
+                tasks,
+                source_text=case.text,
+                today=TODAY,
+                config=CONFIG,
+            )
             return tasks, {
                 "ok": True,
                 "latency_ms": round(latency * 1000, 1),
@@ -447,6 +454,12 @@ async def _run_case(
             config=CONFIG,
         )
         tasks = await asyncio.wait_for(operation, timeout=timeout)
+        validate_task_intents(
+            tasks,
+            source_text=case.text,
+            today=TODAY,
+            config=CONFIG,
+        )
         return tasks, {
             "ok": True,
             "latency_ms": round((time.perf_counter() - started) * 1000, 1),
