@@ -12,6 +12,15 @@ class AudioJob:
 
 
 @dataclass(frozen=True, slots=True)
+class TranscriptSegment:
+    text: str
+    start_seconds: float
+    end_seconds: float
+    average_logprob: float | None = None
+    no_speech_probability: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class TranscriptionResult:
     """Normalized transcription output used by current and future processors."""
 
@@ -22,3 +31,4 @@ class TranscriptionResult:
     duration_after_vad_seconds: float
     processing_seconds: float
     pause_aware_text: str | None = None
+    segments: tuple[TranscriptSegment, ...] = ()
