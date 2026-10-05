@@ -460,7 +460,7 @@ async def test_gemini_retries_transient_503_once():
             "type": "model_output",
             "content": [{
                 "type": "text",
-                "text": "{\"tasks\":[{\"title\":\"читать книгу\",\"day\":\"2026-09-26\",\"start_time\":\"21:00\",\"end_time\":null,\"duration_minutes\":null,\"period\":null,\"preferred_time\":null,\"relation\":null,\"anchor\":null,\"why\":\"для отдыха\",\"urgent\":false}]}"
+                "text": "{\"tasks\":[{\"title\":\"читать книгу\",\"source_excerpt\":\"завтра в 9 вечера читать книгу для отдыха\",\"day\":\"2026-09-26\",\"start_time\":\"21:00\",\"end_time\":null,\"duration_minutes\":null,\"period\":null,\"preferred_time\":null,\"relation\":null,\"anchor\":null,\"why\":\"для отдыха\",\"urgent\":false}]}"
             }]
         }],
     }
