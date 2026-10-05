@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from .ai import PlannerAI
 from .config import PlannerConfig
+from .evidence import EvidenceRecognitionError, recognize_intent_evidence
 from .export import build_docx, build_pdf
 from .intent_validation import IntentValidationError, validate_task_intents
 from .models import (
@@ -112,15 +113,17 @@ class PlannerService:
         today: date,
         config: PlannerConfig,
     ) -> list[TaskDraft]:
-        """Validate AI semantics against explicit evidence in the source text."""
+        """Validate AI semantics against independently recognized source evidence."""
+        del config
         try:
+            evidence = recognize_intent_evidence(text, today=today)
             validate_task_intents(
                 drafts,
                 source_text=text,
                 today=today,
-                config=config,
+                evidence=evidence,
             )
-        except IntentValidationError as exc:
+        except (EvidenceRecognitionError, IntentValidationError) as exc:
             logger.warning("PLANNER_INTENT_VALIDATION_FAILED reason=%s", exc)
             raise PlannerAIError(str(exc)) from exc
         return drafts
