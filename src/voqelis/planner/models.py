@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import date
 from enum import Enum
 
+
 class TaskKind(str, Enum):
     RECURRING = "recurring"
     ORDINARY = "ordinary"
