@@ -88,53 +88,49 @@ def explicit_constraints(text: str, *, today: date, config: PlannerConfig) -> Ex
             day = today + timedelta(days=offset)
             break
 
+    start = end = None
+    evidence_parts: list[str] = []
     range_match = _RANGE.search(source)
     if range_match:
         start = _minute(range_match.group(1), range_match.group(2), range_match.group(3))
         end = _minute(range_match.group(4), range_match.group(5), range_match.group(6))
         if start >= end:
             raise IntentValidationError("Явный временной диапазон некорректен.")
-        return ExplicitConstraints(
-            day=day,
-            start_minute=start,
-            end_minute=end,
-            evidence=range_match.group(0),
-        )
-
-    clock = _CLOCK_CONTEXT.search(source)
-    if clock:
-        return ExplicitConstraints(
-            day=day,
-            start_minute=_minute(clock.group(1), clock.group(2), clock.group(3)),
-            evidence=clock.group(0),
-        )
+        evidence_parts.append(range_match.group(0))
+    else:
+        clock = _CLOCK_CONTEXT.search(source)
+        if clock:
+            start = _minute(clock.group(1), clock.group(2), clock.group(3))
+            evidence_parts.append(clock.group(0))
 
     periods = {
         value
         for phrase, value in _PERIODS.items()
         if re.search(rf"\b{re.escape(phrase)}\b", lowered)
     }
-    period = next(iter(periods)) if len(periods) == 1 else None
     if len(periods) > 1:
         raise IntentValidationError("В одном фрагменте обнаружены разные периоды суток.")
+    period = next(iter(periods), None)
 
     relation_match = re.search(
         r"\b(после|перед|до)\s+(завтрака|завтраком|завтрак|обеда|обедом|обед|ужина|ужином|ужин)\b",
         lowered,
     )
+    relation = anchor = None
     if relation_match:
-        relation_word = relation_match.group(1)
+        relation = "after" if relation_match.group(1) == "после" else "before"
         anchor = _RELATIONS[relation_match.group(2)]
-        return ExplicitConstraints(
-            day=day,
-            period=period,
-            relation="after" if relation_word == "после" else "before",
-            anchor=anchor,
-            evidence=relation_match.group(0),
-        )
+        evidence_parts.append(relation_match.group(0))
 
-    return ExplicitConstraints(day=day, period=period)
-
+    return ExplicitConstraints(
+        day=day,
+        start_minute=start,
+        end_minute=end,
+        period=period,
+        relation=relation,
+        anchor=anchor,
+        evidence="; ".join(evidence_parts),
+    )
 
 def _canonical_source(text: str) -> str:
     return " ".join(text.casefold().split())
