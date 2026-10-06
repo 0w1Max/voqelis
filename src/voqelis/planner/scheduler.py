@@ -184,10 +184,13 @@ class Scheduler:
                 )
             return self.store.get_plan_item(item_id)
 
-        if draft.start_minute is not None:
-            # Exact-time requests keep the requested slot as the primary choice,
-            # but conflicts expose the nearest free hourly slots instead of forcing
-            # the user to invent another time manually.
+        if draft.start_minute is not None and draft.end_minute is not None:
+            # An explicit range is a hard user constraint. Never replace it with
+            # an alternative slot; the conflict must remain visible to the user.
+            alternatives = ()
+        elif draft.start_minute is not None:
+            # An exact start without an explicit end may offer alternative hourly
+            # slots after the user declines the requested time.
             alternatives_pool = [
                 (start, start + duration)
                 for start in range(
