@@ -1009,6 +1009,28 @@ def test_history_uses_persistent_active_plan_day(tmp_path: Path):
     store.close()
 
 
+def test_history_day_actions_preserve_active_plan_day(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    service = PlannerService(store, PlannerConfig(), ai=None)
+    active_day = date(2026, 10, 8)
+    historical_day = date(2026, 10, 2)
+
+    store.set_active_plan_day(1, active_day)
+    store.ensure_daily_plan(1, historical_day, PlannerConfig(recurring_templates=()))
+
+    asyncio.run(service.start_history(1, date(2026, 10, 8)))
+    replies = asyncio.run(service.handle_text(1, "02.10.2026", date(2026, 10, 8)))
+    assert "Исторический план: 02.10.2026" in replies[0]
+    assert store.active_plan_day(1) == active_day
+    assert store.session(1)["state"] == "history_day"
+
+    replies = asyncio.run(service.handle_callback(1, "pl:history:review", date(2026, 10, 8)))
+    assert store.active_plan_day(1) == active_day
+    assert store.session(1)["state"] in {"review_status", "review_final1", "review_final2"}
+    assert "Анализ" in replies[0] or "Выполнено" in replies[0]
+    store.close()
+
+
 def test_active_plan_day_survives_session_clear(tmp_path: Path):
     store = PlannerStore(tmp_path / "planner.sqlite3")
     day = date(2026, 10, 2)
@@ -1056,8 +1078,9 @@ def test_history_preserves_active_plan_day(tmp_path: Path):
 
     assert "Активный план: 02.10.2026" in history
     assert "02.10.2026" in history
-    assert store.session(1)["state"] == "history_select"
+    assert store.session(1)["state"] == "history_day"
     assert store.session(1)["target_day"] == "2026-10-02"
+    assert store.active_plan_day(1) == active_day
     store.close()
 
 
