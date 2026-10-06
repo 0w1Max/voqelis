@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from enum import StrEnum
 
+from .temporal import TemporalKind, TemporalRecognitionError, recognize_temporal_expressions
+
 
 class EvidenceRecognitionError(ValueError):
     """The source contains explicit constraints that cannot be recognized unambiguously."""
@@ -195,22 +197,6 @@ _PERIODS = {
 }
 
 
-def _minute(hour: str, minute: str | None, part: str | None) -> int:
-    hour_value = int(hour)
-    minute_value = int(minute or 0)
-    value = hour_value * 60 + minute_value
-    suffix = (part or "").casefold()
-
-    if suffix in {"дня", "вечера"} and 1 <= hour_value < 12:
-        value += 12 * 60
-    elif suffix == "ночи" and hour_value == 12:
-        value = minute_value
-
-    if not 0 <= value < 24 * 60:
-        raise EvidenceRecognitionError("Временная граница вне суток.")
-    return value
-
-
 def recognize_intent_evidence(source_text: str, *, today: date) -> IntentEvidence:
     if not source_text.strip():
         return IntentEvidence(source_text=source_text, entities=())
@@ -229,50 +215,34 @@ def recognize_intent_evidence(source_text: str, *, today: date) -> IntentEvidenc
             )
         )
 
-    range_spans: list[SourceSpan] = []
-    for match in _RANGE.finditer(source_text):
-        start_minute = _minute(
-            match.group("sh"),
-            match.group("sm"),
-            match.group("sp"),
-        )
-        end_minute = _minute(
-            match.group("eh"),
-            match.group("em"),
-            match.group("ep"),
-        )
-        if start_minute >= end_minute:
-            raise EvidenceRecognitionError(
-                "Явный временной диапазон некорректен."
-            )
+    try:
+        temporal = recognize_temporal_expressions(source_text)
+    except TemporalRecognitionError as exc:
+        raise EvidenceRecognitionError(str(exc)) from exc
 
-        span = _span(source_text, match)
-        range_spans.append(span)
-        entities.append(
-            ExplicitEntity(
-                kind=EvidenceKind.TIME_RANGE,
-                span=span,
-                start_minute=start_minute,
-                end_minute=end_minute,
-            )
+    for expression in temporal:
+        span = SourceSpan(
+            expression.start,
+            expression.end,
+            source_text[expression.start : expression.end],
         )
-
-    for match in _CLOCK.finditer(source_text):
-        span = _span(source_text, match)
-        if any(span.overlaps(range_span) for range_span in range_spans):
-            continue
-
-        entities.append(
-            ExplicitEntity(
-                kind=EvidenceKind.TIME,
-                span=span,
-                start_minute=_minute(
-                    match.group("hour"),
-                    match.group("minute"),
-                    match.group("part"),
-                ),
+        if expression.kind == TemporalKind.TIME_RANGE:
+            entities.append(
+                ExplicitEntity(
+                    kind=EvidenceKind.TIME_RANGE,
+                    span=span,
+                    start_minute=expression.start_minute,
+                    end_minute=expression.end_minute,
+                )
             )
-        )
+        else:
+            entities.append(
+                ExplicitEntity(
+                    kind=EvidenceKind.TIME,
+                    span=span,
+                    start_minute=expression.start_minute,
+                )
+            )
 
     for match in _PERIOD.finditer(source_text):
         key = " ".join(match.group(1).casefold().split())
