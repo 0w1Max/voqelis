@@ -215,7 +215,7 @@ def _validate_task_draft(draft: TaskDraft, *, today: date) -> None:
         raise PlannerAIInvalidResponse("AI returned end_time without start_time")
     if draft.start_minute is not None and not 0 <= draft.start_minute < 24 * 60:
         raise PlannerAIInvalidResponse("AI returned an invalid start time")
-    if draft.end_minute is not None and not 0 <= draft.end_minute <= 24 * 60:
+    if draft.end_minute is not None and not 0 <= draft.end_minute <= 25 * 60:
         raise PlannerAIInvalidResponse("AI returned an invalid end time")
     if (
         draft.start_minute is not None
