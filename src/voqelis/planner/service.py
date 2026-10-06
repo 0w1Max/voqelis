@@ -405,10 +405,17 @@ class PlannerService:
     async def start_review(
         self, user_id: int, day: date, today: date | None = None, *, preserve_active_day: bool = False
     ) -> str:
+        async with self._user_lock(user_id):
+            return await self._start_review(
+                user_id, day, today, preserve_active_day=preserve_active_day
+            )
+
+    async def _start_review(
+        self, user_id: int, day: date, today: date | None = None, *, preserve_active_day: bool = False
+    ) -> str:
         today = today or self._planner_today()
         if day > today:
             return self._future_review_message(day)
-        async with self._user_lock(user_id):
             self.store.ensure_daily_plan(user_id, day, self.config)
             pending_item = next((x for x in self.store.reviews(user_id, day) if x.status is None), None)
             if pending_item:
