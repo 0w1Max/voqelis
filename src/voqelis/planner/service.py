@@ -307,12 +307,18 @@ class PlannerService:
         return self._user_locks.setdefault(user_id, asyncio.Lock())
 
     def _set_review_session(self, user_id: int, state: str, day: date, payload: dict | None = None, *, preserve_active_day: bool = False) -> None:
+        session = self.store.session(user_id)
+        preserve = preserve_active_day or (
+            session is not None
+            and session["state"] == "history_day"
+            and session["target_day"] == day.isoformat()
+        )
         self.store.set_session(
             user_id,
             state,
             day,
             payload,
-            sync_active_day=not preserve_active_day,
+            sync_active_day=not preserve,
         )
 
     async def add_from_text(self, user_id: int, text: str, today: date) -> list[str]:
