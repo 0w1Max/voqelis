@@ -152,6 +152,44 @@ def _span(source: str, match: re.Match[str]) -> SourceSpan:
 
 
 
+_DATE = re.compile(
+    r"\\b(послезавтра|завтра|сегодня)\\b",
+    re.IGNORECASE,
+)
+_PERIOD = re.compile(
+    r"\\b(с\\s+утра|утром|утро|днём|днем|день|вечером|вечер|ночью|ночь)\\b",
+    re.IGNORECASE,
+)
+_RELATION = re.compile(
+    r"\\b(после|перед|до)\\s+"
+    r"(завтрака|завтраком|завтрак|обеда|обедом|обед|ужина|ужином|ужин)\\b",
+    re.IGNORECASE,
+)
+
+_RELATIONS = {
+    "завтрака": "breakfast",
+    "завтраком": "breakfast",
+    "завтрак": "breakfast",
+    "обеда": "lunch",
+    "обедом": "lunch",
+    "обед": "lunch",
+    "ужина": "dinner",
+    "ужином": "dinner",
+    "ужин": "dinner",
+}
+_PERIODS = {
+    "с утра": "morning",
+    "утром": "morning",
+    "утро": "morning",
+    "днём": "day",
+    "днем": "day",
+    "день": "day",
+    "вечером": "evening",
+    "вечер": "evening",
+    "ночью": "night",
+    "ночь": "night",
+}
+
 def recognize_intent_evidence(source_text: str, *, today: date) -> IntentEvidence:
     if not source_text.strip():
         return IntentEvidence(source_text=source_text, entities=())
