@@ -99,7 +99,10 @@ def test_deleted_recurring_item_stays_excluded_after_re_materialization(tmp_path
     assert "Проснуться + молитва + умыться + зарядка" not in after
 
     remaining = store.plan_items(1, day)
-    assert not any(item.recurring_template_id == 14 for item in remaining)
+    assert not any(
+        item.recurring_template_id == deleted.recurring_template_id
+        for item in remaining
+    )
     assert {
         item.title
         for item in remaining
@@ -110,7 +113,7 @@ def test_deleted_recurring_item_stays_excluded_after_re_materialization(tmp_path
     }
     assert store.db.execute(
         "SELECT 1 FROM recurring_exclusions WHERE user_id=? AND day=? AND recurring_template_id=?",
-        (1, day.isoformat(), 14),
+        (1, day.isoformat(), deleted.recurring_template_id),
     ).fetchone() is not None
 
     store.close()
