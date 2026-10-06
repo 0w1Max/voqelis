@@ -286,6 +286,20 @@ def test_temporal_grammar_normalizes_ranges(text, start, end):
     assert expressions[0].end_minute == end
 
 
-def test_temporal_grammar_rejects_implicit_overnight_range():
+@pytest.mark.parametrize(
+    ("text", "start", "end"),
+    [
+        ("с 23 вечера до 1 ночи", 23 * 60, 25 * 60),
+        ("с 11 вечера до 1 ночи", 23 * 60, 25 * 60),
+    ],
+)
+def test_temporal_grammar_accepts_explicit_overnight_ranges(text, start, end):
+    expressions = recognize_temporal_expressions(text)
+    assert len(expressions) == 1
+    assert expressions[0].start_minute == start
+    assert expressions[0].end_minute == end
+
+
+def test_temporal_grammar_rejects_ambiguous_backward_range():
     with pytest.raises(TemporalRecognitionError):
-        recognize_temporal_expressions("с 23 вечера до 1 ночи")
+        recognize_temporal_expressions("с 23 вечера до 1")
