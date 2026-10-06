@@ -644,12 +644,11 @@ class PlannerService:
             self.store.clear_session(user_id)
             return ["Эта задача больше недоступна. Открой «🔎 Анализ сегодня» заново."]
         try:
-            if self.ai is not None:
-                activity, feelings, reason = await self.ai.extract_review(
-                    text, task_title=item.plan_item.title
-                )
-            else:
-                activity, feelings, reason = text.strip(), (), None
+            if self.ai is None:
+                raise PlannerAIUnavailable("Planner AI is not configured; review extraction is unavailable.")
+            activity, feelings, reason = await self.ai.extract_review(
+                text, task_title=item.plan_item.title
+            )
         except PlannerAIError as exc:
             logger.warning(
                 "PLANNER_AI_REVIEW_UNAVAILABLE reason=%s",
@@ -1004,9 +1003,9 @@ class PlannerService:
             items = self.store.plan_items(user_id, selected)
 
         if not items:
-            return [f"🗓 Активный план: {selected.strftime('%d.%m.%Y')}\n\nНа эту дату пока нет сохранённого плана."]
+            return [f"🗓 Исторический план: {selected.strftime('%d.%m.%Y')}\n\nНа эту дату пока нет сохранённого плана."]
         return [
-            f"🗓 Активный план: {selected.strftime('%d.%m.%Y')}\n\n"
+            f"🗓 Исторический план: {selected.strftime('%d.%m.%Y')}\n\n"
             + render_plan_text(selected, items, self.config)
         ]
 
