@@ -4,7 +4,7 @@ import asyncio
 from datetime import date
 
 from voqelis.planner.config import PlannerConfig
-from voqelis.planner.models import TaskDraft
+from voqelis.planner.models import PlanItem, TaskDraft, TaskKind
 from voqelis.planner.service import PlannerService
 from voqelis.planner.store import PlannerStore
 
@@ -81,7 +81,11 @@ def test_deleted_recurring_item_stays_excluded_after_re_materialization(tmp_path
 
     store.set_active_plan_day(1, day)
     initial = store.ensure_daily_plan(1, day, config)
-    deleted = next(item for item in initial if item.recurring_template_id == 14)
+    deleted = next(
+        item
+        for item in initial
+        if item.title == "Проснуться + молитва + умыться + зарядка"
+    )
 
     asyncio.run(service.start_delete_item(1, day))
     index = next(
@@ -96,7 +100,14 @@ def test_deleted_recurring_item_stays_excluded_after_re_materialization(tmp_path
 
     remaining = store.plan_items(1, day)
     assert not any(item.recurring_template_id == 14 for item in remaining)
-    assert {item.recurring_template_id for item in remaining if item.recurring_template_id is not None} == {15, 17}
+    assert {
+        item.title
+        for item in remaining
+        if item.recurring_template_id is not None
+    } == {
+        "Завтрак + душ",
+        "Подготовка ко сну + дневник успеха + благодарность + молитва",
+    }
     assert store.db.execute(
         "SELECT 1 FROM recurring_exclusions WHERE user_id=? AND day=? AND recurring_template_id=?",
         (1, day.isoformat(), 14),
@@ -130,7 +141,19 @@ def test_clear_ordinary_items_does_not_remove_recurring_items(tmp_path):
     result = asyncio.run(service.handle_callback(1, "pl:clear:ordinary", day))
 
     assert "ежедневные задачи сохранены" in result[0]
-    assert [item.recurring_template_id for item in store.plan_items(1, day) if item.kind == TaskKind.RECURRING] == [14, 15, 17]
+    recurring = [
+        item
+        for item in store.plan_items(1, day)
+        if item.kind == TaskKind.RECURRING
+    ]
+    assert len(recurring) == 3
+    assert {
+        item.title for item in recurring
+    } == {
+        "Проснуться + молитва + умыться + зарядка",
+        "Завтрак + душ",
+        "Подготовка ко сну + дневник успеха + благодарность + молитва",
+    }
     assert not any(item.title == "Обычная задача" for item in store.plan_items(1, day))
 
     store.close()
@@ -153,8 +176,12 @@ def test_clear_all_prevents_recurring_materialization_on_reopen(tmp_path):
     assert store.is_day_cleared(1, day)
 
     reopened = asyncio.run(service.show_plan(1, day))
-    assert "нет задач" in reopened.lower()
+    assert "свободно" in reopened.lower()
     assert store.plan_items(1, day) == []
+    assert not any(
+        item.kind == TaskKind.RECURRING
+        for item in store.plan_items(1, day)
+    )
 
     store.close()
 
