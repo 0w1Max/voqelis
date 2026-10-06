@@ -488,8 +488,11 @@ class PlannerService:
                 status = raw.get("status")
                 if item_id not in by_id or status not in {"+", "-", "+-"}:
                     continue
+                reason = raw.get("missed_reason")
+                if status == "-" and not str(reason or "").strip():
+                    continue
                 feelings = tuple(str(x).strip() for x in raw.get("feelings", []) if str(x).strip())
-                proposal.append((item_id, status, raw.get("activity"), feelings, raw.get("missed_reason")))
+                proposal.append((item_id, status, raw.get("activity"), feelings, reason))
             except (KeyError, TypeError, ValueError):
                 continue
         if not proposal:
@@ -640,10 +643,15 @@ class PlannerService:
                 activity, feelings, reason = text.strip(), (), None
         except PlannerAIError as exc:
             logger.warning(
-                "PLANNER_AI_REVIEW_LOCAL_FALLBACK reason=%s",
+                "PLANNER_AI_REVIEW_UNAVAILABLE reason=%s",
                 exc,
             )
-            activity, feelings, reason = text.strip(), (), None
+            return [
+                (
+                    f"⚠️ Не удалось разобрать ответ для «{item.plan_item.title}»: "
+                    "AI сейчас недоступен. Ничего не сохранено. Попробуй ещё раз."
+                )
+            ]
         except (ValueError, TypeError):
             return [
                 (
@@ -651,7 +659,17 @@ class PlannerService:
                     "Попробуй ещё раз."
                 )
             ]
-        self.store.save_review(item_id, status, activity or None, feelings, reason)
+        activity = activity.strip() if activity else None
+        reason = reason.strip() if reason else None
+        if status == "-" and not reason:
+            return [
+                (
+                    f"⚠️ Для «{item.plan_item.title}» нужно указать причину невыполнения. "
+                    "Ничего не сохранено. Расскажи, почему не выполнил задачу."
+                )
+            ]
+
+        self.store.save_review(item_id, status, activity, feelings, reason)
 
         if payload.get("editing"):
             self.store.clear_session(user_id)
