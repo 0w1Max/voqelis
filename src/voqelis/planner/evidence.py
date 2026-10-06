@@ -26,8 +26,8 @@ class SourceSpan:
     end: int
     text: str
 
-    def overlaps(self, other: SourceSpan) -> bool:
-        return self.start < other.end and other.start < self.end
+    def contains(self, other: SourceSpan) -> bool:
+        return self.start <= other.start and other.end <= self.end
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,7 +59,7 @@ class IntentEvidence:
     entities: tuple[ExplicitEntity, ...]
 
     def for_task(self, span: SourceSpan) -> TaskEvidence:
-        relevant = [entity for entity in self.entities if entity.span.overlaps(span)]
+        relevant = [entity for entity in self.entities if span.contains(entity.span)]
 
         date_values = {
             entity.day
