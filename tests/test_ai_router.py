@@ -12,6 +12,7 @@ from planner_ai_benchmark import (
 )
 from voqelis.planner.ai import (
     TASK_SCHEMA,
+    _parse_tasks_result,
     AIProviderRouter,
     CloudflarePlannerAI,
     GeminiPlannerAI,
@@ -239,6 +240,63 @@ def test_strict_schema_closes_nested_objects():
     schema = _strict_schema(TASK_SCHEMA)
     assert schema["additionalProperties"] is False
     assert schema["properties"]["tasks"]["items"]["additionalProperties"] is False
+
+
+def test_parse_tasks_result_normalizes_overnight_range():
+    result = {
+        "tasks": [{
+            "title": "читать",
+            "source_excerpt": "завтра с 23 вечера до 1 ночи читать",
+            "day": "2026-10-02",
+            "start_time": "23:00",
+            "end_time": "01:00",
+            "duration_minutes": None,
+            "period": None,
+            "preferred_time": None,
+            "relation": None,
+            "anchor": None,
+            "why": None,
+            "urgent": False,
+        }]
+    }
+
+    drafts = _parse_tasks_result(
+        result,
+        provider_name="Groq",
+        source_text="завтра с 23 вечера до 1 ночи читать",
+        today=date(2026, 10, 1),
+    )
+
+    assert drafts[0].start_minute == 23 * 60
+    assert drafts[0].end_minute == 25 * 60
+    assert drafts[0].duration_minutes == 120
+
+
+def test_parse_tasks_result_rejects_end_beyond_planner_window():
+    result = {
+        "tasks": [{
+            "title": "читать",
+            "source_excerpt": "завтра читать",
+            "day": "2026-10-02",
+            "start_time": "23:00",
+            "end_time": "02:00",
+            "duration_minutes": None,
+            "period": None,
+            "preferred_time": None,
+            "relation": None,
+            "anchor": None,
+            "why": None,
+            "urgent": False,
+        }]
+    }
+
+    with pytest.raises(PlannerAIInvalidResponse, match="unsupported end time"):
+        _parse_tasks_result(
+            result,
+            provider_name="Groq",
+            source_text="завтра читать",
+            today=date(2026, 10, 1),
+        )
 
 
 def test_parse_time_accepts_provider_time_formats():
