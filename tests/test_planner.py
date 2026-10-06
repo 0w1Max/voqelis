@@ -965,9 +965,14 @@ def test_history_uses_persistent_active_plan_day(tmp_path: Path):
     session_day = date(2026, 10, 8)
 
     store.set_active_plan_day(1, active_day)
-    store.set_session(1, "planning", session_day, {})
-    service = PlannerService(store, PlannerConfig())
+    store.db.execute(
+        "INSERT INTO planner_sessions(user_id, mode, state, target_day, payload, updated_at) "
+        "VALUES(?,?,?,?,?,?)",
+        (1, "planning", "planning", session_day.isoformat(), "{}", "2026-10-06T00:00:00+00:00"),
+    )
+    store.db.commit()
 
+    service = PlannerService(store, PlannerConfig())
     result = asyncio.run(service.start_history(1, date(2026, 10, 6)))
 
     assert "Активный план: 02.10.2026" in result
