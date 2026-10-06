@@ -220,6 +220,27 @@ def test_single_task_uses_the_whole_source_as_authoritative_evidence():
     )
 
 
+def test_single_task_extra_end_time_is_rejected():
+    text = "завтра в 23:00 читать"
+    evidence = recognize_intent_evidence(text, today=date(2026, 10, 1))
+    draft = TaskDraft(
+        "читать",
+        date(2026, 10, 2),
+        start_minute=23 * 60,
+        end_minute=24 * 60,
+        source_text=text,
+        source_excerpt="читать",
+    )
+
+    with pytest.raises(IntentValidationError, match="конец"):
+        validate_task_intents(
+            [draft],
+            source_text=text,
+            today=date(2026, 10, 1),
+            evidence=evidence,
+        )
+
+
 def test_single_task_contradicting_time_is_rejected():
     text = "завтра в 21:00 ужинать"
     evidence = recognize_intent_evidence(text, today=date(2026, 10, 4))
