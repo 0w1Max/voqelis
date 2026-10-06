@@ -306,6 +306,15 @@ class PlannerService:
     def _user_lock(self, user_id: int) -> asyncio.Lock:
         return self._user_locks.setdefault(user_id, asyncio.Lock())
 
+    def _set_review_session(self, user_id: int, state: str, day: date, payload: dict | None = None, *, preserve_active_day: bool = False) -> None:
+        self.store.set_session(
+            user_id,
+            state,
+            day,
+            payload,
+            sync_active_day=not preserve_active_day,
+        )
+
     async def add_from_text(self, user_id: int, text: str, today: date) -> list[str]:
         try:
             drafts = await self._extract(text, user_id, today)
@@ -388,7 +397,7 @@ class PlannerService:
         return [reply]
 
     async def start_review(
-        self, user_id: int, day: date, today: date | None = None
+        self, user_id: int, day: date, today: date | None = None, *, preserve_active_day: bool = False
     ) -> str:
         today = today or self._planner_today()
         if day > today:
@@ -397,7 +406,7 @@ class PlannerService:
             self.store.ensure_daily_plan(user_id, day, self.config)
             pending_item = next((x for x in self.store.reviews(user_id, day) if x.status is None), None)
             if pending_item:
-                self.store.set_session(
+                self._set_review_session(
                     user_id, "review_status", day, {"current_item_id": pending_item.plan_item.id}
                 )
                 return (
@@ -407,14 +416,14 @@ class PlannerService:
 
             day_review = self.store.day_review(user_id, day)
             if day_review is None:
-                self.store.set_session(user_id, "review_final1", day, {})
+                self._set_review_session(user_id, "review_final1", day, {})
                 return (
                     "Все задачи обработаны.\n\n"
                     "Что бы ты изменил, если бы следовал рекомендации по оздоровлению?"
                 )
 
             if not day_review.completed:
-                self.store.set_session(user_id, "review_final2", day, {})
+                self._set_review_session(user_id, "review_final2", day, {})
                 return (
                     "Продолжаем финальную часть анализа.\n\n"
                     "Теперь расскажи признаки срыва. Можно назвать несколько наблюдений "
@@ -424,7 +433,7 @@ class PlannerService:
             return "Все задачи этого дня уже проанализированы."
 
     async def start_full_review(
-        self, user_id: int, day: date, today: date | None = None
+        self, user_id: int, day: date, today: date | None = None, *, preserve_active_day: bool = False
     ) -> str:
         today = today or self._planner_today()
         if day > today:
@@ -434,7 +443,7 @@ class PlannerService:
             day_review = self.store.day_review(user_id, day)
             if day_review is not None and day_review.completed:
                 return "Этот день уже полностью проанализирован. Для изменения используй «✏️ Исправить анализ»."
-            self.store.set_session(user_id, "review_full_input", day, {})
+            self._set_review_session(user_id, "review_full_input", day, {})
             return (
                 "🎙️ Расскажи одним сообщением, как прошёл весь день. "
                 "Я попробую сопоставить рассказ с задачами, а перед сохранением покажу результат для проверки."
@@ -458,14 +467,14 @@ class PlannerService:
             )
             pending_item = next((x for x in items if x.status is None), None)
             if pending_item is None:
-                self.store.set_session(user_id, "review_final1", day, {})
+                self._set_review_session(user_id, "review_final1", day, {})
                 return [
                     (
                         "⚠️ Общий анализ сейчас недоступен. Все задачи уже обработаны — "
                         "переходим к финальному анализу."
                     )
                 ]
-            self.store.set_session(
+            self._set_review_session(
                 user_id,
                 "review_status",
                 day,
@@ -504,7 +513,7 @@ class PlannerService:
                 continue
             seen_ids.add(item_id)
             normalized.append((by_id[item_id], status, activity, feelings, reason))
-        self.store.set_session(
+        self._set_review_session(
             user_id, "review_full_confirm", day,
             {"items": [
                 {
@@ -534,7 +543,7 @@ class PlannerService:
             )
         next_item = next((x for x in self.store.reviews(user_id, day) if x.status is None), None)
         if next_item:
-            self.store.set_session(
+            self._set_review_session(
                 user_id, "review_status", day, {"current_item_id": next_item.plan_item.id}
             )
             return [
@@ -545,7 +554,7 @@ class PlannerService:
                     f"{render_review_prompt(next_item)}\n\nВыполнено?"
                 )
             ]
-        self.store.set_session(user_id, "review_final1", day, {})
+        self._set_review_session(user_id, "review_final1", day, {})
         return [
             (
                 "✅ Общий разбор сохранён.\n\n"
@@ -555,7 +564,7 @@ class PlannerService:
         ]
 
     async def start_review_edit(
-        self, user_id: int, day: date, today: date | None = None
+        self, user_id: int, day: date, today: date | None = None, *, preserve_active_day: bool = False
     ) -> str:
         today = today or self._planner_today()
         if day > today:
@@ -564,7 +573,7 @@ class PlannerService:
             items = [x for x in self.store.reviews(user_id, day) if x.status is not None]
             if not items:
                 return "На этот день пока нет заполненных ответов для редактирования."
-            self.store.set_session(user_id, "review_edit_select", day, {})
+            self._set_review_session(user_id, "review_edit_select", day, {})
             lines = ["✏️ Выбери задачу для исправления анализа:"]
             for index, item in enumerate(items, 1):
                 lines.append(
@@ -590,7 +599,7 @@ class PlannerService:
         )
         if item is None:
             return ["Эта задача больше недоступна для редактирования. Открой «✏️ Исправить анализ» заново."]
-        self.store.set_session(
+        self._set_review_session(
             user_id,
             "review_status",
             day,
@@ -616,7 +625,7 @@ class PlannerService:
         if item is None:
             self.store.clear_session(user_id)
             return ["Эта задача больше недоступна. Открой «🔎 Анализ сегодня» заново."]
-        self.store.set_session(
+        self._set_review_session(
             user_id, "review_detail", day,
             {"current_item_id": item_id, "status": status, "editing": bool(current_payload.get("editing"))},
         )
@@ -680,12 +689,12 @@ class PlannerService:
 
         next_item = next((x for x in self.store.reviews(user_id, day) if x.status is None), None)
         if next_item:
-            self.store.set_session(
+            self._set_review_session(
                 user_id, "review_status", day, {"current_item_id": next_item.plan_item.id}
             )
             return [f"Сохранено.\n\n{render_review_prompt(next_item)}\n\nВыполнено?"]
 
-        self.store.set_session(user_id, "review_final1", day, {})
+        self._set_review_session(user_id, "review_final1", day, {})
         return [
             (
                 "Все задачи обработаны.\n\n"
@@ -696,7 +705,7 @@ class PlannerService:
     async def _review_final1(self, user_id: int, text: str, day: date) -> list[str]:
         what = None if text.strip().lower() == "пропустить" else text.strip()
         self.store.save_day_review(user_id, day, what, (), False)
-        self.store.set_session(user_id, "review_final2", day, {})
+        self._set_review_session(user_id, "review_final2", day, {})
         return ["Записал.\n\nТеперь расскажи признаки срыва. Можно назвать несколько наблюдений одним сообщением. Или напиши «пропустить»."]
 
     async def _review_final2(self, user_id: int, text: str, day: date) -> list[str]:
@@ -793,6 +802,8 @@ class PlannerService:
             return [self._future_review_message(day)]
         if state == "history_select":
             return await self._history_select(user_id, text, today)
+        if state == "history_day":
+            return ["Используй кнопки для действий с выбранным историческим днём."]
         if state == "plan_delete_select":
             return await self._delete_item_select(user_id, text, day)
         if state == "planning":
@@ -878,6 +889,21 @@ class PlannerService:
             if value.isdigit():
                 return await self._resolve_conflict(user_id, str(int(value) + 1), today)
             return ["Некорректный вариант времени."]
+
+        if callback_data.startswith("pl:history:"):
+            if state != "history_day" or not session or not session["target_day"]:
+                return ["Эта кнопка больше не актуальна. Открой «🗓 История планов» заново."]
+            day = date.fromisoformat(session["target_day"])
+            action = callback_data.removeprefix("pl:history:")
+            if action == "review":
+                return [await self.start_review(user_id, day, today, preserve_active_day=True)]
+            if action == "full":
+                return [await self.start_full_review(user_id, day, today, preserve_active_day=True)]
+            if action == "edit":
+                return [await self.start_review_edit(user_id, day, today, preserve_active_day=True)]
+            if action == "back":
+                return [await self.start_history(user_id, today)]
+            return ["Неизвестное действие истории."]
 
         if callback_data.startswith("pl:full:"):
             if state != "review_full_confirm":
@@ -967,7 +993,11 @@ class PlannerService:
 
         if selected > today:
             self.store.set_active_plan_day(user_id, selected)
-        self.store.set_session(user_id, "planning", selected, {})
+            self.store.set_session(user_id, "planning", selected, {})
+        else:
+            self.store.set_session(
+                user_id, "history_day", selected, {}, sync_active_day=False
+            )
         if selected > today:
             items = self.store.ensure_daily_plan(user_id, selected, self.config)
         else:
