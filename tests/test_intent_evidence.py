@@ -14,6 +14,7 @@ from voqelis.planner.intent_validation import (
     validate_task_intents,
 )
 from voqelis.planner.models import TaskDraft
+from voqelis.planner.temporal import TemporalKind, TemporalRecognitionError, recognize_temporal_expressions
 
 
 def test_recognizer_returns_canonical_entities_with_source_spans():
@@ -233,3 +234,54 @@ def test_single_task_contradicting_time_is_rejected():
             today=date(2026, 10, 4),
             evidence=evidence,
         )
+
+
+@pytest.mark.parametrize(
+    ("text", "minute"),
+    [
+        ("в 8 утра", 8 * 60),
+        ("в 8 вечера", 20 * 60),
+        ("в 11 ночи", 23 * 60),
+        ("в 1 ночи", 60),
+        ("в 12 ночи", 0),
+        ("в 12 утра", 0),
+        ("в 12 дня", 12 * 60),
+        ("в 21:30", 21 * 60 + 30),
+    ],
+)
+def test_temporal_grammar_normalizes_supported_clock_forms(text, minute):
+    expressions = recognize_temporal_expressions(text)
+    assert len(expressions) == 1
+    assert expressions[0].kind == TemporalKind.TIME
+    assert expressions[0].start_minute == minute
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["в 0 утра", "в 13 утра", "в 12 вечера", "в 25:00"],
+)
+def test_temporal_grammar_rejects_invalid_meridiem_forms(text):
+    with pytest.raises(TemporalRecognitionError):
+        recognize_temporal_expressions(text)
+
+
+@pytest.mark.parametrize(
+    ("text", "start", "end"),
+    [
+        ("с 8 утра до 9 утра", 8 * 60, 9 * 60),
+        ("с 8 до 9 вечера", 20 * 60, 21 * 60),
+        ("с 12:00 до 14:00", 12 * 60, 14 * 60),
+        ("12:00-14:00", 12 * 60, 14 * 60),
+    ],
+)
+def test_temporal_grammar_normalizes_ranges(text, start, end):
+    expressions = recognize_temporal_expressions(text)
+    assert len(expressions) == 1
+    assert expressions[0].kind == TemporalKind.TIME_RANGE
+    assert expressions[0].start_minute == start
+    assert expressions[0].end_minute == end
+
+
+def test_temporal_grammar_rejects_implicit_overnight_range():
+    with pytest.raises(TemporalRecognitionError):
+        recognize_temporal_expressions("с 23 вечера до 1 ночи")
