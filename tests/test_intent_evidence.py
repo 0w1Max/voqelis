@@ -232,7 +232,7 @@ def test_single_task_extra_end_time_is_rejected():
         source_excerpt="читать",
     )
 
-    with pytest.raises(IntentValidationError, match="конец"):
+    with pytest.raises(IntentValidationError, match="добавила конец"):
         validate_task_intents(
             [draft],
             source_text=text,
