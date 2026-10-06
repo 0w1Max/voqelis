@@ -220,9 +220,14 @@ def _validate_task_draft(draft: TaskDraft, *, today: date) -> None:
     if (
         draft.start_minute is not None
         and draft.end_minute is not None
-        and draft.start_minute >= draft.end_minute
+        and draft.start_minute == draft.end_minute
     ):
         raise PlannerAIInvalidResponse("AI returned an invalid time range")
+    if (
+        draft.end_minute is not None
+        and draft.end_minute > 25 * 60
+    ):
+        raise PlannerAIInvalidResponse("AI returned an unsupported end time")
     if draft.duration_minutes is not None and draft.duration_minutes <= 0:
         raise PlannerAIInvalidResponse("AI returned an invalid duration")
     if draft.period not in {None, "morning", "day", "evening", "night"}:
@@ -255,6 +260,9 @@ def _task_prompt(text: str, *, today: date, target_day: date) -> str:
         "'8 вечера' = '20:00', '9 вечера' = '21:00', '8 утра' = '08:00', "
         "'12 часов дня' = '12:00', '12 ночи' = '00:00'. "
         "For ranges, normalize both endpoints: 'с 8 вечера до 9 вечера' = '20:00' to '21:00'. "
+        "For an interval crossing midnight, keep the provider clock endpoint as stated, "
+        "for example 'с 23 вечера до 1 ночи' becomes start_time='23:00' and end_time='01:00'; "
+        "do not discard the interval merely because the second clock value is earlier. "
         "Do not interpret a clock expression as duration. "
         "Resolve relative dates from the supplied today date. "
         "Map explicit periods exactly: 'утром'/'с утра' -> period='morning', "
@@ -352,6 +360,12 @@ def _parse_tasks_result(
             raise PlannerAIInvalidResponse(
                 f"{provider_name} returned invalid task date/time"
             ) from exc
+
+        # Provider-facing clock values cannot express the next-day boundary,
+        # so a backward interval is normalized to the planner's next-day minute
+        # domain. Source-level legality is validated independently by evidence.
+        if start is not None and end is not None and end < start:
+            end += 24 * 60
 
         normalized_duration = (
             end - start if start is not None and end is not None else duration
