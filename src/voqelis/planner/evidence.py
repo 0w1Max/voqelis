@@ -151,58 +151,6 @@ def _span(source: str, match: re.Match[str]) -> SourceSpan:
     return SourceSpan(start, end, source[start:end])
 
 
-_RANGE = re.compile(
-    r"\b(?:с\s+)?"
-    r"(?P<sh>\d{1,2})(?:(?::|\.)(?P<sm>\d{2}))?\s*"
-    r"(?:час(?:а|ов)?|ч)?\s*(?P<sp>утра|дня|вечера|ночи)?\s*"
-    r"(?:до|[-–—])\s*"
-    r"(?P<eh>\d{1,2})(?:(?::|\.)(?P<em>\d{2}))?\s*"
-    r"(?:час(?:а|ов)?|ч)?\s*(?P<ep>утра|дня|вечера|ночи)?"
-    r"(?=\s|[,.;!?]|$)",
-    re.IGNORECASE,
-)
-_CLOCK = re.compile(
-    r"\b(?:в|к)\s+"
-    r"(?P<hour>\d{1,2})(?:(?::|\.)(?P<minute>\d{2}))?\s*"
-    r"(?:час(?:а|ов)?|ч)?\s*(?P<part>утра|дня|вечера|ночи)?"
-    r"(?=\s|[,.;!?]|$)",
-    re.IGNORECASE,
-)
-_DATE = re.compile(r"\b(послезавтра|завтра|сегодня)\b", re.IGNORECASE)
-_PERIOD = re.compile(
-    r"\b(с\s+утра|утром|утро|днём|днем|день|вечером|вечер|ночью|ночь)\b",
-    re.IGNORECASE,
-)
-_RELATION = re.compile(
-    r"\b(после|перед|до)\s+"
-    r"(завтрака|завтраком|завтрак|обеда|обедом|обед|ужина|ужином|ужин)\b",
-    re.IGNORECASE,
-)
-
-_RELATIONS = {
-    "завтрака": "breakfast",
-    "завтраком": "breakfast",
-    "завтрак": "breakfast",
-    "обеда": "lunch",
-    "обедом": "lunch",
-    "обед": "lunch",
-    "ужина": "dinner",
-    "ужином": "dinner",
-    "ужин": "dinner",
-}
-_PERIODS = {
-    "с утра": "morning",
-    "утром": "morning",
-    "утро": "morning",
-    "днём": "day",
-    "днем": "day",
-    "день": "day",
-    "вечером": "evening",
-    "вечер": "evening",
-    "ночью": "night",
-    "ночь": "night",
-}
-
 
 def recognize_intent_evidence(source_text: str, *, today: date) -> IntentEvidence:
     if not source_text.strip():
