@@ -24,34 +24,6 @@ class TemporalExpression:
     end_minute: int | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class _ClockToken:
-    hour: int
-    minute: int
-    meridiem: str | None
-
-
-_RANGE = re.compile(
-    r"(?<!\w)"
-    r"(?P<sh>\d{1,2})(?:(?::|\.)(?P<sm>\d{2}))?"
-    r"\s*(?:час(?:а|ов)?|ч)?\s*(?P<sp>утра|дня|вечера|ночи)?"
-    r"\s*(?:до|[-–—])\s*"
-    r"(?P<eh>\d{1,2})(?:(?::|\.)(?P<em>\d{2}))?"
-    r"\s*(?:час(?:а|ов)?|ч)?\s*(?P<ep>утра|дня|вечера|ночи)?"
-    r"(?!\w)",
-    re.IGNORECASE,
-)
-
-_CLOCK = re.compile(
-    r"(?<!\w)(?:в|к)\s+"
-    r"(?P<hour>\d{1,2})(?:(?::|\.)(?P<minute>\d{2}))?"
-    r"\s*(?:час(?:а|ов)?|ч)?\s*(?P<part>утра|дня|вечера|ночи)?"
-    r"(?!\w)",
-    re.IGNORECASE,
-)
-
-# This is the supported Russian 12-hour clock grammar. Keeping the mapping
-# declarative makes normalization independent from individual hour cases.
 _MERIDIEM_HOURS: dict[str, dict[int, int]] = {
     "утра": {hour: hour for hour in range(1, 12)} | {12: 0},
     "дня": {hour: hour + 12 for hour in range(1, 12)} | {12: 12},
@@ -59,12 +31,33 @@ _MERIDIEM_HOURS: dict[str, dict[int, int]] = {
     "ночи": {hour: hour for hour in range(1, 12)} | {12: 0},
 }
 
+_RANGE = re.compile(
+    r"(?<!\w)"
+    r"(?P<start_hour>\d{1,2})(?:(?::|\.)(?P<start_minute>\d{2}))?"
+    r"\s*(?:час(?:а|ов)?|ч)?\s*(?P<start_meridiem>утра|дня|вечера|ночи)?"
+    r"\s*(?:до|[-–—])\s*"
+    r"(?P<end_hour>\d{1,2})(?:(?::|\.)(?P<end_minute>\d{2}))?"
+    r"\s*(?:час(?:а|ов)?|ч)?\s*(?P<end_meridiem>утра|дня|вечера|ночи)?"
+    r"(?!\w)",
+    re.IGNORECASE,
+)
 
-def _parse_clock(match: re.Match[str], *, prefix: str) -> _ClockToken:
-    hour = int(match.group(f"{prefix}h" if prefix else "hour"))
-    minute_value = match.group(f"{prefix}m" if prefix else "minute")
-    minute = int(minute_value or 0)
-    meridiem = match.group(f"{prefix}p" if prefix else "part")
+_CLOCK = re.compile(
+    r"(?<!\w)(?:в|к)\s+"
+    r"(?P<hour>\d{1,2})(?:(?::|\.)(?P<minute>\d{2}))?"
+    r"\s*(?:час(?:а|ов)?|ч)?\s*(?P<meridiem>утра|дня|вечера|ночи)?"
+    r"(?!\w)",
+    re.IGNORECASE,
+)
+
+
+def _clock_to_minute(
+    hour_text: str,
+    minute_text: str | None,
+    meridiem: str | None,
+) -> int:
+    hour = int(hour_text)
+    minute = int(minute_text or 0)
 
     if not 0 <= minute <= 59:
         raise TemporalRecognitionError("Минуты вне допустимого диапазона.")
@@ -74,70 +67,45 @@ def _parse_clock(match: re.Match[str], *, prefix: str) -> _ClockToken:
             raise TemporalRecognitionError(
                 "24-часовые часы вне допустимого диапазона."
             )
-        return _ClockToken(hour=hour, minute=minute, meridiem=None)
+        return hour * 60 + minute
 
     hour_table = _MERIDIEM_HOURS.get(meridiem.casefold())
     if hour_table is None or hour not in hour_table:
         raise TemporalRecognitionError(
             f"Некорректное сочетание часа и обозначения «{meridiem}»."
         )
-
-    return _ClockToken(
-        hour=hour_table[hour],
-        minute=minute,
-        meridiem=meridiem.casefold(),
-    )
+    return hour_table[hour] * 60 + minute
 
 
-def _to_minute(clock: _ClockToken) -> int:
-    return clock.hour * 60 + clock.minute
-
-
-def _parse_range(match: re.Match[str]) -> tuple[int, int]:
-    start_meridiem = match.group("sp")
-    end_meridiem = match.group("ep")
+def _range_to_minutes(match: re.Match[str]) -> tuple[int, int]:
+    start_meridiem = match.group("start_meridiem")
+    end_meridiem = match.group("end_meridiem")
     shared_meridiem = start_meridiem or end_meridiem
 
-    if start_meridiem is None:
-        start_meridiem = shared_meridiem
-    if end_meridiem is None:
-        end_meridiem = shared_meridiem
-
-    start = _parse_clock(
-        _RangeView(match, "s", start_meridiem),
-        prefix="s",
+    start = _clock_to_minute(
+        match.group("start_hour"),
+        match.group("start_minute"),
+        start_meridiem or shared_meridiem,
     )
-    end = _parse_clock(
-        _RangeView(match, "e", end_meridiem),
-        prefix="e",
+    end = _clock_to_minute(
+        match.group("end_hour"),
+        match.group("end_minute"),
+        end_meridiem or shared_meridiem,
     )
 
-    start_minute = _to_minute(start)
-    end_minute = _to_minute(end)
-    if start_minute >= end_minute:
+    if start >= end:
         raise TemporalRecognitionError(
             "Явный временной диапазон должен иметь возрастающие границы."
         )
-    return start_minute, end_minute
-
-
-@dataclass(frozen=True, slots=True)
-class _RangeView:
-    match: re.Match[str]
-    side: str
-    meridiem: str | None
-
-    def group(self, name: str) -> str | None:
-        if name == "sp" or name == "ep":
-            return self.meridiem
-        return self.match.group(f"{self.side}{name[-1]}")
+    return start, end
 
 
 def recognize_temporal_expressions(source_text: str) -> tuple[TemporalExpression, ...]:
+    """Recognize only the temporal forms explicitly supported by Planner V1."""
     ranges: list[TemporalExpression] = []
 
     for match in _RANGE.finditer(source_text):
-        start_minute, end_minute = _parse_range(match)
+        start_minute, end_minute = _range_to_minutes(match)
         ranges.append(
             TemporalExpression(
                 kind=TemporalKind.TIME_RANGE,
@@ -149,23 +117,26 @@ def recognize_temporal_expressions(source_text: str) -> tuple[TemporalExpression
             )
         )
 
-    expressions = ranges[:]
-    range_spans = [(item.start, item.end) for item in ranges]
+    occupied = [(item.start, item.end) for item in ranges]
+    expressions = list(ranges)
 
     for match in _CLOCK.finditer(source_text):
         start, end = match.span()
-        if any(start < range_end and range_start < end for range_start, range_end in range_spans):
+        if any(start < occupied_end and occupied_start < end for occupied_start, occupied_end in occupied):
             continue
 
-        clock = _parse_clock(match, prefix="")
         expressions.append(
             TemporalExpression(
                 kind=TemporalKind.TIME,
                 start=start,
                 end=end,
                 text=match.group(0),
-                start_minute=_to_minute(clock),
+                start_minute=_clock_to_minute(
+                    match.group("hour"),
+                    match.group("minute"),
+                    match.group("meridiem"),
+                ),
             )
         )
 
-    return tuple(sorted(expressions, key=lambda item: (item.start, item.end)))
+    return tuple(sorted(expressions, key=lambda expression: (expression.start, expression.end)))
