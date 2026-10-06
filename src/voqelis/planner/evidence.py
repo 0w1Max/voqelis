@@ -33,6 +33,9 @@ class SourceSpan:
     def contains(self, other: SourceSpan) -> bool:
         return self.start <= other.start and other.end <= self.end
 
+    def overlaps(self, other: SourceSpan) -> bool:
+        return self.start < other.end and other.start < self.end
+
 
 @dataclass(frozen=True, slots=True)
 class ExplicitEntity:
