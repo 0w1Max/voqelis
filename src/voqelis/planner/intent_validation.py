@@ -70,6 +70,10 @@ def _validate_intent(
         raise IntentValidationError(
             f"Модель изменила явный конец диапазона {facts.end_minute}."
         )
+    if facts.end_minute is None and intent.end_minute is not None:
+        raise IntentValidationError(
+            "Модель добавила конец времени, которого нет в источнике."
+        )
 
     if facts.period is not None and intent.period != facts.period:
         raise IntentValidationError(
