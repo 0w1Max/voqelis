@@ -4,9 +4,9 @@ import asyncio
 from datetime import date
 
 from voqelis.planner.config import PlannerConfig
+from voqelis.planner.models import TaskDraft
 from voqelis.planner.service import PlannerService
 from voqelis.planner.store import PlannerStore
-from voqelis.planner.models import TaskDraft
 
 
 class FixedPlannerAI:
