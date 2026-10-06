@@ -131,6 +131,16 @@ def planner_markup_for_state(
             ]
         )
 
+    if state == "history_day":
+        return InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="🔎 Анализ задач", callback_data="pl:history:review")],
+                [InlineKeyboardButton(text="🎙️ Общий анализ", callback_data="pl:history:full")],
+                [InlineKeyboardButton(text="✏️ Исправить анализ", callback_data="pl:history:edit")],
+                [InlineKeyboardButton(text="↩️ Назад к истории", callback_data="pl:history:back")],
+            ]
+        )
+
     if state == "review_full_confirm":
         return InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="✅ Сохранить", callback_data="pl:full:yes"),
