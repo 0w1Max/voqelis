@@ -448,10 +448,17 @@ class PlannerService:
     async def start_full_review(
         self, user_id: int, day: date, today: date | None = None, *, preserve_active_day: bool = False
     ) -> str:
+        async with self._user_lock(user_id):
+            return await self._start_full_review(
+                user_id, day, today, preserve_active_day=preserve_active_day
+            )
+
+    async def _start_full_review(
+        self, user_id: int, day: date, today: date | None = None, *, preserve_active_day: bool = False
+    ) -> str:
         today = today or self._planner_today()
         if day > today:
             return self._future_review_message(day)
-        async with self._user_lock(user_id):
             self.store.ensure_daily_plan(user_id, day, self.config)
             day_review = self.store.day_review(user_id, day)
             if day_review is not None and day_review.completed:
@@ -579,10 +586,17 @@ class PlannerService:
     async def start_review_edit(
         self, user_id: int, day: date, today: date | None = None, *, preserve_active_day: bool = False
     ) -> str:
+        async with self._user_lock(user_id):
+            return await self._start_review_edit(
+                user_id, day, today, preserve_active_day=preserve_active_day
+            )
+
+    async def _start_review_edit(
+        self, user_id: int, day: date, today: date | None = None, *, preserve_active_day: bool = False
+    ) -> str:
         today = today or self._planner_today()
         if day > today:
             return self._future_review_message(day)
-        async with self._user_lock(user_id):
             items = [x for x in self.store.reviews(user_id, day) if x.status is not None]
             if not items:
                 return "На этот день пока нет заполненных ответов для редактирования."
@@ -908,13 +922,13 @@ class PlannerService:
             day = date.fromisoformat(session["target_day"])
             action = callback_data.removeprefix("pl:history:")
             if action == "review":
-                return [await self.start_review(user_id, day, today, preserve_active_day=True)]
+                return [await self._start_review(user_id, day, today, preserve_active_day=True)]
             if action == "full":
-                return [await self.start_full_review(user_id, day, today, preserve_active_day=True)]
+                return [await self._start_full_review(user_id, day, today, preserve_active_day=True)]
             if action == "edit":
-                return [await self.start_review_edit(user_id, day, today, preserve_active_day=True)]
+                return [await self._start_review_edit(user_id, day, today, preserve_active_day=True)]
             if action == "back":
-                return [await self.start_history(user_id, today)]
+                return [await self._start_history(user_id, today)]
             return ["Неизвестное действие истории."]
 
         if callback_data.startswith("pl:full:"):
@@ -978,7 +992,10 @@ class PlannerService:
 
     async def start_history(self, user_id: int, today: date) -> str:
         async with self._user_lock(user_id):
-            active = self.store.active_plan_day(user_id)
+            return await self._start_history(user_id, today)
+
+    async def _start_history(self, user_id: int, today: date) -> str:
+        active = self.store.active_plan_day(user_id)
             if active is None:
                 active = today + timedelta(days=1)
                 self.store.set_active_plan_day(user_id, active)
