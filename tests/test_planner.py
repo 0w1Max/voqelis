@@ -6,9 +6,12 @@ from pathlib import Path
 import pytest
 
 from voqelis.planner.config import PlannerConfig, RecurringTemplateSpec
-from voqelis.planner.export import build_docx, build_pdf
-from voqelis.planner.intent_validation import IntentValidationError, validate_task_intents
 from voqelis.planner.evidence import recognize_intent_evidence
+from voqelis.planner.export import build_docx, build_pdf
+from voqelis.planner.intent_validation import (
+    IntentValidationError,
+    validate_task_intents,
+)
 from voqelis.planner.models import (
     Conflict,
     PlanItem,
