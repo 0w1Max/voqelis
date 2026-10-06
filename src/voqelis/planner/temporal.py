@@ -29,7 +29,10 @@ class TemporalExpression:
 _MERIDIEM_HOURS: dict[str, dict[int, int]] = {
     "утра": {**{hour: hour for hour in range(1, 12)}, 12: 0},
     "дня": {**{hour: hour + 12 for hour in range(1, 12)}, 12: 12},
-    "вечера": {hour: hour + 12 for hour in range(1, 12)},
+    "вечера": {
+        **{hour: hour + 12 for hour in range(1, 12)},
+        **{hour: hour for hour in range(13, 24)},
+    },
     "ночи": {
         **{hour: hour for hour in range(1, 6)},
         11: 23,
