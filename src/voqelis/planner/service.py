@@ -212,7 +212,12 @@ class PlannerService:
         allow_missing_reason_for_first: bool = False,
     ) -> list[str]:
         replies: list[str] = []
+        materialized_days: set[date] = set()
         for index, draft in enumerate(drafts):
+            if draft.day not in materialized_days:
+                self.store.ensure_daily_plan(user_id, draft.day, self.config)
+                materialized_days.add(draft.day)
+
             if not draft.why and not (allow_missing_reason_for_first and index == 0):
                 suggested = self.store.previous_why(user_id, draft.title)
                 self.store.set_session(
