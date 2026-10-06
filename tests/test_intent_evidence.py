@@ -14,8 +14,11 @@ from voqelis.planner.intent_validation import (
     validate_task_intents,
 )
 from voqelis.planner.models import TaskDraft
-from voqelis.planner.temporal import TemporalKind, TemporalRecognitionError, recognize_temporal_expressions
-from voqelis.planner.temporal import TemporalKind, TemporalRecognitionError, recognize_temporal_expressions
+from voqelis.planner.temporal import (
+    TemporalKind,
+    TemporalRecognitionError,
+    recognize_temporal_expressions,
+)
 
 
 def test_recognizer_returns_canonical_entities_with_source_spans():
