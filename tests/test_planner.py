@@ -7,11 +7,8 @@ import pytest
 
 from voqelis.planner.config import PlannerConfig, RecurringTemplateSpec
 from voqelis.planner.export import build_docx, build_pdf
-from voqelis.planner.intent_validation import (
-    IntentValidationError,
-    explicit_constraints,
-    validate_task_intents,
-)
+from voqelis.planner.intent_validation import IntentValidationError, validate_task_intents
+from voqelis.planner.evidence import recognize_intent_evidence
 from voqelis.planner.models import (
     Conflict,
     PlanItem,
@@ -32,17 +29,18 @@ class FixedPlannerAI:
         del text, today, target_day, config
         return list(self.drafts)
 
-def test_explicit_constraints_capture_clock_range_period_and_relation():
-    config = PlannerConfig(recurring_templates=())
-    facts = explicit_constraints(
+def test_evidence_captures_clock_and_relation():
+    evidence = recognize_intent_evidence(
         "завтра после обеда в 16.00 читать книгу",
         today=date(2026, 10, 4),
-        config=config,
     )
-    assert facts.day == date(2026, 10, 5)
-    assert facts.start_minute == 16 * 60
-    assert facts.relation == "after"
-    assert facts.anchor == "lunch"
+    time = next(entity for entity in evidence.entities if entity.kind.value == "time")
+    relation = next(
+        entity for entity in evidence.entities if entity.kind.value == "relation"
+    )
+    assert time.start_minute == 16 * 60
+    assert relation.relation == "after"
+    assert relation.anchor == "lunch"
 
 
 def test_intent_validation_rejects_ai_time_not_supported_by_source():
