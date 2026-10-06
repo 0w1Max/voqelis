@@ -5,7 +5,11 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from enum import StrEnum
 
-from .temporal import TemporalKind, TemporalRecognitionError, recognize_temporal_expressions
+from .temporal import (
+    TemporalKind,
+    TemporalRecognitionError,
+    recognize_temporal_expressions,
+)
 
 
 class EvidenceRecognitionError(ValueError):
