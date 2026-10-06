@@ -36,7 +36,7 @@ def _validate_entity_coverage(
     }
 
     for entity in evidence.entities:
-        covered = any(entity.span.overlaps(span) for span in spans)
+        covered = any(span.contains(entity.span) for span in spans)
         if covered:
             continue
 
@@ -158,18 +158,3 @@ def validate_task_intents(
         except EvidenceRecognitionError as exc:
             raise IntentValidationError(str(exc)) from exc
 
-
-def explicit_constraints(
-    text: str,
-    *,
-    today,
-    config=None,
-) -> TaskEvidence:
-    """Compatibility facade for existing internal tests/callers."""
-    del config
-    try:
-        evidence = recognize_intent_evidence(text, today=today)
-        span = SourceSpan(0, len(text), text)
-        return evidence.for_task(span)
-    except EvidenceRecognitionError as exc:
-        raise IntentValidationError(str(exc)) from exc
