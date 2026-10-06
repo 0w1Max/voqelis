@@ -235,7 +235,7 @@ class PlannerStore:
         except json.JSONDecodeError:
             return {}
 
-    def set_session(self, user_id: int, state: str, target_day: date | None, payload: dict | None = None) -> None:
+    def set_session(self, user_id: int, state: str, target_day: date | None, payload: dict | None = None, *, sync_active_day: bool = True) -> None:
         now = datetime.now(UTC).isoformat()
         self.db.execute(
             "INSERT INTO planner_sessions(user_id,mode,state,target_day,payload,updated_at) VALUES(?,?,?,?,?,?) "
@@ -243,7 +243,7 @@ class PlannerStore:
             "target_day=excluded.target_day,payload=excluded.payload,updated_at=excluded.updated_at",
             (user_id, state, state, target_day.isoformat() if target_day else None, json.dumps(payload or {}, ensure_ascii=False), now),
         )
-        if target_day is not None:
+        if sync_active_day and target_day is not None:
             self.db.execute(
                 "INSERT INTO planner_active_days(user_id,day) VALUES(?,?) "
                 "ON CONFLICT(user_id) DO UPDATE SET day=excluded.day",
