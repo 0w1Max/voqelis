@@ -104,6 +104,49 @@ def test_intent_validation_requires_distinct_source_for_multiple_tasks():
     validate_task_intents(drafts, source_text=text, today=date(2026, 10, 4), config=config)
 
 
+def test_scheduler_does_not_offer_alternatives_for_explicit_range_conflict(
+    tmp_path: Path,
+):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    config = PlannerConfig(
+        recurring_templates=(),
+    )
+    scheduler = Scheduler(store, config)
+    day = date(2026, 10, 7)
+
+    store.add_item(
+        PlanItem(
+            0,
+            1,
+            day,
+            "Ночная КД",
+            None,
+            24 * 60,
+            25 * 60,
+            TaskKind.RECURRING,
+        )
+    )
+
+    draft = TaskDraft(
+        "читать",
+        day,
+        start_minute=23 * 60,
+        end_minute=25 * 60,
+        source_text="завтра с 23 вечера до 1 ночи читать",
+        source_excerpt="завтра с 23 вечера до 1 ночи читать",
+    )
+
+    result = scheduler.schedule(1, draft)
+
+    assert isinstance(result, Conflict)
+    assert result.proposal.desired_start_minute == 23 * 60
+    assert result.proposal.desired_end_minute == 25 * 60
+    assert result.proposal.alternatives == ()
+    assert result.proposal.moves == ()
+
+    store.close()
+
+
 def test_planner_refuses_semantic_extraction_without_ai(tmp_path: Path):
     store = PlannerStore(tmp_path / "planner.sqlite3")
     service = PlannerService(store, PlannerConfig(recurring_templates=()), ai=None)
