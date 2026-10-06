@@ -45,7 +45,7 @@ def test_add_draft_materializes_recurring_plan_for_session_day_without_existing_
     replies = asyncio.run(
         service.add_from_text(
             1,
-            "8 октября в 20:00 проверить почту для работы",
+            "завтра в 20:00 проверить почту для работы",
             date(2026, 10, 7),
         )
     )
