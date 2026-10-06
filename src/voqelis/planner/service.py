@@ -922,12 +922,10 @@ class PlannerService:
 
     async def start_history(self, user_id: int, today: date) -> str:
         async with self._user_lock(user_id):
-            session = self.store.session(user_id)
-            active = (
-                date.fromisoformat(session["target_day"])
-                if session and session["target_day"]
-                else today + timedelta(days=1)
-            )
+            active = self.store.active_plan_day(user_id)
+            if active is None:
+                active = today + timedelta(days=1)
+                self.store.set_active_plan_day(user_id, active)
             self.store.set_session(user_id, "history_select", active, {})
             end_day = today + timedelta(days=1)
             start_day = today - timedelta(days=5)
