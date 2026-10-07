@@ -7,6 +7,7 @@ import pytest
 
 from voqelis.planner.config import PlannerConfig, RecurringTemplateSpec
 from voqelis.planner.evidence import recognize_intent_evidence
+from voqelis.planner.temporal import recognize_temporal_expressions
 from voqelis.planner.export import build_docx, build_pdf
 from voqelis.planner.intent_validation import (
     IntentValidationError,
@@ -44,6 +45,27 @@ def test_evidence_captures_clock_and_relation():
     assert time.start_minute == 16 * 60
     assert relation.relation == "after"
     assert relation.anchor == "lunch"
+
+
+def test_temporal_recognizes_spelled_russian_clock_forms():
+    clock = recognize_temporal_expressions("завтра в восемь вечера читать книгу")
+    assert len(clock) == 1
+    assert clock[0].start_minute == 20 * 60
+
+    time_range = recognize_temporal_expressions(
+        "завтра с восьми вечера до девяти вечера читать книгу"
+    )
+    assert len(time_range) == 1
+    assert time_range[0].start_minute == 20 * 60
+    assert time_range[0].end_minute == 21 * 60
+
+
+def test_evidence_does_not_treat_bare_day_as_period_inside_purpose_phrase():
+    evidence = recognize_intent_evidence(
+        "завтра в 21 помолиться и поблагодарить за день для спокойствия",
+        today=date(2026, 10, 1),
+    )
+    assert all(entity.kind.value != "period" for entity in evidence.entities)
 
 
 def test_intent_validation_rejects_ai_time_not_supported_by_source():
