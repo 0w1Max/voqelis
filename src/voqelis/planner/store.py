@@ -558,6 +558,23 @@ class PlannerStore:
                 planned_ranges[move.plan_item_id] = new_range
 
             for move in moves:
+                row = current_by_id[move.plan_item_id]
+                if (
+                    row["kind"] == TaskKind.RECURRING.value
+                    and row["recurring_template_id"] is not None
+                ):
+                    # A moved recurring occurrence is excluded from its original
+                    # slot for this day; the moved plan row is the one-day override.
+                    self.db.execute(
+                        "INSERT INTO recurring_exclusions(user_id,day,recurring_template_id) "
+                        "VALUES(?,?,?) "
+                        "ON CONFLICT(user_id,day,recurring_template_id) DO NOTHING",
+                        (
+                            item.user_id,
+                            item.day.isoformat(),
+                            int(row["recurring_template_id"]),
+                        ),
+                    )
                 self.db.execute(
                     "UPDATE plan_items SET start_minute=?,end_minute=? WHERE id=?",
                     (move.new_start_minute, move.new_end_minute, move.plan_item_id),
