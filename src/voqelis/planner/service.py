@@ -996,20 +996,20 @@ class PlannerService:
 
     async def _start_history(self, user_id: int, today: date) -> str:
         active = self.store.active_plan_day(user_id)
-            if active is None:
-                active = today + timedelta(days=1)
-                self.store.set_active_plan_day(user_id, active)
-            self.store.set_session(user_id, "history_select", active, {})
-            end_day = today + timedelta(days=1)
-            start_day = today - timedelta(days=5)
-            rows = self.store.history_counts(user_id, start_day, end_day)
-            lines = ["🗓 История планов", f"Активный план: {active.strftime('%d.%m.%Y')}", ""]
-            for plan_day, count in reversed(rows):
-                marker = " ← активный" if plan_day == active else ""
-                lines.append(f"{plan_day.strftime('%d.%m.%Y')} — {count} задач{marker}")
-            lines.append("")
-            lines.append("Чтобы открыть конкретный день, напиши дату в формате ДД.ММ.ГГГГ.")
-            return "\n".join(lines)
+        if active is None:
+            active = today + timedelta(days=1)
+            self.store.set_active_plan_day(user_id, active)
+        self.store.set_session(user_id, "history_select", active, {})
+        end_day = today + timedelta(days=1)
+        start_day = today - timedelta(days=5)
+        rows = self.store.history_counts(user_id, start_day, end_day)
+        lines = ["🗓 История планов", f"Активный план: {active.strftime('%d.%m.%Y')}", ""]
+        for plan_day, count in reversed(rows):
+            marker = " ← активный" if plan_day == active else ""
+            lines.append(f"{plan_day.strftime('%d.%m.%Y')} — {count} задач{marker}")
+        lines.append("")
+        lines.append("Чтобы открыть конкретный день, напиши дату в формате ДД.ММ.ГГГГ.")
+        return "\n".join(lines)
 
     async def _history_select(self, user_id: int, text: str, today: date) -> list[str]:
         try:
