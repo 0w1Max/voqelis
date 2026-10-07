@@ -477,6 +477,53 @@ def test_non_hour_duration_is_rounded_up_to_hourly_slots(tmp_path: Path):
     store.close()
 
 
+def test_apply_proposal_marks_moved_recurring_occurrence_excluded_for_day(
+    tmp_path: Path,
+):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    config = PlannerConfig()
+    store.ensure_daily_plan(1, day)
+    scheduler = Scheduler(store, config)
+
+    draft = TaskDraft(
+        "Срочная встреча",
+        day,
+        start_minute=10 * 60,
+        duration_minutes=60,
+        urgent=True,
+    )
+    result = scheduler.schedule(1, draft)
+
+    assert isinstance(result, Conflict)
+    recurring = next(
+        item for item in result.proposal.conflicts if item.kind == TaskKind.RECURRING
+    )
+    assert recurring.recurring_template_id == 15
+
+    created = scheduler.apply_proposal(1, result.proposal)
+
+    assert (created.start_minute, created.end_minute) == (10 * 60, 11 * 60)
+    moved = store.get_plan_item(recurring.id)
+    assert (moved.start_minute, moved.end_minute) == (11 * 60, 12 * 60)
+
+    exclusion = store.db.execute(
+        "SELECT 1 FROM recurring_exclusions "
+        "WHERE user_id=? AND day=? AND recurring_template_id=?",
+        (1, day.isoformat(), 15),
+    ).fetchone()
+    assert exclusion is not None
+
+    template = store.db.execute(
+        "SELECT start_minute, duration_minutes, active "
+        "FROM recurring_templates WHERE user_id=? AND id=?",
+        (1, 15),
+    ).fetchone()
+    assert tuple(template) == (10 * 60, 60, 1)
+
+    store.close()
+
+
 def test_urgent_task_can_propose_one_day_kd_move(tmp_path: Path):
     store = PlannerStore(tmp_path / "planner.sqlite3")
     day = date(2026, 9, 23)
