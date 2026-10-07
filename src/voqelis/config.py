@@ -61,6 +61,7 @@ class Settings:
     beam_size: int
     vad_min_silence_ms: int
     condition_on_previous_text: bool
+    asr_hotwords: str | None
     max_file_size_bytes: int
     max_audio_seconds: int
     max_pending_jobs: int
@@ -163,6 +164,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
             os.environ.get("CONDITION_ON_PREVIOUS_TEXT", "true"),
             name="CONDITION_ON_PREVIOUS_TEXT",
         ),
+        asr_hotwords=os.environ.get("ASR_HOTWORDS", "").strip() or None,
         max_file_size_bytes=max_file_size_mb * 1024 * 1024,
         max_audio_seconds=max_audio_minutes * 60,
         max_pending_jobs=max_pending_jobs,
