@@ -369,13 +369,17 @@ def _parse_tasks_result(
         if (relation is None) != (anchor is None):
             relation = None
             anchor = None
-        if relation_end is not None and anchor_end is None:
-            relation_end = None
-        if relation_end is None and anchor_end is not None:
-            relation_end = None
+        if (relation_end is None) != (anchor_end is None):
+            raise PlannerAIInvalidResponse(
+                f"{provider_name} returned an incomplete relation window"
+            )
         if relation_end is not None and relation_end != "before":
             raise PlannerAIInvalidResponse(
                 f"{provider_name} returned an invalid relation_end"
+            )
+        if relation_end is not None and relation != "after":
+            raise PlannerAIInvalidResponse(
+                f"{provider_name} returned a relation window without an initial after relation"
             )
 
         try:
