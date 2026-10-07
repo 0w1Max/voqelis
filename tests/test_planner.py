@@ -1022,7 +1022,7 @@ def test_history_day_actions_preserve_active_plan_day(tmp_path: Path):
     replies = asyncio.run(service.handle_text(1, "02.10.2026", date(2026, 10, 8)))
     assert "Исторический план: 02.10.2026" in replies[0]
     assert store.active_plan_day(1) == active_day
-    assert store.session(1)["state"] == "history_select"
+    assert store.session(1)["state"] == "history_day"
 
     replies = asyncio.run(service.handle_callback(1, "pl:history:review", date(2026, 10, 8)))
     assert store.active_plan_day(1) == active_day
@@ -1078,7 +1078,7 @@ def test_history_preserves_active_plan_day(tmp_path: Path):
 
     assert "Активный план: 02.10.2026" in history
     assert "02.10.2026" in history
-    assert store.session(1)["state"] == "history_day"
+    assert store.session(1)["state"] == "history_select"
     assert store.session(1)["target_day"] == "2026-10-02"
     assert store.active_plan_day(1) == active_day
     store.close()
@@ -1209,9 +1209,22 @@ def test_previous_why_is_case_insensitive_for_cyrillic_titles(tmp_path: Path):
     store.close()
 
 def test_review_flow_never_deletes_plan_items(tmp_path: Path):
+    class ReviewAI:
+        async def extract_tasks(self, text, *, today, target_day, config):
+            del text, today, target_day, config
+            return []
+
+        async def extract_review(self, text, *, task_title):
+            del task_title
+            return text, (), None
+
+        async def extract_full_review(self, text, *, items):
+            del text, items
+            return []
+
     store = PlannerStore(tmp_path / "planner.sqlite3")
     day = date(2026, 9, 23)
-    service = PlannerService(store, PlannerConfig(), ai=None)
+    service = PlannerService(store, PlannerConfig(), ai=ReviewAI())
 
     before = store.ensure_daily_plan(1, day)
     before_snapshot = [
