@@ -42,6 +42,8 @@ class TaskDraft:
     preferred_minute: int | None = None
     relation: str | None = None
     anchor: str | None = None
+    relation_end: str | None = None
+    anchor_end: str | None = None
     why: str | None = None
     urgent: bool = False
     source_text: str = ""
