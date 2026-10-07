@@ -82,7 +82,12 @@ def _clock_to_minute(
     minute_text: str | None,
     meridiem: str | None,
 ) -> int:
-    hour = _NUMBER_WORDS.get(hour_text.casefold(), int(hour_text) if hour_text.isdigit() else -1)
+    normalized_hour = hour_text.casefold()
+    hour = (
+        _NUMBER_WORDS[normalized_hour]
+        if normalized_hour in _NUMBER_WORDS
+        else int(hour_text)
+    )
     minute = int(minute_text or 0)
 
     if not 0 <= minute <= 59:
