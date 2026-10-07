@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from voqelis.planner.config import PlannerConfig, RecurringTemplateSpec
-from voqelis.planner.evidence import recognize_intent_evidence
+from voqelis.planner.evidence import SourceSpan, recognize_intent_evidence
 from voqelis.planner.export import build_docx, build_pdf
 from voqelis.planner.intent_validation import (
     IntentValidationError,
@@ -66,6 +66,44 @@ def test_evidence_does_not_treat_bare_day_as_period_inside_purpose_phrase():
         today=date(2026, 10, 1),
     )
     assert all(entity.kind.value != "period" for entity in evidence.entities)
+
+
+def test_evidence_recognizes_bounded_meal_relation_window():
+    evidence = recognize_intent_evidence(
+        "завтра после обеда и перед ужином поработать над проектом",
+        today=date(2026, 10, 1),
+    )
+    facts = evidence.for_task(
+        next(
+            entity.span
+            for entity in evidence.entities
+            if entity.kind.value == "relation"
+        )
+    )
+    assert facts.relation == "after"
+    assert facts.anchor == "lunch"
+    assert facts.relation_end == "before"
+    assert facts.anchor_end == "dinner"
+
+
+def test_evidence_normalizes_reversed_bounded_meal_relation_window():
+    evidence = recognize_intent_evidence(
+        "завтра перед ужином и после обеда поработать над проектом",
+        today=date(2026, 10, 1),
+    )
+    relation_entities = [
+        entity for entity in evidence.entities if entity.kind.value == "relation"
+    ]
+    span = SourceSpan(
+        min(entity.span.start for entity in relation_entities),
+        max(entity.span.end for entity in relation_entities),
+        "завтра перед ужином и после обеда поработать над проектом",
+    )
+    facts = evidence.for_task(span)
+    assert facts.relation == "after"
+    assert facts.anchor == "lunch"
+    assert facts.relation_end == "before"
+    assert facts.anchor_end == "dinner"
 
 
 def test_intent_validation_rejects_ai_time_not_supported_by_source():
@@ -613,6 +651,25 @@ def test_exact_conflict_suggests_nearest_free_slots(tmp_path: Path):
     assert result.proposal.alternatives
     assert result.proposal.alternatives[0] == (11 * 60, 12 * 60)
     store.close()
+
+def test_relation_window_uses_both_meal_boundaries(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    day = date(2026, 9, 23)
+    store.ensure_daily_plan(1, day)
+    scheduler = Scheduler(store, PlannerConfig())
+    draft = TaskDraft(
+        "Поработать над проектом",
+        day,
+        relation="after",
+        anchor="lunch",
+        relation_end="before",
+        anchor_end="dinner",
+    )
+    result = scheduler.schedule(1, draft)
+    assert not isinstance(result, Conflict)
+    assert (result.start_minute, result.end_minute) == (16 * 60, 17 * 60)
+    store.close()
+
 
 def test_night_period_uses_after_midnight_plan_window(tmp_path: Path):
     store = PlannerStore(tmp_path / "planner.sqlite3")
