@@ -51,6 +51,14 @@ TASK_SCHEMA = {
                         "type": ["string", "null"],
                         "enum": ["breakfast", "lunch", "dinner", None],
                     },
+                    "relation_end": {
+                        "type": ["string", "null"],
+                        "enum": ["before", None],
+                    },
+                    "anchor_end": {
+                        "type": ["string", "null"],
+                        "enum": ["breakfast", "lunch", "dinner", None],
+                    },
                     "why": {"type": ["string", "null"]},
                     "urgent": {"type": "boolean"},
                 },
@@ -65,6 +73,8 @@ TASK_SCHEMA = {
                     "preferred_time",
                     "relation",
                     "anchor",
+                    "relation_end",
+                    "anchor_end",
                     "why",
                     "urgent",
                 ],
@@ -276,7 +286,9 @@ def _task_prompt(text: str, *, today: date, target_day: date) -> str:
         "relation='after', anchor='dinner'; 'до/перед завтраком' -> "
         "relation='before', anchor='breakfast'; 'до/перед обедом' -> "
         "relation='before', anchor='lunch'; 'до/перед ужином' -> "
-        "relation='before', anchor='dinner'. Never invent a relation or anchor. "
+        "relation='before', anchor='dinner'. For a bounded window such as "
+        "'после обеда и перед ужином', set relation='after', anchor='lunch', "
+        "relation_end='before', anchor_end='dinner'. Never invent a relation or anchor. "
         "If no exact time, duration, period, or relation is stated, keep those fields null. "
         "Do not invent a reason, urgency, or schedule. "
         f"Today is {today.isoformat()}; default planning day is {target_day.isoformat()}. "
@@ -335,10 +347,14 @@ def _parse_tasks_result(
         period = raw.get("period")
         relation = raw.get("relation")
         anchor = raw.get("anchor")
+        relation_end = raw.get("relation_end")
+        anchor_end = raw.get("anchor_end")
         for field, value in (
             ("period", period),
             ("relation", relation),
             ("anchor", anchor),
+            ("relation_end", relation_end),
+            ("anchor_end", anchor_end),
         ):
             if value is not None and not isinstance(value, str):
                 raise PlannerAIInvalidResponse(
@@ -353,6 +369,14 @@ def _parse_tasks_result(
         if (relation is None) != (anchor is None):
             relation = None
             anchor = None
+        if relation_end is not None and anchor_end is None:
+            relation_end = None
+        if relation_end is None and anchor_end is not None:
+            relation_end = None
+        if relation_end is not None and relation_end != "before":
+            raise PlannerAIInvalidResponse(
+                f"{provider_name} returned an invalid relation_end"
+            )
 
         try:
             start = _parse_time(raw.get("start_time"))
@@ -384,6 +408,8 @@ def _parse_tasks_result(
             preferred_minute=_parse_time(raw.get("preferred_time")),
             relation=relation,
             anchor=anchor,
+            relation_end=relation_end,
+            anchor_end=anchor_end,
             why=_optional_string(raw.get("why"), "why"),
             urgent=urgent,
             source_text=source_text,
@@ -817,7 +843,9 @@ def _cloudflare_task_prompt(text: str, *, today: date, target_day: date) -> str:
         "relation='before', anchor='lunch'; 'после обеда' -> "
         "relation='after', anchor='lunch'; 'перед/до ужина' -> "
         "relation='before', anchor='dinner'; 'после ужина' -> "
-        "relation='after', anchor='dinner'. "
+        "relation='after', anchor='dinner'. For a bounded window such as "
+        "'после обеда и перед ужином', set relation='after', anchor='lunch', "
+        "relation_end='before', anchor_end='dinner'. "
         "Do not invent an anchor. Never use breakfast as a generic default for morning, "
         "afternoon, or an unrelated task. If a task has a relation but no explicit clock, "
         "leave start_time, end_time, and preferred_time null. "
