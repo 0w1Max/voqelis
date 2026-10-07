@@ -7,7 +7,6 @@ import pytest
 
 from voqelis.planner.config import PlannerConfig, RecurringTemplateSpec
 from voqelis.planner.evidence import recognize_intent_evidence
-from voqelis.planner.temporal import recognize_temporal_expressions
 from voqelis.planner.export import build_docx, build_pdf
 from voqelis.planner.intent_validation import (
     IntentValidationError,
@@ -23,6 +22,7 @@ from voqelis.planner.models import (
 from voqelis.planner.scheduler import Scheduler
 from voqelis.planner.service import PlannerService
 from voqelis.planner.store import PlannerStore
+from voqelis.planner.temporal import recognize_temporal_expressions
 
 
 class FixedPlannerAI:
