@@ -178,7 +178,9 @@ class PlannerService:
             start_minute=data.get("start_minute"), end_minute=data.get("end_minute"),
             duration_minutes=data.get("duration_minutes"), period=data.get("period"),
             preferred_minute=data.get("preferred_minute"), relation=data.get("relation"),
-            anchor=data.get("anchor"), why=data.get("why"), urgent=bool(data.get("urgent")),
+            anchor=data.get("anchor"), relation_end=data.get("relation_end"),
+            anchor_end=data.get("anchor_end"), why=data.get("why"),
+            urgent=bool(data.get("urgent")),
             source_text=data.get("source_text", ""),
             source_excerpt=data.get("source_excerpt"),
         )
