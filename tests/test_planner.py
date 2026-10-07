@@ -1022,7 +1022,7 @@ def test_history_day_actions_preserve_active_plan_day(tmp_path: Path):
     replies = asyncio.run(service.handle_text(1, "02.10.2026", date(2026, 10, 8)))
     assert "Исторический план: 02.10.2026" in replies[0]
     assert store.active_plan_day(1) == active_day
-    assert store.session(1)["state"] == "history_day"
+    assert store.session(1)["state"] == "history_select"
 
     replies = asyncio.run(service.handle_callback(1, "pl:history:review", date(2026, 10, 8)))
     assert store.active_plan_day(1) == active_day
