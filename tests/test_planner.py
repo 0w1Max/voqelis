@@ -1356,6 +1356,19 @@ class ReviewAI:
         return "сделал", (), None
 
 
+def test_non_missed_review_status_drops_missed_reason(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    service = PlannerService(store, PlannerConfig(recurring_templates=()))
+    day = date(2026, 10, 3)
+    item = PlanItem(0, 1, day, "Обед", None, 12 * 60, 13 * 60, TaskKind.ORDINARY)
+    store.add_item_if_free(item)
+    store.save_review(1, 1, "+-", "сделал частично", ("тяжело",), "не указана")
+    review = store.review_for_item(1, 1)
+    assert review is not None
+    assert review.missed_reason is None
+    store.close()
+
+
 def test_historical_review_preserves_active_day_through_completion(tmp_path: Path):
     store = PlannerStore(tmp_path / "planner.sqlite3")
     service = PlannerService(store, PlannerConfig(recurring_templates=()), ai=ReviewAI())
