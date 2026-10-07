@@ -25,7 +25,7 @@ from voqelis.planner.ai import (
     _task_prompt,
 )
 from voqelis.planner.config import PlannerConfig
-from voqelis.planner.intent_validation import IntentValidationError, validate_task_intents
+from voqelis.planner.intent_validation import validate_task_intents
 from voqelis.planner.models import PlannerAIError
 
 TODAY = date(2026, 10, 1)
