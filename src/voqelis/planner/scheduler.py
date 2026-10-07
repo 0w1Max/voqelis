@@ -43,6 +43,8 @@ class Scheduler:
         return ((duration + self.config.slot_minutes - 1) // self.config.slot_minutes) * self.config.slot_minutes
 
     def _candidates(self, draft: TaskDraft, duration: int) -> list[tuple[int, int]]:
+        if (draft.relation_end is None) != (draft.anchor_end is None):
+            raise ScheduleValidationError("Границы окна должны задаваться парой.")
         ws, we = self.config.plan_start_minute, self.config.plan_end_minute
         if draft.start_minute is not None:
             start = draft.start_minute
