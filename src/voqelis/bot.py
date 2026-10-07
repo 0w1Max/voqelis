@@ -241,8 +241,8 @@ async def run_worker(
                         "PLANNER_INPUT user=%s text=%r state=%s target_day=%s",
                         job.user_id,
                         result.text,
-                        session.get("state"),
-                        session.get("target_day"),
+                        session["state"],
+                        session["target_day"],
                     )
                 replies = await planner.handle_text(job.user_id, result.pause_aware_text or result.text, today)
                 if log_content:
