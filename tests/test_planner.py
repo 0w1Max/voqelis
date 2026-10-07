@@ -1353,19 +1353,25 @@ def test_clear_all_callback_removes_recurring_items_and_marks_day_cleared(tmp_pa
 class ReviewAI:
     async def extract_review(self, text, *, task_title):
         del text, task_title
-        return "сделал", (), None
+        return "сделал", (), "не указана"
 
 
 def test_non_missed_review_status_drops_missed_reason(tmp_path: Path):
     store = PlannerStore(tmp_path / "planner.sqlite3")
-    service = PlannerService(store, PlannerConfig(recurring_templates=()))
+    service = PlannerService(store, PlannerConfig(recurring_templates=()), ai=ReviewAI())
     day = date(2026, 10, 3)
     item = PlanItem(0, 1, day, "Обед", None, 12 * 60, 13 * 60, TaskKind.ORDINARY)
-    store.add_item_if_free(item)
-    store.save_review(1, 1, "+-", "сделал частично", ("тяжело",), "не указана")
-    review = store.review_for_item(1, 1)
-    assert review is not None
-    assert review.missed_reason is None
+    item_id = store.add_item_if_free(item)
+    assert item_id is not None
+
+    asyncio.run(service.start_review(1, day, day))
+    asyncio.run(service.handle_text(1, "+-", day))
+    replies = asyncio.run(service.handle_text(1, "сделал частично", day))
+
+    assert "Что бы ты изменил" in replies[0]
+    reviewed = next(item for item in store.reviews(1, day) if item.plan_item.id == item_id)
+    assert reviewed.status == "+-"
+    assert reviewed.missed_reason is None
     store.close()
 
 
