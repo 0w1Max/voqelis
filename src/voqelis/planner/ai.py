@@ -250,6 +250,16 @@ def _validate_task_draft(draft: TaskDraft, *, today: date) -> None:
         raise PlannerAIInvalidResponse("AI returned an invalid relation")
     if draft.anchor not in {None, "breakfast", "lunch", "dinner"}:
         raise PlannerAIInvalidResponse("AI returned an invalid anchor")
+    if draft.relation_end is not None and draft.relation != "after":
+        raise PlannerAIInvalidResponse(
+            "AI returned a relation window without an initial after relation"
+        )
+    if draft.relation_end not in {None, "before"}:
+        raise PlannerAIInvalidResponse("AI returned an invalid relation_end")
+    if draft.anchor_end not in {None, "breakfast", "lunch", "dinner"}:
+        raise PlannerAIInvalidResponse("AI returned an invalid anchor_end")
+    if (draft.relation_end is None) != (draft.anchor_end is None):
+        raise PlannerAIInvalidResponse("AI returned an incomplete relation window")
 
 
 def _task_prompt(text: str, *, today: date, target_day: date) -> str:
