@@ -1,5 +1,13 @@
-from voqelis.audio import is_audio_document
+import asyncio
+import sqlite3
+from pathlib import Path
 
+import pytest
+
+from voqelis.audio import is_audio_document
+from voqelis.bot import run_worker
+from voqelis.domain import AudioJob, TranscriptionResult
+from voqelis.planner.config import PlannerConfig
 
 def test_audio_mime_is_accepted():
     assert is_audio_document(mime_type="audio/mpeg", file_name="unknown.bin")
@@ -12,16 +20,6 @@ def test_known_audio_extension_is_accepted():
 def test_non_audio_document_is_rejected():
     assert not is_audio_document(mime_type="application/pdf", file_name="file.pdf")
 
-
-import asyncio
-import sqlite3
-from pathlib import Path
-
-import pytest
-
-from voqelis.bot import run_worker
-from voqelis.domain import AudioJob, TranscriptionResult
-from voqelis.planner.config import PlannerConfig
 
 
 @pytest.mark.asyncio
