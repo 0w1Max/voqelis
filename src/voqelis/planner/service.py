@@ -728,6 +728,8 @@ class PlannerService:
             ]
         activity = activity.strip() if activity else None
         reason = reason.strip() if reason else None
+        if status != "-":
+            reason = None
         if status == "-" and not reason:
             return [
                 (
