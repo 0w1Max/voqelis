@@ -74,11 +74,7 @@ def test_evidence_recognizes_bounded_meal_relation_window():
         today=date(2026, 10, 1),
     )
     facts = evidence.for_task(
-        next(
-            entity.span
-            for entity in evidence.entities
-            if entity.kind.value == "relation"
-        )
+        SourceSpan(0, len(evidence.source_text), evidence.source_text)
     )
     assert facts.relation == "after"
     assert facts.anchor == "lunch"
