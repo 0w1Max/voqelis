@@ -186,7 +186,7 @@ CASES = (
     Case(
         "relation_window",
         "завтра после обеда и перед ужином поработать над проектом для опыта",
-        [{"title": "поработать над проектом", "day": TARGET_DAY.isoformat(), "start_minute": None, "end_minute": None, "duration_minutes": None, "why": "для опыта", "period": None, "relation": "after", "anchor": "lunch", "urgent": False}],
+        [{"title": "поработать над проектом", "day": TARGET_DAY.isoformat(), "start_minute": None, "end_minute": None, "duration_minutes": None, "why": "для опыта", "period": None, "relation": "after", "anchor": "lunch", "relation_end": "before", "anchor_end": "dinner", "urgent": False}],
     ),
     Case(
         "explicit_interval_colloquial",
@@ -256,6 +256,8 @@ def _projected_task(task: Any) -> dict[str, Any]:
         "period": period_map.get(task.period, task.period),
         "relation": task.relation,
         "anchor": task.anchor,
+        "relation_end": task.relation_end,
+        "anchor_end": task.anchor_end,
         "urgent": task.urgent,
     }
 
@@ -270,6 +272,8 @@ FIELD_WEIGHTS = {
     "period": 1,
     "relation": 1,
     "anchor": 1,
+    "relation_end": 1,
+    "anchor_end": 1,
     "urgent": 1,
 }
 
