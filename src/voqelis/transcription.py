@@ -57,8 +57,6 @@ class Transcriber:
             beam_size=self.settings.beam_size,
             temperature=(0.0, 0.2, 0.4, 0.6, 0.8, 1.0),
             condition_on_previous_text=self.settings.condition_on_previous_text,
-            initial_prompt=self.settings.asr_initial_prompt,
-            hotwords=self.settings.asr_hotwords,
             vad_filter=True,
             vad_parameters={
                 "min_silence_duration_ms": self.settings.vad_min_silence_ms,
