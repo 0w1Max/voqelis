@@ -90,6 +90,19 @@ def _validate_intent(
             "Модель добавила отношение к приёму пищи, которого нет в источнике."
         )
 
+    if facts.relation_end is not None:
+        if (
+            intent.relation_end != facts.relation_end
+            or intent.anchor_end != facts.anchor_end
+        ):
+            raise IntentValidationError(
+                "Модель изменила вторую границу окна к приёму пищи."
+            )
+    elif intent.relation_end is not None or intent.anchor_end is not None:
+        raise IntentValidationError(
+            "Модель добавила вторую границу окна к приёму пищи, которой нет в источнике."
+        )
+
     if (
         facts.start_minute is None
         and facts.end_minute is None
