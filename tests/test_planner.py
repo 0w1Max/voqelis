@@ -1348,3 +1348,39 @@ def test_clear_all_callback_removes_recurring_items_and_marks_day_cleared(tmp_pa
     assert store.plan_items(1, day) == []
     assert store.is_day_cleared(1, day)
     store.close()
+
+
+class ReviewAI:
+    async def extract_review(self, text, *, task_title):
+        del text, task_title
+        return "сделал", (), None
+
+
+def test_historical_review_preserves_active_day_through_completion(tmp_path: Path):
+    store = PlannerStore(tmp_path / "planner.sqlite3")
+    service = PlannerService(store, PlannerConfig(recurring_templates=()), ai=ReviewAI())
+    active_day = date(2026, 10, 8)
+    historical_day = date(2026, 10, 3)
+    item = PlanItem(
+        0, 1, historical_day, "Обед", None, 12 * 60, 13 * 60, TaskKind.ORDINARY
+    )
+    store.set_active_plan_day(1, active_day)
+    item_id = store.add_item_if_free(item)
+    assert item_id is not None
+
+    asyncio.run(service.start_review(1, historical_day, date(2026, 10, 7), preserve_active_day=True))
+    assert store.active_plan_day(1) == active_day
+    assert store.session(1)["state"] == "review_status"
+
+    asyncio.run(service.handle_text(1, "+", date(2026, 10, 7)))
+    replies = asyncio.run(service.handle_text(1, "сделал", date(2026, 10, 7)))
+    assert "Что бы ты изменил" in replies[0]
+    assert store.active_plan_day(1) == active_day
+
+    asyncio.run(service.handle_text(1, "Ложился бы раньше", date(2026, 10, 7)))
+    replies = asyncio.run(service.handle_text(1, "Усталость", date(2026, 10, 7)))
+    assert "Анализ дня завершён" in replies[0]
+    assert store.active_plan_day(1) == active_day
+    assert store.session(1) is None
+    assert store.day_review(1, historical_day).completed is True
+    store.close()
