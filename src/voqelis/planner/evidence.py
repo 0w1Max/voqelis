@@ -57,6 +57,8 @@ class TaskEvidence:
     period: str | None = None
     relation: str | None = None
     anchor: str | None = None
+    relation_end: str | None = None
+    anchor_end: str | None = None
     evidence: str = ""
 
 
@@ -103,21 +105,30 @@ class IntentEvidence:
             for entity in relevant
             if entity.kind == EvidenceKind.PERIOD and entity.period is not None
         }
-        relations = {
+        relations = [
             (entity.relation, entity.anchor)
             for entity in relevant
             if entity.kind == EvidenceKind.RELATION
-        }
+        ]
 
         day = _single_value(date_values, "дат")
         start_minute = _single_value(starts, "времени")
         end_minute = _single_value(ends, "конца диапазона")
         period = _single_value(periods, "периода")
-        relation_pair = _single_value(
-            relations,
-            "отношения к приёму пищи",
-        )
-        relation, anchor = relation_pair if relation_pair else (None, None)
+
+        if len(relations) > 2:
+            raise EvidenceRecognitionError(
+                "Для задачи указано слишком много отношений к приёму пищи."
+            )
+        relation = anchor = relation_end = anchor_end = None
+        if relations:
+            relation, anchor = relations[0]
+        if len(relations) == 2:
+            relation_end, anchor_end = relations[1]
+            if relation != "after" or relation_end != "before":
+                raise EvidenceRecognitionError(
+                    "Поддерживается только окно «после одного приёма пищи и перед другим»."
+                )
 
         evidence_text = "; ".join(entity.span.text for entity in relevant)
         return TaskEvidence(
@@ -127,6 +138,8 @@ class IntentEvidence:
             period=period,
             relation=relation,
             anchor=anchor,
+            relation_end=relation_end,
+            anchor_end=anchor_end,
             evidence=evidence_text,
         )
 
