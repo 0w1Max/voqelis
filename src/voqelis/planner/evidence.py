@@ -155,7 +155,7 @@ _DATE = re.compile(
     re.IGNORECASE,
 )
 _PERIOD = re.compile(
-    r"\b(с\s+утра|утром|утро|днём|днем|день|вечером|вечер|ночью|ночь)\b",
+    r"\b(с\s+утра|утром|утро|днём|днем|вечером|вечер|ночью|ночь)\b",
     re.IGNORECASE,
 )
 _RELATION = re.compile(
@@ -181,7 +181,6 @@ _PERIODS = {
     "утро": "morning",
     "днём": "day",
     "днем": "day",
-    "день": "day",
     "вечером": "evening",
     "вечер": "evening",
     "ночью": "night",
