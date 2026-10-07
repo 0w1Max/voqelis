@@ -185,6 +185,46 @@ async def test_router_switches_after_invalid_response():
     assert fallback.calls == 1
 
 
+
+def test_full_review_normalizes_missed_reason_only_for_missed_status():
+    from voqelis.planner.ai import _validate_full_review_item
+
+    partial = _validate_full_review_item(
+        {
+            "plan_item_id": 1,
+            "status": "+-",
+            "activity": "сделал частично",
+            "feelings": [],
+            "missed_reason": "не было времени",
+        },
+        provider_name="Groq",
+    )
+    missed = _validate_full_review_item(
+        {
+            "plan_item_id": 2,
+            "status": "-",
+            "activity": "не сделал",
+            "feelings": [],
+            "missed_reason": "не было времени",
+        },
+        provider_name="Groq",
+    )
+    completed = _validate_full_review_item(
+        {
+            "plan_item_id": 3,
+            "status": "+",
+            "activity": "сделал",
+            "feelings": [],
+            "missed_reason": "не указана",
+        },
+        provider_name="Groq",
+    )
+
+    assert partial["missed_reason"] is None
+    assert missed["missed_reason"] == "не было времени"
+    assert completed["missed_reason"] is None
+
+
 def test_benchmark_treats_why_list_conjunction_as_equivalent():
     assert _field_equal(
         "why",
