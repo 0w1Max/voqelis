@@ -416,34 +416,50 @@ class PlannerService:
         today = today or self._planner_today()
         if day > today:
             return self._future_review_message(day)
-            self.store.ensure_daily_plan(user_id, day, self.config)
-            pending_item = next((x for x in self.store.reviews(user_id, day) if x.status is None), None)
-            if pending_item:
-                self._set_review_session(
-                    user_id, "review_status", day, {"current_item_id": pending_item.plan_item.id}
-                )
-                return (
-                    f"🔎 Продолжаем анализ дня.\n\n"
-                    f"{render_review_prompt(pending_item)}\n\nВыполнено?"
-                )
+        self.store.ensure_daily_plan(user_id, day, self.config)
+        pending_item = next((x for x in self.store.reviews(user_id, day) if x.status is None), None)
+        if pending_item:
+            self._set_review_session(
+                user_id,
+                "review_status",
+                day,
+                {"current_item_id": pending_item.plan_item.id},
+                preserve_active_day=preserve_active_day,
+            )
+            return (
+                f"🔎 Продолжаем анализ дня.\n\n"
+                f"{render_review_prompt(pending_item)}\n\nВыполнено?"
+            )
 
-            day_review = self.store.day_review(user_id, day)
-            if day_review is None:
-                self._set_review_session(user_id, "review_final1", day, {})
-                return (
-                    "Все задачи обработаны.\n\n"
-                    "Что бы ты изменил, если бы следовал рекомендации по оздоровлению?"
-                )
+        day_review = self.store.day_review(user_id, day)
+        if day_review is None:
+            self._set_review_session(
+                user_id,
+                "review_final1",
+                day,
+                {},
+                preserve_active_day=preserve_active_day,
+            )
+            return (
+                "Все задачи обработаны.\n\n"
+                "Что бы ты изменил, если бы следовал рекомендации по оздоровлению?"
+            )
 
-            if not day_review.completed:
-                self._set_review_session(user_id, "review_final2", day, {})
-                return (
-                    "Продолжаем финальную часть анализа.\n\n"
-                    "Теперь расскажи признаки срыва. Можно назвать несколько наблюдений "
-                    "одним сообщением. Или нажми «Пропустить»."
-                )
+        if not day_review.completed:
+            self._set_review_session(
+                user_id,
+                "review_final2",
+                day,
+                {},
+                preserve_active_day=preserve_active_day,
+            )
+            return (
+                "Продолжаем финальную часть анализа.\n\n"
+                "Теперь расскажи признаки срыва. Можно назвать несколько наблюдений "
+                "одним сообщением. Или нажми «Пропустить»."
+            )
 
-            return "Все задачи этого дня уже проанализированы."
+        return "Все задачи этого дня уже проанализированы."
 
     async def start_full_review(
         self, user_id: int, day: date, today: date | None = None, *, preserve_active_day: bool = False
@@ -459,15 +475,21 @@ class PlannerService:
         today = today or self._planner_today()
         if day > today:
             return self._future_review_message(day)
-            self.store.ensure_daily_plan(user_id, day, self.config)
-            day_review = self.store.day_review(user_id, day)
-            if day_review is not None and day_review.completed:
-                return "Этот день уже полностью проанализирован. Для изменения используй «✏️ Исправить анализ»."
-            self._set_review_session(user_id, "review_full_input", day, {})
-            return (
-                "🎙️ Расскажи одним сообщением, как прошёл весь день. "
-                "Я попробую сопоставить рассказ с задачами, а перед сохранением покажу результат для проверки."
-            )
+        self.store.ensure_daily_plan(user_id, day, self.config)
+        day_review = self.store.day_review(user_id, day)
+        if day_review is not None and day_review.completed:
+            return "Этот день уже полностью проанализирован. Для изменения используй «✏️ Исправить анализ»."
+        self._set_review_session(
+            user_id,
+            "review_full_input",
+            day,
+            {},
+            preserve_active_day=preserve_active_day,
+        )
+        return (
+            "🎙️ Расскажи одним сообщением, как прошёл весь день. "
+            "Я попробую сопоставить рассказ с задачами, а перед сохранением покажу результат для проверки."
+        )
 
     async def _review_full_input(self, user_id: int, text: str, day: date) -> list[str]:
         if self.ai is None:
@@ -597,18 +619,24 @@ class PlannerService:
         today = today or self._planner_today()
         if day > today:
             return self._future_review_message(day)
-            items = [x for x in self.store.reviews(user_id, day) if x.status is not None]
-            if not items:
-                return "На этот день пока нет заполненных ответов для редактирования."
-            self._set_review_session(user_id, "review_edit_select", day, {})
-            lines = ["✏️ Выбери задачу для исправления анализа:"]
-            for index, item in enumerate(items, 1):
-                lines.append(
-                    f"{index}. {fmt_time(item.plan_item.start_minute)}–{fmt_time(item.plan_item.end_minute)} — "
-                    f"{item.plan_item.title} [{item.status}]"
-                )
-            lines.append("Напиши номер задачи или «отмена».")
-            return "\n".join(lines)
+        items = [x for x in self.store.reviews(user_id, day) if x.status is not None]
+        if not items:
+            return "На этот день пока нет заполненных ответов для редактирования."
+        self._set_review_session(
+            user_id,
+            "review_edit_select",
+            day,
+            {},
+            preserve_active_day=preserve_active_day,
+        )
+        lines = ["✏️ Выбери задачу для исправления анализа:"]
+        for index, item in enumerate(items, 1):
+            lines.append(
+                f"{index}. {fmt_time(item.plan_item.start_minute)}–{fmt_time(item.plan_item.end_minute)} — "
+                f"{item.plan_item.title} [{item.status}]"
+            )
+        lines.append("Напиши номер задачи или «отмена».")
+        return "\n".join(lines)
 
     async def _review_edit_select(self, user_id: int, text: str, day: date) -> list[str]:
         answer = text.strip().lower()
