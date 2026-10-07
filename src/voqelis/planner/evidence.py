@@ -120,15 +120,26 @@ class IntentEvidence:
             raise EvidenceRecognitionError(
                 "Для задачи указано слишком много отношений к приёму пищи."
             )
+
         relation = anchor = relation_end = anchor_end = None
         if relations:
-            relation, anchor = relations[0]
-        if len(relations) == 2:
-            relation_end, anchor_end = relations[1]
-            if relation != "after" or relation_end != "before":
+            after = [pair for pair in relations if pair[0] == "after"]
+            before = [pair for pair in relations if pair[0] == "before"]
+            if len(after) > 1 or len(before) > 1:
+                raise EvidenceRecognitionError(
+                    "Для задачи указано несколько одинаковых отношений к приёму пищи."
+                )
+            if len(relations) == 2 and (not after or not before):
                 raise EvidenceRecognitionError(
                     "Поддерживается только окно «после одного приёма пищи и перед другим»."
                 )
+            if after:
+                relation, anchor = after[0]
+            if before:
+                if relation is None:
+                    relation, anchor = before[0]
+                else:
+                    relation_end, anchor_end = before[0]
 
         evidence_text = "; ".join(entity.span.text for entity in relevant)
         return TaskEvidence(
