@@ -499,7 +499,8 @@ def test_apply_proposal_marks_moved_recurring_occurrence_excluded_for_day(
     recurring = next(
         item for item in result.proposal.conflicts if item.kind == TaskKind.RECURRING
     )
-    assert recurring.recurring_template_id == 15
+    template_id = recurring.recurring_template_id
+    assert template_id is not None
 
     created = scheduler.apply_proposal(1, result.proposal)
 
@@ -510,14 +511,14 @@ def test_apply_proposal_marks_moved_recurring_occurrence_excluded_for_day(
     exclusion = store.db.execute(
         "SELECT 1 FROM recurring_exclusions "
         "WHERE user_id=? AND day=? AND recurring_template_id=?",
-        (1, day.isoformat(), 15),
+        (1, day.isoformat(), template_id),
     ).fetchone()
     assert exclusion is not None
 
     template = store.db.execute(
         "SELECT start_minute, duration_minutes, active "
         "FROM recurring_templates WHERE user_id=? AND id=?",
-        (1, 15),
+        (1, template_id),
     ).fetchone()
     assert tuple(template) == (10 * 60, 60, 1)
 
