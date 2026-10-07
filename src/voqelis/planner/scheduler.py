@@ -55,11 +55,32 @@ class Scheduler:
             if anchor is None:
                 raise ScheduleValidationError(f"Неизвестная опорная точка: {draft.anchor}")
             if draft.relation == "after":
-                lo, hi = anchor[1], we
+                lo = anchor[1]
                 preferred = lo
+                if draft.relation_end and draft.anchor_end:
+                    end_anchor = self.config.anchor(draft.anchor_end)
+                    if end_anchor is None:
+                        raise ScheduleValidationError(
+                            f"Неизвестная опорная точка: {draft.anchor_end}"
+                        )
+                    if draft.relation_end != "before":
+                        raise ScheduleValidationError(
+                            "Второе отношение должно быть 'before'."
+                        )
+                    hi = end_anchor[0]
+                    if hi <= lo:
+                        raise ScheduleValidationError(
+                            "Окно между опорными точками пусто."
+                        )
+                else:
+                    hi = we
             elif draft.relation == "before":
                 lo, hi = ws, anchor[0]
                 preferred = max(ws, hi - duration)
+                if draft.relation_end or draft.anchor_end:
+                    raise ScheduleValidationError(
+                        "Окно с начальной границей 'before' не поддерживается."
+                    )
             else:
                 raise ScheduleValidationError(f"Неизвестное отношение: {draft.relation}")
         else:
