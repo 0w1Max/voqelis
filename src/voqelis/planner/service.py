@@ -308,16 +308,20 @@ class PlannerService:
 
     def _set_review_session(self, user_id: int, state: str, day: date, payload: dict | None = None, *, preserve_active_day: bool = False) -> None:
         session = self.store.session(user_id)
-        preserve = preserve_active_day or (
+        previous_payload = self.store.session_payload(user_id)
+        preserve = preserve_active_day or bool(previous_payload.get("_preserve_active_day")) or (
             session is not None
             and session["state"] == "history_day"
             and session["target_day"] == day.isoformat()
         )
+        review_payload = dict(payload or {})
+        if preserve:
+            review_payload["_preserve_active_day"] = True
         self.store.set_session(
             user_id,
             state,
             day,
-            payload,
+            review_payload,
             sync_active_day=not preserve,
         )
 
