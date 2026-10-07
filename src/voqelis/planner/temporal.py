@@ -41,12 +41,28 @@ _MERIDIEM_HOURS: dict[str, dict[int, int]] = {
 }
 
 
+_NUMBER_WORDS = {
+    "один": 1,
+    "два": 2,
+    "три": 3,
+    "четыре": 4,
+    "пять": 5,
+    "шесть": 6,
+    "семь": 7,
+    "восемь": 8,
+    "девять": 9,
+    "десять": 10,
+    "одиннадцать": 11,
+    "двенадцать": 12,
+}
+
+
 _RANGE = re.compile(
     r"(?<!\w)"
-    r"(?P<start_hour>\d{1,2})(?:(?::|\.)(?P<start_minute>\d{2}))?"
+    r"(?P<start_hour>\d{1,2}|одиннадцать|двенадцать|десять|девять|восемь|семь|шесть|пять|четыре|три|два|один)(?:(?::|\.)(?P<start_minute>\d{2}))?"
     r"\s*(?:час(?:а|ов)?|ч)?\s*(?P<start_meridiem>утра|дня|вечера|ночи)?"
     r"\s*(?:до|[-–—])\s*"
-    r"(?P<end_hour>\d{1,2})(?:(?::|\.)(?P<end_minute>\d{2}))?"
+    r"(?P<end_hour>\d{1,2}|одиннадцать|двенадцать|десять|девять|восемь|семь|шесть|пять|четыре|три|два|один)(?:(?::|\.)(?P<end_minute>\d{2}))?"
     r"\s*(?:час(?:а|ов)?|ч)?\s*(?P<end_meridiem>утра|дня|вечера|ночи)?"
     r"(?!\w)",
     re.IGNORECASE,
@@ -54,7 +70,7 @@ _RANGE = re.compile(
 
 _CLOCK = re.compile(
     r"(?<!\w)(?:в|к)\s+"
-    r"(?P<hour>\d{1,2})(?:(?::|\.)(?P<minute>\d{2}))?"
+    r"(?P<hour>\d{1,2}|одиннадцать|двенадцать|десять|девять|восемь|семь|шесть|пять|четыре|три|два|один)(?:(?::|\.)(?P<minute>\d{2}))?"
     r"\s*(?:час(?:а|ов)?|ч)?\s*(?P<meridiem>утра|дня|вечера|ночи)?"
     r"(?!\w)",
     re.IGNORECASE,
@@ -66,7 +82,7 @@ def _clock_to_minute(
     minute_text: str | None,
     meridiem: str | None,
 ) -> int:
-    hour = int(hour_text)
+    hour = _NUMBER_WORDS.get(hour_text.casefold(), int(hour_text) if hour_text.isdigit() else -1)
     minute = int(minute_text or 0)
 
     if not 0 <= minute <= 59:
