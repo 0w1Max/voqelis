@@ -1,0 +1,65 @@
+{
+  "today": "2026-10-08",
+  "cases": [
+    {
+      "id": "today_time",
+      "audio": "audio/today_time.wav",
+      "reference": "Сегодня в 10 утра сделать отчет для работы"
+    },
+    {
+      "id": "tomorrow_time",
+      "audio": "audio/tomorrow_time.wav",
+      "reference": "Завтра в 13 часов сделать тест распознавания"
+    },
+    {
+      "id": "day_after_tomorrow",
+      "audio": "audio/day_after_tomorrow.wav",
+      "reference": "Послезавтра в 13 часов сделать тест распознавания"
+    },
+    {
+      "id": "in_two_days",
+      "audio": "audio/in_two_days.wav",
+      "reference": "Через два дня в 15 часов сделать отчет"
+    },
+    {
+      "id": "morning",
+      "audio": "audio/morning.wav",
+      "reference": "Завтра утром позвонить по работе"
+    },
+    {
+      "id": "after_lunch",
+      "audio": "audio/after_lunch.wav",
+      "reference": "Завтра после обеда поработать над проектом для опыта"
+    },
+    {
+      "id": "after_before_meals",
+      "audio": "audio/after_before_meals.wav",
+      "reference": "Завтра после завтрака и перед ужином поработать над проектом"
+    },
+    {
+      "id": "range",
+      "audio": "audio/range.wav",
+      "reference": "Завтра с 13 до 15 читать книгу"
+    },
+    {
+      "id": "overnight",
+      "audio": "audio/overnight.wav",
+      "reference": "Завтра с 23 вечера до 1 ночи подготовка ко сну"
+    },
+    {
+      "id": "purpose_list",
+      "audio": "audio/purpose_list.wav",
+      "reference": "Завтра в 18 часов позвонить родителям для здоровья, для настроения, для духовного опыта"
+    },
+    {
+      "id": "natural_problem",
+      "audio": "audio/natural_problem.wav",
+      "reference": "Послезавтра в 13 часов сделать тест распознавания послезавтра"
+    },
+    {
+      "id": "no_time",
+      "audio": "audio/no_time.wav",
+      "reference": "Завтра поработать над проектом для опыта"
+    }
+  ]
+}
