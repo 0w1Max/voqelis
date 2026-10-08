@@ -15,7 +15,8 @@ from pathlib import Path
 from typing import Any
 
 MODEL_NAMES = (
-    "whisper-base",
+    "whisper-base-original",
+    "whisper-base-current",
     "whisper-small",
     "gigaam-v3-ctc-int8",
     "gigaam-v3-rnnt-int8",
@@ -123,10 +124,14 @@ def _peak_rss_mb() -> float:
 
 
 def _load_model(name: str):
-    if name in {"whisper-base", "whisper-small"}:
+    if name in {
+        "whisper-base-original",
+        "whisper-base-current",
+        "whisper-small",
+    }:
         from faster_whisper import WhisperModel
 
-        size = "base" if name == "whisper-base" else "small"
+        size = "small" if name == "whisper-small" else "base"
         return WhisperModel(
             size,
             device="cpu",
@@ -159,6 +164,7 @@ def _load_model(name: str):
 
 def _recognize(model_name: str, model: Any, audio_path: Path) -> str:
     if model_name.startswith("whisper-"):
+        use_timestamps = model_name != "whisper-base-original"
         segments, _ = model.transcribe(
             str(audio_path),
             language="ru",
@@ -167,7 +173,7 @@ def _recognize(model_name: str, model: Any, audio_path: Path) -> str:
             condition_on_previous_text=True,
             vad_filter=True,
             vad_parameters={"min_silence_duration_ms": 500},
-            without_timestamps=False,
+            without_timestamps=not use_timestamps,
             word_timestamps=False,
         )
         return "".join(segment.text for segment in segments).strip()
@@ -327,7 +333,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--models",
-        default="whisper-base,gigaam-v3-rnnt-int8,gigaam-v3-ctc-int8",
+        default="whisper-base-original,whisper-base-current,gigaam-v3-rnnt-int8,gigaam-v3-ctc-int8",
         help="Comma-separated model names.",
     )
     parser.add_argument("--warmup-count", type=int, default=1)
