@@ -97,6 +97,10 @@ _NUMBER_WORDS = {
     "двадцати трём": 23,
     "двадцати трех": 23,
     "двадцати трем": 23,
+    # In clock context, Russian can omit the numeral «один»: «в час», «к часу», «до часа».
+    "час": 1,
+    "часа": 1,
+    "часу": 1,
 }
 
 _HOUR_WORD_PATTERN = "|".join(
