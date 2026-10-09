@@ -68,6 +68,31 @@ _NUMBER_WORDS = {
     "десяти": 10,
     "одиннадцати": 11,
     "двенадцати": 12,
+    # Cardinal hour forms commonly emitted by Russian ASR systems.
+    "тринадцать": 13,
+    "четырнадцать": 14,
+    "пятнадцать": 15,
+    "шестнадцать": 16,
+    "семнадцать": 17,
+    "восемнадцать": 18,
+    "девятнадцать": 19,
+    "двадцать": 20,
+    "двадцать один": 21,
+    "двадцать два": 22,
+    "двадцать три": 23,
+    # Genitive forms used with «к» and in spoken time ranges.
+    "тринадцати": 13,
+    "четырнадцати": 14,
+    "пятнадцати": 15,
+    "шестнадцати": 16,
+    "семнадцати": 17,
+    "восемнадцати": 18,
+    "девятнадцати": 19,
+    "двадцати": 20,
+    "двадцати одного": 21,
+    "двадцати двух": 22,
+    "двадцати трёх": 23,
+    "двадцати трех": 23,
 }
 
 _HOUR_WORD_PATTERN = "|".join(
@@ -100,7 +125,7 @@ def _clock_to_minute(
     minute_text: str | None,
     meridiem: str | None,
 ) -> int:
-    normalized_hour = hour_text.casefold()
+    normalized_hour = " ".join(hour_text.casefold().split())
     hour = (
         _NUMBER_WORDS[normalized_hour]
         if normalized_hour in _NUMBER_WORDS
