@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from voqelis.audio import is_audio_document
+from voqelis.audio import convert_audio_to_wav, is_audio_document, probe_duration_seconds
 from voqelis.bot import run_worker
 from voqelis.domain import AudioJob, TranscriptionResult
 from voqelis.planner.config import PlannerConfig
@@ -101,3 +101,25 @@ async def test_run_worker_debug_logging_accepts_sqlite_row(monkeypatch, tmp_path
         )
 
     connection.close()
+
+
+
+def test_convert_audio_to_benchmark_wav(tmp_path):
+    import wave
+
+    source = tmp_path / "input.wav"
+    destination = tmp_path / "output.wav"
+    with wave.open(str(source), "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(16_000)
+        audio.writeframes(b"\x00\x00" * 1_600)
+
+    convert_audio_to_wav(source, destination)
+
+    with wave.open(str(destination), "rb") as audio:
+        assert audio.getnchannels() == 1
+        assert audio.getsampwidth() == 2
+        assert audio.getframerate() == 16_000
+        assert audio.getnframes() == 1_600
+    assert probe_duration_seconds(destination) == 0.1

@@ -8,6 +8,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 
 from .bot import cleanup_temp_dir, create_router, run_worker
+from .asr_test_bot import AsrBenchmarkManager, create_asr_test_router
 from .config import load_settings
 from .planner.ai import (
     AIProviderRouter,
@@ -43,6 +44,10 @@ async def async_main() -> None:
         PlannerConfig.from_json_file(settings.planner_config_path)
         if settings.planner_config_path.exists()
         else PlannerConfig()
+    )
+    asr_test_manager = AsrBenchmarkManager(
+        data_dir=settings.planner_db_path.parent / "asr-benchmark" / "telegram",
+        timezone=planner_config.timezone,
     )
     groq_ai = (
         GroqPlannerAI(
@@ -102,6 +107,9 @@ async def async_main() -> None:
     )
 
     dp = Dispatcher()
+    dp.include_router(
+        create_asr_test_router(manager=asr_test_manager, settings=settings)
+    )
     dp.include_router(create_planner_router(service=planner, allowed_user_ids=settings.allowed_user_ids))
     dp.include_router(create_router(settings=settings, queue=queue, planner=planner))
 

@@ -30,6 +30,7 @@ class Case:
     case_id: str
     audio: Path
     reference: str
+    today: date
 
 
 def _normalize_text(text: str) -> list[str]:
@@ -261,6 +262,7 @@ def _load_manifest(path: Path) -> tuple[date, list[Case]]:
             case_id=item["id"],
             audio=(root / item["audio"]).resolve(),
             reference=item["reference"],
+            today=date.fromisoformat(item.get("today", data["today"])),
         )
         for item in data["cases"]
     ]
@@ -279,7 +281,7 @@ def _run_worker(
     warmup_count: int,
 ) -> None:
     sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
-    today, cases = _load_manifest(manifest)
+    _, cases = _load_manifest(manifest)
 
     load_started = time.perf_counter()
     model = _load_model(model_name)
@@ -300,7 +302,7 @@ def _run_worker(
         critical_match, ref_facts, hyp_facts = _critical_match(
             case.reference,
             hypothesis,
-            today=today,
+            today=case.today,
         )
         rows.append(
             {
