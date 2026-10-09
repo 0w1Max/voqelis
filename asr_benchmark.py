@@ -60,6 +60,76 @@ def _wer(reference: str, hypothesis: str) -> float:
     return _edit_distance(ref, hyp) / max(len(ref), 1)
 
 
+_NUMBER_WORDS = {
+    "ноль": 0, "нуль": 0, "нуля": 0, "нулю": 0, "нулём": 0, "нулем": 0,
+    "один": 1, "одна": 1, "одно": 1, "одну": 1, "одного": 1,
+    "одной": 1, "одному": 1, "одним": 1, "одними": 1,
+    "два": 2, "две": 2, "двух": 2, "двум": 2, "двумя": 2,
+    "три": 3, "трех": 3, "трёх": 3, "трем": 3, "трём": 3, "тремя": 3,
+    "четыре": 4, "четырех": 4, "четырёх": 4, "четырем": 4,
+    "четырём": 4, "четырьмя": 4,
+    "пять": 5, "пяти": 5, "пятью": 5,
+    "шесть": 6, "шести": 6, "шестью": 6,
+    "семь": 7, "семи": 7, "семью": 7,
+    "восемь": 8, "восьми": 8, "восемью": 8,
+    "девять": 9, "девяти": 9, "девятью": 9,
+    "десять": 10, "десяти": 10, "десятью": 10,
+    "одиннадцать": 11, "одиннадцати": 11,
+    "двенадцать": 12, "двенадцати": 12,
+    "тринадцать": 13, "тринадцати": 13,
+    "четырнадцать": 14, "четырнадцати": 14,
+    "пятнадцать": 15, "пятнадцати": 15,
+    "шестнадцать": 16, "шестнадцати": 16,
+    "семнадцать": 17, "семнадцати": 17,
+    "восемнадцать": 18, "восемнадцати": 18,
+    "девятнадцать": 19, "девятнадцати": 19,
+}
+
+_TENS_WORDS = {
+    "двадцать": 20, "двадцати": 20,
+    "тридцать": 30, "тридцати": 30,
+    "сорок": 40, "сорока": 40,
+    "пятьдесят": 50, "пятидесяти": 50,
+    "шестьдесят": 60, "шестидесяти": 60,
+    "семьдесят": 70, "семидесяти": 70,
+    "восемьдесят": 80, "восьмидесяти": 80,
+    "девяносто": 90, "девяноста": 90,
+}
+
+
+def _normalize_numeric_tokens(tokens: list[str]) -> list[str]:
+    """Normalize common Russian cardinal numerals for benchmark WER only."""
+    normalized: list[str] = []
+    index = 0
+
+    while index < len(tokens):
+        token = tokens[index]
+        tens = _TENS_WORDS.get(token)
+        if tens is not None:
+            if index + 1 < len(tokens):
+                unit = _NUMBER_WORDS.get(tokens[index + 1])
+                if unit is not None and 1 <= unit <= 9:
+                    normalized.append(str(tens + unit))
+                    index += 2
+                    continue
+            normalized.append(str(tens))
+            index += 1
+            continue
+
+        value = _NUMBER_WORDS.get(token)
+        normalized.append(str(value) if value is not None else token)
+        index += 1
+
+    return normalized
+
+
+def _wer_numeric_normalized(reference: str, hypothesis: str) -> float:
+    """WER with common Russian cardinal numerals normalized to numeric values."""
+    ref = _normalize_numeric_tokens(_normalize_text(reference))
+    hyp = _normalize_numeric_tokens(_normalize_text(hypothesis))
+    return _edit_distance(ref, hyp) / max(len(ref), 1)
+
+
 def _cer(reference: str, hypothesis: str) -> float:
     ref = "".join(_normalize_text(reference))
     hyp = "".join(_normalize_text(hypothesis))
@@ -245,6 +315,10 @@ def _run_worker(
                     else None
                 ),
                 "wer": _wer(case.reference, hypothesis),
+                "wer_numeric_normalized": _wer_numeric_normalized(
+                    case.reference,
+                    hypothesis,
+                ),
                 "cer": _cer(case.reference, hypothesis),
                 "critical_match": critical_match,
                 "reference_critical": ref_facts,
@@ -263,6 +337,9 @@ def _run_worker(
         "summary": {
             "case_count": len(rows),
             "wer_mean": statistics.mean(row["wer"] for row in rows),
+            "wer_numeric_normalized_mean": statistics.mean(
+                row["wer_numeric_normalized"] for row in rows
+            ),
             "cer_mean": statistics.mean(row["cer"] for row in rows),
             "critical_accuracy": sum(
                 row["critical_match"] for row in rows
