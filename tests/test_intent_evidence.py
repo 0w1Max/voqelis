@@ -272,6 +272,10 @@ def test_single_task_contradicting_time_is_rejected():
         ("в 12 утра", 0),
         ("в 12 дня", 12 * 60),
         ("в 21:30", 21 * 60 + 30),
+        ("в тринадцать часов", 13 * 60),
+        ("в четырнадцать", 14 * 60),
+        ("в двадцать три часа", 23 * 60),
+        ("к двадцати одному", 21 * 60),
     ],
 )
 def test_temporal_grammar_normalizes_supported_clock_forms(text, minute):
