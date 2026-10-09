@@ -107,14 +107,63 @@ _HOUR_WORD_PATTERN = "|".join(
     re.escape(word) for word in sorted(_NUMBER_WORDS, key=len, reverse=True)
 )
 
+# Spoken minute values emitted by ASR, e.g. «тринадцать пятнадцать».
+_MINUTE_NUMBER_WORDS = {
+    "ноль": 0,
+    "нуль": 0,
+    "один": 1,
+    "одна": 1,
+    "одно": 1,
+    "два": 2,
+    "две": 2,
+    "три": 3,
+    "четыре": 4,
+    "пять": 5,
+    "шесть": 6,
+    "семь": 7,
+    "восемь": 8,
+    "девять": 9,
+    "десять": 10,
+    "одиннадцать": 11,
+    "двенадцать": 12,
+    "тринадцать": 13,
+    "четырнадцать": 14,
+    "пятнадцать": 15,
+    "шестнадцать": 16,
+    "семнадцать": 17,
+    "восемнадцать": 18,
+    "девятнадцать": 19,
+}
+_MINUTE_TENS = {
+    "двадцать": 20,
+    "тридцать": 30,
+    "сорок": 40,
+    "пятьдесят": 50,
+}
+for _tens_text, _tens_value in _MINUTE_TENS.items():
+    _MINUTE_NUMBER_WORDS[_tens_text] = _tens_value
+    for _unit_text, _unit_value in tuple(_MINUTE_NUMBER_WORDS.items()):
+        if 1 <= _unit_value <= 9:
+            _MINUTE_NUMBER_WORDS[f"{_tens_text} {_unit_text}"] = (
+                _tens_value + _unit_value
+            )
+_MINUTE_NUMBER_WORDS["ноль ноль"] = 0
+_MINUTE_NUMBER_WORDS["нуль нуль"] = 0
+_MINUTE_WORD_PATTERN = "|".join(
+    re.escape(word)
+    for word in sorted(_MINUTE_NUMBER_WORDS, key=len, reverse=True)
+)
+
 
 _RANGE = re.compile(
     r"(?<!\w)"
     rf"(?P<start_hour>\d{{1,2}}|{_HOUR_WORD_PATTERN})(?:(?::|\.)(?P<start_minute>\d{{2}}))?"
-    r"\s*(?:час(?:а|ов)?|ч)?\s*(?P<start_meridiem>утра|дня|вечера|ночи)?"
+    r"\s*(?:час(?:а|ов)?|ч)?\s*(?P<start_minute_words>{_MINUTE_WORD_PATTERN})?"
+    r"\s*(?:минут(?:а|ы)?\s*)?(?P<start_meridiem>утра|дня|вечера|ночи)?"
     r"\s*(?:до|[-–—])\s*"
     rf"(?P<end_hour>\d{{1,2}}|{_HOUR_WORD_PATTERN})(?:(?::|\.)(?P<end_minute>\d{{2}}))?"
-    r"\s*(?:час(?:а|ов)?|ч)?\s*(?P<end_meridiem>утра|дня|вечера|ночи)?"
+    r"\s*(?:час(?:а|ов)?|ч)?\s*(?P<end_minute_words>" + _MINUTE_WORD_PATTERN + r")?"
+    r"\s*(?:минут(?:а|ы)?\s*)?(?P<end_meridiem>утра|дня|вечера|ночи)?"
     r"(?!\w)",
     re.IGNORECASE,
 )
@@ -122,7 +171,8 @@ _RANGE = re.compile(
 _CLOCK = re.compile(
     r"(?<!\w)(?:в|к)\s+"
     rf"(?P<hour>\d{{1,2}}|{_HOUR_WORD_PATTERN})(?:(?::|\.)(?P<minute>\d{{2}}))?"
-    r"\s*(?:час(?:а|ов)?|ч)?\s*(?P<meridiem>утра|дня|вечера|ночи)?"
+    r"\s*(?:час(?:а|ов)?|ч)?\s*(?P<minute_words>{_MINUTE_WORD_PATTERN})?"
+    r"\s*(?:минут(?:а|ы)?\s*)?(?P<meridiem>утра|дня|вечера|ночи)?"
     r"(?!\w)",
     re.IGNORECASE,
 )
@@ -132,6 +182,7 @@ def _clock_to_minute(
     hour_text: str,
     minute_text: str | None,
     meridiem: str | None,
+    spoken_minute_text: str | None = None,
 ) -> int:
     normalized_hour = " ".join(hour_text.casefold().split())
     hour = (
@@ -139,7 +190,13 @@ def _clock_to_minute(
         if normalized_hour in _NUMBER_WORDS
         else int(hour_text)
     )
-    minute = int(minute_text or 0)
+    if minute_text is not None:
+        minute = int(minute_text)
+    elif spoken_minute_text is not None:
+        normalized_minute = " ".join(spoken_minute_text.casefold().split())
+        minute = _MINUTE_NUMBER_WORDS[normalized_minute]
+    else:
+        minute = 0
 
     if not 0 <= minute <= 59:
         raise TemporalRecognitionError("Минуты вне допустимого диапазона.")
@@ -188,11 +245,13 @@ def _range_to_minutes(match: re.Match[str]) -> tuple[int, int]:
         match.group("start_hour"),
         match.group("start_minute"),
         start_meridiem or shared_meridiem,
+        match.group("start_minute_words"),
     )
     end_minute = _clock_to_minute(
         match.group("end_hour"),
         match.group("end_minute"),
         end_meridiem or shared_meridiem,
+        match.group("end_minute_words"),
     )
 
     return start_minute, _range_end_minute(
@@ -243,6 +302,7 @@ def recognize_temporal_expressions(
                     match.group("hour"),
                     match.group("minute"),
                     match.group("meridiem"),
+                    match.group("minute_words"),
                 ),
             )
         )
