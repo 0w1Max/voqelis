@@ -1,8 +1,6 @@
 import io
 import json
 
-import pytest
-
 import voqelis.asr_worker as asr_worker
 
 

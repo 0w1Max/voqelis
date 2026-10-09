@@ -41,7 +41,7 @@ def serve(
         # Third-party model/runtime output must not corrupt our JSON stdout protocol.
         with redirect_stdout(sys.stderr):
             model = load_gigaam_model(model_name)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - Serialize startup failures for the parent process.
         traceback.print_exc(file=sys.stderr)
         _emit(
             {"ready": False, "error": f"{type(exc).__name__}: {exc}"},
@@ -63,7 +63,7 @@ def serve(
             with redirect_stdout(sys.stderr):
                 result = model.recognize(audio_path)
             _emit({"ok": True, "text": str(result).strip()}, destination)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - Keep each request's failure in the line protocol.
             traceback.print_exc(file=sys.stderr)
             _emit(
                 {"ok": False, "error": f"{type(exc).__name__}: {exc}"},
