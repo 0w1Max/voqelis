@@ -12,6 +12,11 @@ ALLOWED_MODEL_SIZES = {
     "medium", "medium.en", "large-v1", "large-v2", "large-v3",
     "large-v3-turbo", "turbo",
 }
+ALLOWED_ASR_BACKENDS = {
+    "whisper",
+    "gigaam-v3-rnnt-int8",
+    "gigaam-v3-ctc-int8",
+}
 
 
 def _parse_bool(value: str, *, name: str) -> bool:
@@ -82,6 +87,8 @@ class Settings:
     planner_ai_timeout_seconds: int
     planner_ai_fallback_timeout_seconds: int
     planner_log_content: bool
+    asr_backend: str = "whisper"
+    asr_worker_python: Path = Path(".venv-asr-benchmark/bin/python")
 
 
 def load_settings(env_file: Path | None = None) -> Settings:
@@ -107,6 +114,15 @@ def load_settings(env_file: Path | None = None) -> Settings:
         raise ValueError(f"MODEL_DEVICE must be cpu/cuda/auto, got {device!r}")
 
     compute_type = os.environ.get("MODEL_COMPUTE_TYPE", "int8").strip().lower()
+    asr_backend = os.environ.get("ASR_BACKEND", "whisper").strip().lower()
+    if asr_backend not in ALLOWED_ASR_BACKENDS:
+        raise ValueError(
+            f"ASR_BACKEND must be one of {sorted(ALLOWED_ASR_BACKENDS)}, "
+            f"got {asr_backend!r}"
+        )
+    asr_worker_python = Path(
+        os.environ.get("ASR_WORKER_PYTHON", ".venv-asr-benchmark/bin/python")
+    ).expanduser()
     cpu_threads = _positive_int(
         os.environ.get("CPU_THREADS", "1"), name="CPU_THREADS", minimum=1
     )
@@ -204,6 +220,8 @@ def load_settings(env_file: Path | None = None) -> Settings:
             os.environ.get("PLANNER_LOG_CONTENT", "false"),
             name="PLANNER_LOG_CONTENT",
         ),
+        asr_backend=asr_backend,
+        asr_worker_python=asr_worker_python,
     )
 
     settings.temp_dir.mkdir(parents=True, exist_ok=True)

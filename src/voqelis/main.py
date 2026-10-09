@@ -139,6 +139,7 @@ async def async_main() -> None:
             worker_task.cancel()
             with suppress(asyncio.CancelledError):
                 await worker_task
+            await transcriber.close()
             planner_store.close()
 
 

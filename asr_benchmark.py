@@ -215,22 +215,9 @@ def _load_model(name: str):
             ),
         )
 
-    import onnx_asr
-    import onnxruntime as ort
+    from voqelis.gigaam import load_gigaam_model
 
-    session_options = ort.SessionOptions()
-    session_options.intra_op_num_threads = 1
-    session_options.inter_op_num_threads = 1
-    session_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-    session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-
-    model_name = name.removesuffix("-int8")
-    return onnx_asr.load_model(
-        model_name,
-        quantization="int8",
-        sess_options=session_options,
-        providers=["CPUExecutionProvider"],
-    )
+    return load_gigaam_model(name)
 
 
 def _recognize(model_name: str, model: Any, audio_path: Path) -> str:

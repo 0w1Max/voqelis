@@ -70,11 +70,16 @@ def create_router(*, settings: Settings, queue: JobQueue, planner: PlannerServic
         if not is_allowed(message):
             return
         snapshot = queue.snapshot()
+        asr_label = (
+            f"Whisper {settings.model_size}"
+            if settings.asr_backend == "whisper"
+            else settings.asr_backend
+        )
         await message.answer(
             "Статус:\n"
             f"• В очереди: {snapshot.queued}\n"
             f"• Зарезервировано задач: {snapshot.reserved}\n"
-            f"• Модель: {settings.model_size}\n"
+            f"• ASR: {asr_label}\n"
             f"• Лимит записи: {settings.max_audio_seconds // 60} мин\n"
             f"• Лимит файла: {settings.max_file_size_bytes // 1024 // 1024} МБ"
         )
