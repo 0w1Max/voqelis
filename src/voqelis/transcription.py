@@ -3,9 +3,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
 import time
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
 
 from faster_whisper import WhisperModel
@@ -21,6 +23,63 @@ GIGAAM_BACKENDS = frozenset(
 )
 _WORKER_START_TIMEOUT_SECONDS = 240
 _WORKER_INFERENCE_TIMEOUT_SECONDS = 240
+_PAUSE_THRESHOLD_SECONDS = 0.6
+_PAUSE_PUNCTUATION = frozenset(".,;:!?…")
+
+
+def build_pause_aware_text(
+    text: str,
+    tokens: Sequence[str] | None,
+    timestamps: Sequence[float] | None,
+) -> str:
+    """Insert commas at long timestamp gaps between recognized words.
+
+    The original text is the source of truth. If token/timestamp metadata is
+    missing, inconsistent, non-finite, or cannot reconstruct that text, return
+    the original unchanged instead of guessing.
+    """
+    if (
+        not tokens
+        or timestamps is None
+        or len(tokens) != len(timestamps)
+        or not all(isinstance(token, str) for token in tokens)
+    ):
+        return text
+
+    if "".join(tokens).strip() != text.strip():
+        return text
+
+    normalized_timestamps: list[float] = []
+    for timestamp in timestamps:
+        if isinstance(timestamp, bool):
+            return text
+        try:
+            value = float(timestamp)
+        except (TypeError, ValueError):
+            return text
+        if not math.isfinite(value):
+            return text
+        if normalized_timestamps and value < normalized_timestamps[-1]:
+            return text
+        normalized_timestamps.append(value)
+
+    parts: list[str] = []
+    previous_timestamp: float | None = None
+    for token, timestamp in zip(tokens, normalized_timestamps, strict=True):
+        if (
+            parts
+            and previous_timestamp is not None
+            and timestamp - previous_timestamp >= _PAUSE_THRESHOLD_SECONDS
+            and token[:1].isspace()
+            and token.lstrip()[:1] not in _PAUSE_PUNCTUATION
+        ):
+            prefix = "".join(parts).rstrip()
+            if prefix and prefix[-1] not in _PAUSE_PUNCTUATION:
+                parts = [prefix, ","]
+        parts.append(token)
+        previous_timestamp = timestamp
+
+    return "".join(parts).strip()
 
 
 class Transcriber:
@@ -225,6 +284,13 @@ class Transcriber:
                         f"GigaAM inference failed: {response.get('error', 'unknown error')}"
                     )
                 text = str(response.get("text", "")).strip()
+                tokens = response.get("tokens")
+                timestamps = response.get("timestamps")
+                if not isinstance(tokens, list):
+                    tokens = None
+                if not isinstance(timestamps, list):
+                    timestamps = None
+                pause_aware_text = build_pause_aware_text(text, tokens, timestamps)
 
             elapsed = time.monotonic() - started
             return TranscriptionResult(
@@ -234,7 +300,7 @@ class Transcriber:
                 duration_seconds=duration,
                 duration_after_vad_seconds=duration,
                 processing_seconds=elapsed,
-                pause_aware_text=text,
+                pause_aware_text=pause_aware_text,
                 segments=(),
             )
         finally:

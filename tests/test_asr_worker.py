@@ -5,13 +5,21 @@ import voqelis.asr_worker as asr_worker
 
 
 def test_worker_keeps_json_stdout_protocol_and_reuses_loaded_model(monkeypatch) -> None:
+    class FakeResult:
+        text = "распознанный текст"
+        tokens = ["распознанный", " текст"]
+        timestamps = [0.0, 0.2]
+
     class FakeModel:
         def __init__(self) -> None:
             self.calls: list[str] = []
 
-        def recognize(self, audio_path: str) -> str:
+        def with_timestamps(self):
+            return self
+
+        def recognize(self, audio_path: str) -> FakeResult:
             self.calls.append(audio_path)
-            return "распознанный текст"
+            return FakeResult()
 
     model = FakeModel()
     monkeypatch.setattr(asr_worker, "load_gigaam_model", lambda name: model)
@@ -31,8 +39,18 @@ def test_worker_keeps_json_stdout_protocol_and_reuses_loaded_model(monkeypatch) 
     assert result == 0
     assert rows == [
         {"ready": True, "model": "gigaam-v3-rnnt-int8"},
-        {"ok": True, "text": "распознанный текст"},
-        {"ok": True, "text": "распознанный текст"},
+        {
+            "ok": True,
+            "text": "распознанный текст",
+            "tokens": ["распознанный", " текст"],
+            "timestamps": [0.0, 0.2],
+        },
+        {
+            "ok": True,
+            "text": "распознанный текст",
+            "tokens": ["распознанный", " текст"],
+            "timestamps": [0.0, 0.2],
+        },
     ]
     assert model.calls == ["/tmp/one.wav", "/tmp/two.wav"]
 
@@ -59,7 +77,10 @@ def test_worker_rejects_unsupported_model_without_loading(monkeypatch) -> None:
 
 def test_worker_returns_recognition_errors_as_protocol_messages(monkeypatch) -> None:
     class FakeModel:
-        def recognize(self, audio_path: str) -> str:
+        def with_timestamps(self):
+            return self
+
+        def recognize(self, audio_path: str):
             raise ValueError("broken audio")
 
     monkeypatch.setattr(asr_worker, "load_gigaam_model", lambda name: FakeModel())
