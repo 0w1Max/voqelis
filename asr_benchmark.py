@@ -180,11 +180,11 @@ def _critical_match(
 ) -> tuple[bool, dict[str, Any], dict[str, Any]]:
     try:
         ref_facts = _critical_facts(reference, today=today)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - Record recognition errors per case; keep the benchmark running.
         ref_facts = {"error": f"{type(exc).__name__}: {exc}"}
     try:
         hyp_facts = _critical_facts(hypothesis, today=today)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - Record recognition errors per case; keep the benchmark running.
         hyp_facts = {"error": f"{type(exc).__name__}: {exc}"}
     return ref_facts == hyp_facts, ref_facts, hyp_facts
 

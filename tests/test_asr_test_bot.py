@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 import voqelis.asr_test_bot as asr_test_bot
+from asr_benchmark import _critical_facts
 from voqelis.asr_test_bot import ASR_TEST_CASES, AsrBenchmarkManager
 
 
@@ -73,3 +74,28 @@ def test_cancel_removes_incomplete_telegram_test_session(tmp_path: Path) -> None
     assert not session.directory.exists()
     assert not manager.has_session(3)
     assert manager.cancel(3) == "missing"
+
+
+
+def test_all_telegram_reference_phrases_have_expected_temporal_facts() -> None:
+    today = date(2026, 10, 9)
+    expected = {
+        "natural_problem": {"day": "2026-10-11", "start_minute": 780},
+        "tomorrow_morning": {"day": "2026-10-10", "start_minute": 480},
+        "today_late_hour": {"day": "2026-10-09", "start_minute": 1380},
+        "spoken_range": {"start_minute": 660, "end_minute": 780},
+        "dated_range": {"day": "2026-10-10", "start_minute": 540, "end_minute": 660},
+        "period": {"day": "2026-10-10", "period": "evening"},
+        "after_breakfast": {"relation": "after", "anchor": "breakfast"},
+        "before_lunch": {"relation": "before", "anchor": "lunch"},
+        "oblique_number": {"start_minute": 1260},
+        "overnight_range": {"start_minute": 1380, "end_minute": 1500},
+        "spoken_thirteen": {"day": "2026-10-09", "start_minute": 780},
+        "numeric_thirteen": {"day": "2026-10-09", "start_minute": 780},
+    }
+
+    assert {case_id for case_id, _ in ASR_TEST_CASES} == set(expected)
+    for case_id, phrase in ASR_TEST_CASES:
+        facts = _critical_facts(phrase, today=today)
+        for field, value in expected[case_id].items():
+            assert facts[field] == value, f"{case_id}: {field} for {phrase!r}"

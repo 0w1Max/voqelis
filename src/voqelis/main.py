@@ -46,7 +46,7 @@ async def async_main() -> None:
         else PlannerConfig()
     )
     asr_test_manager = AsrBenchmarkManager(
-        data_dir=settings.planner_db_path.parent / "asr-benchmark" / "telegram",
+        data_dir=settings.planner_db_path.parent / "asr-benchmark-telegram",
         timezone=planner_config.timezone,
     )
     groq_ai = (
