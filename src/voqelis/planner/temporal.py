@@ -158,7 +158,7 @@ _MINUTE_WORD_PATTERN = "|".join(
 _RANGE = re.compile(
     r"(?<!\w)"
     rf"(?P<start_hour>\d{{1,2}}|{_HOUR_WORD_PATTERN})(?:(?::|\.)(?P<start_minute>\d{{2}}))?"
-    r"\s*(?:час(?:а|ов)?|ч)?\s*(?P<start_minute_words>{_MINUTE_WORD_PATTERN})?"
+    rf"\s*(?:час(?:а|ов)?|ч)?\s*(?P<start_minute_words>{_MINUTE_WORD_PATTERN})?"
     r"\s*(?:минут(?:а|ы)?\s*)?(?P<start_meridiem>утра|дня|вечера|ночи)?"
     r"\s*(?:до|[-–—])\s*"
     rf"(?P<end_hour>\d{{1,2}}|{_HOUR_WORD_PATTERN})(?:(?::|\.)(?P<end_minute>\d{{2}}))?"
@@ -171,7 +171,7 @@ _RANGE = re.compile(
 _CLOCK = re.compile(
     r"(?<!\w)(?:в|к)\s+"
     rf"(?P<hour>\d{{1,2}}|{_HOUR_WORD_PATTERN})(?:(?::|\.)(?P<minute>\d{{2}}))?"
-    r"\s*(?:час(?:а|ов)?|ч)?\s*(?P<minute_words>{_MINUTE_WORD_PATTERN})?"
+    rf"\s*(?:час(?:а|ов)?|ч)?\s*(?P<minute_words>{_MINUTE_WORD_PATTERN})?"
     r"\s*(?:минут(?:а|ы)?\s*)?(?P<meridiem>утра|дня|вечера|ночи)?"
     r"(?!\w)",
     re.IGNORECASE,
