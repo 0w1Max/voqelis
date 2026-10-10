@@ -7,11 +7,15 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-
 ALLOWED_MODEL_SIZES = {
     "tiny", "tiny.en", "base", "base.en", "small", "small.en",
     "medium", "medium.en", "large-v1", "large-v2", "large-v3",
     "large-v3-turbo", "turbo",
+}
+ALLOWED_ASR_BACKENDS = {
+    "whisper",
+    "gigaam-v3-rnnt-int8",
+    "gigaam-v3-ctc-int8",
 }
 
 
@@ -70,6 +74,21 @@ class Settings:
     temp_dir: Path
     model_cache_dir: Path
     log_level: str
+    planner_db_path: Path
+    planner_config_path: Path
+    groq_api_key: str
+    groq_model: str
+    gemini_api_key: str
+    gemini_model: str
+    cloudflare_api_token: str
+    cloudflare_account_id: str
+    cloudflare_model: str
+    cloudflare_timeout_seconds: int
+    planner_ai_timeout_seconds: int
+    planner_ai_fallback_timeout_seconds: int
+    planner_log_content: bool
+    asr_backend: str = "whisper"
+    asr_worker_python: Path = Path(".venv-asr-benchmark/bin/python")
 
 
 def load_settings(env_file: Path | None = None) -> Settings:
@@ -95,6 +114,15 @@ def load_settings(env_file: Path | None = None) -> Settings:
         raise ValueError(f"MODEL_DEVICE must be cpu/cuda/auto, got {device!r}")
 
     compute_type = os.environ.get("MODEL_COMPUTE_TYPE", "int8").strip().lower()
+    asr_backend = os.environ.get("ASR_BACKEND", "whisper").strip().lower()
+    if asr_backend not in ALLOWED_ASR_BACKENDS:
+        raise ValueError(
+            f"ASR_BACKEND must be one of {sorted(ALLOWED_ASR_BACKENDS)}, "
+            f"got {asr_backend!r}"
+        )
+    asr_worker_python = Path(
+        os.environ.get("ASR_WORKER_PYTHON", ".venv-asr-benchmark/bin/python")
+    ).expanduser()
     cpu_threads = _positive_int(
         os.environ.get("CPU_THREADS", "1"), name="CPU_THREADS", minimum=1
     )
@@ -165,13 +193,42 @@ def load_settings(env_file: Path | None = None) -> Settings:
             os.environ.get("MODEL_CACHE_DIR", "./data/models")
         ).expanduser(),
         log_level=os.environ.get("LOG_LEVEL", "INFO").strip().upper(),
+        planner_db_path=Path(os.environ.get("PLANNER_DB_PATH", "./data/planner.sqlite3")).expanduser(),
+        planner_config_path=Path(os.environ.get("PLANNER_CONFIG_PATH", "./config/planner.json")).expanduser(),
+        groq_api_key=os.environ.get("GROQ_API_KEY", "").strip(),
+        groq_model=os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b").strip(),
+        gemini_api_key=os.environ.get("GEMINI_API_KEY", "").strip(),
+        gemini_model=os.environ.get("GEMINI_MODEL", "gemini-3.8-flash").strip(),
+        cloudflare_api_token=os.environ.get("CLOUDFLARE_API_TOKEN", "").strip(),
+        cloudflare_account_id=os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip(),
+        cloudflare_model=os.environ.get(
+            "CLOUDFLARE_MODEL",
+            "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+        ).strip(),
+        cloudflare_timeout_seconds=_positive_int(
+            os.environ.get("CLOUDFLARE_TIMEOUT_SECONDS", "15"),
+            name="CLOUDFLARE_TIMEOUT_SECONDS",
+            minimum=5,
+        ),
+        planner_ai_timeout_seconds=_positive_int(os.environ.get("PLANNER_AI_TIMEOUT_SECONDS", "30"), name="PLANNER_AI_TIMEOUT_SECONDS", minimum=5),
+        planner_ai_fallback_timeout_seconds=_positive_int(
+            os.environ.get("PLANNER_AI_FALLBACK_TIMEOUT_SECONDS", "12"),
+            name="PLANNER_AI_FALLBACK_TIMEOUT_SECONDS",
+            minimum=5,
+        ),
+        planner_log_content=_parse_bool(
+            os.environ.get("PLANNER_LOG_CONTENT", "false"),
+            name="PLANNER_LOG_CONTENT",
+        ),
+        asr_backend=asr_backend,
+        asr_worker_python=asr_worker_python,
     )
 
     settings.temp_dir.mkdir(parents=True, exist_ok=True)
     settings.model_cache_dir.mkdir(parents=True, exist_ok=True)
 
     if not isinstance(getattr(logging, settings.log_level, None), int):
-        raise ValueError(f"Unsupported LOG_LEVEL: {settings.log_level!r}")
+        raise TypeError(f"Unsupported LOG_LEVEL: {settings.log_level!r}")
 
     logging.basicConfig(
         level=settings.log_level,
