@@ -261,7 +261,7 @@ async def run_worker(
                         reply_markup=planner_markup_for_state(planner, job.user_id),
                     )
             else:
-                parts = chunk_text(result.text)
+                parts = chunk_text(result.pause_aware_text or result.text)
                 for index, part in enumerate(parts):
                     await bot.send_message(
                         job.chat_id,

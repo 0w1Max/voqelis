@@ -3,7 +3,6 @@ import json
 
 import voqelis.asr_worker as asr_worker
 
-
 def test_worker_keeps_json_stdout_protocol_and_reuses_loaded_model(monkeypatch) -> None:
     class FakeResult:
         text = "распознанный текст"
@@ -54,7 +53,6 @@ def test_worker_keeps_json_stdout_protocol_and_reuses_loaded_model(monkeypatch) 
     ]
     assert model.calls == ["/tmp/one.wav", "/tmp/two.wav"]
 
-
 def test_worker_rejects_unsupported_model_without_loading(monkeypatch) -> None:
     def unexpected_load(name: str):
         raise AssertionError(f"Must not load unsupported model {name}")
@@ -73,7 +71,6 @@ def test_worker_rejects_unsupported_model_without_loading(monkeypatch) -> None:
         "ready": False,
         "error": "Unsupported GigaAM model: 'unknown-model'",
     }
-
 
 def test_worker_returns_recognition_errors_as_protocol_messages(monkeypatch) -> None:
     class FakeModel:
