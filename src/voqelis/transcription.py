@@ -351,6 +351,16 @@ class Transcriber:
 
                 text = _join_segment_texts(text_parts)
                 if timing_data_valid and len(parsed_segments) == len(text_parts):
+                    gaps = [
+                        round(current.start_seconds - previous.end_seconds, 3)
+                        for previous, current in zip(parsed_segments, parsed_segments[1:])
+                    ]
+                    logger.info(
+                        "GigaAM VAD segmentation: segments=%d gaps_s=%s pause_gaps=%d",
+                        len(parsed_segments),
+                        gaps,
+                        sum(gap >= _PAUSE_THRESHOLD_SECONDS for gap in gaps),
+                    )
                     transcript_segments = tuple(parsed_segments)
                     pause_aware_text = build_pause_aware_text(text, transcript_segments)
                 else:
