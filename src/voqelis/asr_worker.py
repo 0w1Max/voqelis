@@ -8,9 +8,11 @@ import traceback
 from contextlib import redirect_stdout
 from typing import Any, TextIO
 
-from .gigaam import SUPPORTED_GIGAAM_MODELS, load_gigaam_model
+from .gigaam import SUPPORTED_GIGAAM_MODELS, load_gigaam_model, load_gigaam_vad
 
 logger = logging.getLogger(__name__)
+
+_VAD_MIN_SILENCE_DURATION_MS = 600
 
 
 def _emit(payload: dict[str, Any], stream: TextIO | None = None) -> None:
@@ -26,7 +28,7 @@ def serve(
     input_stream: TextIO | None = None,
     output_stream: TextIO | None = None,
 ) -> int:
-    """Serve line-delimited JSON requests while keeping one model loaded."""
+    """Serve line-delimited JSON requests while keeping ASR and VAD loaded."""
     source = input_stream or sys.stdin
     destination = output_stream or sys.stdout
 
@@ -40,7 +42,13 @@ def serve(
     try:
         # Third-party model/runtime output must not corrupt our JSON stdout protocol.
         with redirect_stdout(sys.stderr):
-            model = load_gigaam_model(model_name).with_timestamps()
+            asr_model = load_gigaam_model(model_name)
+            vad_model = load_gigaam_vad()
+            model = asr_model.with_vad(
+                vad_model,
+                min_silence_duration_ms=_VAD_MIN_SILENCE_DURATION_MS,
+                batch_size=1,
+            ).with_timestamps()
     except Exception as exc:  # noqa: BLE001 - Serialize startup failures for the parent process.
         traceback.print_exc(file=sys.stderr)
         _emit(
@@ -49,7 +57,7 @@ def serve(
         )
         return 1
 
-    _emit({"ready": True, "model": model_name}, destination)
+    _emit({"ready": True, "model": model_name, "vad": "silero"}, destination)
 
     for line in source:
         if not line.strip():
@@ -61,16 +69,16 @@ def serve(
                 raise ValueError("Request must contain a non-empty audio_path string.")
 
             with redirect_stdout(sys.stderr):
-                result = model.recognize(audio_path)
-            _emit(
+                recognized_segments = list(model.recognize(audio_path))
+            segments = [
                 {
-                    "ok": True,
-                    "text": str(result.text).strip(),
-                    "tokens": result.tokens,
-                    "timestamps": result.timestamps,
-                },
-                destination,
-            )
+                    "start": float(segment.start),
+                    "end": float(segment.end),
+                    "text": str(segment.text).strip(),
+                }
+                for segment in recognized_segments
+            ]
+            _emit({"ok": True, "segments": segments}, destination)
         except Exception as exc:  # noqa: BLE001 - Keep each request's failure in the line protocol.
             traceback.print_exc(file=sys.stderr)
             _emit(

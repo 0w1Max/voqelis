@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import voqelis.bot as bot_module
+from voqelis import bot as bot_module
 from voqelis.domain import AudioJob, TranscriptionResult
 from voqelis.queue import JobQueue
 

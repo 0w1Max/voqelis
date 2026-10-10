@@ -25,61 +25,82 @@ _WORKER_START_TIMEOUT_SECONDS = 240
 _WORKER_INFERENCE_TIMEOUT_SECONDS = 240
 _PAUSE_THRESHOLD_SECONDS = 0.6
 _PAUSE_PUNCTUATION = frozenset(".,;:!?…")
+_SEGMENT_LEADING_PUNCTUATION = frozenset(",.;:!?…)]}")
+
+
+def _join_segment_texts(texts: Sequence[str]) -> str:
+    """Join VAD segment text without inserting spaces before punctuation."""
+    result = ""
+    for raw_text in texts:
+        part = raw_text.strip()
+        if not part:
+            continue
+        if not result:
+            result = part
+        elif part[0] in _SEGMENT_LEADING_PUNCTUATION:
+            result = result.rstrip() + part
+        else:
+            result = result.rstrip() + " " + part
+    return result.strip()
 
 
 def build_pause_aware_text(
     text: str,
-    tokens: Sequence[str] | None,
-    timestamps: Sequence[float] | None,
+    segments: Sequence[TranscriptSegment] | None,
 ) -> str:
-    """Insert commas at long timestamp gaps between recognized words.
+    """Insert commas only where VAD reports a long silence between speech segments.
 
-    The original text is the source of truth. If token/timestamp metadata is
-    missing, inconsistent, non-finite, or cannot reconstruct that text, return
-    the original unchanged instead of guessing.
+    Token start times alone cannot distinguish a long word from a pause. VAD
+    segment boundaries can. Invalid or inconsistent metadata leaves the text
+    unchanged rather than guessing.
     """
-    if (
-        not tokens
-        or timestamps is None
-        or len(tokens) != len(timestamps)
-        or not all(isinstance(token, str) for token in tokens)
-    ):
+    if not segments:
         return text
 
-    if "".join(tokens).strip() != text.strip():
-        return text
-
-    normalized_timestamps: list[float] = []
-    for timestamp in timestamps:
-        if isinstance(timestamp, bool):
+    normalized: list[tuple[str, float, float]] = []
+    previous_start = -1.0
+    for segment in segments:
+        if not isinstance(segment.text, str):
+            return text
+        if isinstance(segment.start_seconds, bool) or isinstance(segment.end_seconds, bool):
             return text
         try:
-            value = float(timestamp)
+            start = float(segment.start_seconds)
+            end = float(segment.end_seconds)
         except (TypeError, ValueError):
             return text
-        if not math.isfinite(value):
-            return text
-        if normalized_timestamps and value < normalized_timestamps[-1]:
-            return text
-        normalized_timestamps.append(value)
-
-    parts: list[str] = []
-    previous_timestamp: float | None = None
-    for token, timestamp in zip(tokens, normalized_timestamps, strict=True):
         if (
-            parts
-            and previous_timestamp is not None
-            and timestamp - previous_timestamp >= _PAUSE_THRESHOLD_SECONDS
-            and token[:1].isspace()
-            and token.lstrip()[:1] not in _PAUSE_PUNCTUATION
+            not math.isfinite(start)
+            or not math.isfinite(end)
+            or start < 0
+            or end < start
+            or start < previous_start
         ):
-            prefix = "".join(parts).rstrip()
-            if prefix and prefix[-1] not in _PAUSE_PUNCTUATION:
-                parts = [prefix, ","]
-        parts.append(token)
-        previous_timestamp = timestamp
+            return text
+        normalized.append((segment.text.strip(), start, end))
+        previous_start = start
 
-    return "".join(parts).strip()
+    if _join_segment_texts([item[0] for item in normalized]) != text.strip():
+        return text
+
+    result = ""
+    previous_end: float | None = None
+    for part, start, end in normalized:
+        if not part:
+            continue
+        if not result:
+            result = part
+        elif part[0] in _SEGMENT_LEADING_PUNCTUATION:
+            result = result.rstrip() + part
+        elif result[-1] in _PAUSE_PUNCTUATION:
+            result = result.rstrip() + " " + part
+        elif previous_end is not None and start - previous_end >= _PAUSE_THRESHOLD_SECONDS:
+            result = result.rstrip() + ", " + part
+        else:
+            result = result.rstrip() + " " + part
+        previous_end = end
+
+    return result.strip()
 
 
 class Transcriber:
@@ -283,14 +304,58 @@ class Transcriber:
                     raise RuntimeError(
                         f"GigaAM inference failed: {response.get('error', 'unknown error')}"
                     )
-                text = str(response.get("text", "")).strip()
-                tokens = response.get("tokens")
-                timestamps = response.get("timestamps")
-                if not isinstance(tokens, list):
-                    tokens = None
-                if not isinstance(timestamps, list):
-                    timestamps = None
-                pause_aware_text = build_pause_aware_text(text, tokens, timestamps)
+                raw_segments = response.get("segments")
+                if not isinstance(raw_segments, list):
+                    raise RuntimeError("GigaAM worker returned invalid segment data.")
+
+                text_parts: list[str] = []
+                parsed_segments: list[TranscriptSegment] = []
+                timing_data_valid = True
+                previous_start = -1.0
+                for row in raw_segments:
+                    if not isinstance(row, dict) or not isinstance(row.get("text"), str):
+                        raise RuntimeError("GigaAM worker returned an invalid segment.")
+                    segment_text = row["text"].strip()
+                    if not segment_text:
+                        continue
+                    text_parts.append(segment_text)
+
+                    raw_start = row.get("start")
+                    raw_end = row.get("end")
+                    if isinstance(raw_start, bool) or isinstance(raw_end, bool):
+                        timing_data_valid = False
+                        continue
+                    try:
+                        start_seconds = float(raw_start)
+                        end_seconds = float(raw_end)
+                    except (TypeError, ValueError):
+                        timing_data_valid = False
+                        continue
+                    if (
+                        not math.isfinite(start_seconds)
+                        or not math.isfinite(end_seconds)
+                        or start_seconds < 0
+                        or end_seconds < start_seconds
+                        or start_seconds < previous_start
+                    ):
+                        timing_data_valid = False
+                        continue
+                    previous_start = start_seconds
+                    parsed_segments.append(
+                        TranscriptSegment(
+                            text=segment_text,
+                            start_seconds=start_seconds,
+                            end_seconds=end_seconds,
+                        )
+                    )
+
+                text = _join_segment_texts(text_parts)
+                if timing_data_valid and len(parsed_segments) == len(text_parts):
+                    transcript_segments = tuple(parsed_segments)
+                    pause_aware_text = build_pause_aware_text(text, transcript_segments)
+                else:
+                    transcript_segments = ()
+                    pause_aware_text = text
 
             elapsed = time.monotonic() - started
             return TranscriptionResult(
@@ -301,7 +366,7 @@ class Transcriber:
                 duration_after_vad_seconds=duration,
                 processing_seconds=elapsed,
                 pause_aware_text=pause_aware_text,
-                segments=(),
+                segments=transcript_segments,
             )
         finally:
             temporary_wav.unlink(missing_ok=True)
