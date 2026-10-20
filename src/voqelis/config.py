@@ -17,6 +17,10 @@ ALLOWED_ASR_BACKENDS = {
     "gigaam-v3-rnnt-int8",
     "gigaam-v3-ctc-int8",
 }
+ALLOWED_ASR_PUNCTUATION_BACKENDS = {
+    "none",
+    "gigaam-v3-e2e-ctc-gguf",
+}
 
 
 def _parse_bool(value: str, *, name: str) -> bool:
@@ -89,6 +93,14 @@ class Settings:
     planner_log_content: bool
     asr_backend: str = "whisper"
     asr_worker_python: Path = Path(".venv-asr-benchmark/bin/python")
+    asr_punctuation_backend: str = "none"
+    asr_punctuation_model_path: Path = Path(
+        "/var/lib/voqelis/asr-benchmark-transcribe-cpp/"
+        "gigaam-v3-e2e-ctc-Q4_K_M.gguf"
+    )
+    asr_punctuation_worker_python: Path = Path(
+        "/var/lib/voqelis/asr-benchmark-transcribe-cpp/venv/bin/python"
+    )
 
 
 def load_settings(env_file: Path | None = None) -> Settings:
@@ -120,6 +132,28 @@ def load_settings(env_file: Path | None = None) -> Settings:
             f"ASR_BACKEND must be one of {sorted(ALLOWED_ASR_BACKENDS)}, "
             f"got {asr_backend!r}"
         )
+    asr_punctuation_backend = os.environ.get(
+        "ASR_PUNCTUATION_BACKEND", "none"
+    ).strip().lower()
+    if asr_punctuation_backend not in ALLOWED_ASR_PUNCTUATION_BACKENDS:
+        raise ValueError(
+            "ASR_PUNCTUATION_BACKEND must be one of "
+            f"{sorted(ALLOWED_ASR_PUNCTUATION_BACKENDS)}, "
+            f"got {asr_punctuation_backend!r}"
+        )
+    asr_punctuation_model_path = Path(
+        os.environ.get(
+            "ASR_PUNCTUATION_MODEL_PATH",
+            "/var/lib/voqelis/asr-benchmark-transcribe-cpp/"
+            "gigaam-v3-e2e-ctc-Q4_K_M.gguf",
+        )
+    ).expanduser()
+    asr_punctuation_worker_python = Path(
+        os.environ.get(
+            "ASR_PUNCTUATION_WORKER_PYTHON",
+            "/var/lib/voqelis/asr-benchmark-transcribe-cpp/venv/bin/python",
+        )
+    ).expanduser()
     asr_worker_python = Path(
         os.environ.get("ASR_WORKER_PYTHON", ".venv-asr-benchmark/bin/python")
     ).expanduser()
@@ -222,6 +256,9 @@ def load_settings(env_file: Path | None = None) -> Settings:
         ),
         asr_backend=asr_backend,
         asr_worker_python=asr_worker_python,
+        asr_punctuation_backend=asr_punctuation_backend,
+        asr_punctuation_model_path=asr_punctuation_model_path,
+        asr_punctuation_worker_python=asr_punctuation_worker_python,
     )
 
     settings.temp_dir.mkdir(parents=True, exist_ok=True)
