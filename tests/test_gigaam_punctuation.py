@@ -36,6 +36,7 @@ def _make_processor(tmp_path: Path) -> GgufPunctuationProcessor:
         temp_dir=tmp_path,
     )
 
+
 class _FakeProcess:
     def __init__(self, returncode: int) -> None:
         self.returncode = returncode
@@ -52,6 +53,7 @@ def test_punctuation_stage_disabled_does_not_construct_worker() -> None:
     assert GgufPunctuationProcessor.from_settings(
         settings, repo_root=Path("/unused")
     ) is None
+
 
 def test_projects_punctuation_without_changing_rnnt_words(
     tmp_path: Path, monkeypatch
@@ -183,3 +185,45 @@ def test_pause_gate_accepts_gap_at_threshold() -> None:
         TranscriptSegment('вторая', 1.6, 2.0),
     )
     assert _has_significant_vad_pause(segments)
+
+
+def test_cancelled_punctuation_worker_is_killed(
+    tmp_path: Path, monkeypatch
+) -> None:
+    processor = _make_processor(tmp_path)
+
+    async def scenario() -> None:
+        terminated = asyncio.Event()
+
+        class WaitingProcess:
+            returncode: int | None = None
+
+            async def wait(self) -> int:
+                await terminated.wait()
+                assert self.returncode is not None
+                return self.returncode
+
+            def kill(self) -> None:
+                self.returncode = -9
+                terminated.set()
+
+        process = WaitingProcess()
+
+        async def fake_create_subprocess_exec(*command, **kwargs):
+            return process
+
+        monkeypatch.setattr(
+            "voqelis.asr_punctuation.asyncio.create_subprocess_exec",
+            fake_create_subprocess_exec,
+        )
+
+        task = asyncio.create_task(
+            processor.apply(tmp_path / "audio.wav", "исходный текст")
+        )
+        await asyncio.sleep(0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert process.returncode == -9
+
+    asyncio.run(scenario())
