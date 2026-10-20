@@ -109,3 +109,21 @@ def test_capitalizes_sentence_after_lowercase_e2e_boundary() -> None:
         "для духовного опыта. Ничего не добавляй в план."
     )
     assert words(result.text) == words(rnnt)
+
+
+def test_joins_hyphenated_words_without_inserting_spaces() -> None:
+    e2e = "Во-первых, из-за Советско-Польского договора."
+    rnnt = "во первых из за советско польского договора"
+
+    result = project_punctuation(e2e, rnnt)
+
+    assert result.applied
+    assert result.text == e2e
+    assert words(result.text) == words(rnnt)
+
+
+def test_keeps_spaces_around_sentence_dash() -> None:
+    result = project_punctuation("Он сказал — да.", "он сказал да")
+
+    assert result.applied
+    assert result.text == "Он сказал — да."

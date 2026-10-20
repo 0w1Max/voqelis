@@ -7,14 +7,13 @@ import math
 import os
 import time
 import uuid
-import wave
 from collections.abc import Sequence
 from itertools import pairwise
 from pathlib import Path
 
 from faster_whisper import WhisperModel
 
-from .asr_punctuation import apply_gigaam_punctuation
+from .asr_punctuation import GgufPunctuationProcessor
 from .audio import convert_audio_to_wav, probe_duration_seconds
 from .config import Settings
 from .domain import TranscriptionResult, TranscriptSegment
@@ -27,7 +26,6 @@ GIGAAM_BACKENDS = frozenset(
 _WORKER_START_TIMEOUT_SECONDS = 240
 _WORKER_INFERENCE_TIMEOUT_SECONDS = 240
 _MAX_PUNCTUATION_AUDIO_SECONDS = 25.0
-_PUNCTUATION_MAX_WINDOW_SECONDS = 22.0
 _PAUSE_THRESHOLD_SECONDS = 0.6
 _PAUSE_PUNCTUATION = frozenset(".,;:!?…")
 _SEGMENT_LEADING_PUNCTUATION = frozenset(",.;:!?…)]}")
@@ -118,100 +116,6 @@ def _has_significant_vad_pause(
     )
 
 
-def _group_punctuation_segments(
-    segments: Sequence[TranscriptSegment],
-) -> tuple[tuple[TranscriptSegment, ...], ...] | None:
-    """Group ordered VAD segments into safe windows no longer than 22 seconds."""
-    if not segments:
-        return None
-
-    groups: list[tuple[TranscriptSegment, ...]] = []
-    current: list[TranscriptSegment] = []
-    previous_start = -1.0
-    previous_end = -1.0
-
-    for segment in segments:
-        start = segment.start_seconds
-        end = segment.end_seconds
-
-        if (
-            not math.isfinite(start)
-            or not math.isfinite(end)
-            or start < 0
-            or end < start
-            or start < previous_start
-            or (previous_end >= 0 and start < previous_end)
-            or end - start > _PUNCTUATION_MAX_WINDOW_SECONDS
-        ):
-            return None
-
-        if current and end - current[0].start_seconds > _PUNCTUATION_MAX_WINDOW_SECONDS:
-            # Split only between non-overlapping VAD segments.
-            if start <= current[-1].end_seconds:
-                return None
-            groups.append(tuple(current))
-            current = []
-
-        current.append(segment)
-        previous_start = start
-        previous_end = end
-
-    if current:
-        groups.append(tuple(current))
-
-    return tuple(groups)
-
-
-def _write_wav_window(
-    source_path: Path,
-    destination_path: Path,
-    start_seconds: float,
-    end_seconds: float,
-) -> float:
-    """Write an exact PCM WAV crop for one validated VAD window."""
-    if (
-        not math.isfinite(start_seconds)
-        or not math.isfinite(end_seconds)
-        or start_seconds < 0
-        or end_seconds <= start_seconds
-        or end_seconds - start_seconds > _PUNCTUATION_MAX_WINDOW_SECONDS
-    ):
-        raise ValueError("Invalid or oversized punctuation window.")
-
-    with wave.open(str(source_path), "rb") as source:
-        if (
-            source.getframerate() != 16000
-            or source.getnchannels() != 1
-            or source.getsampwidth() != 2
-        ):
-            raise ValueError("Source audio must be 16 kHz mono signed 16-bit PCM.")
-
-        rate = source.getframerate()
-        total_frames = source.getnframes()
-        start_frame = int(start_seconds * rate)
-        end_frame = math.ceil(end_seconds * rate)
-
-        if (
-            start_frame < 0
-            or end_frame > total_frames
-            or end_frame <= start_frame
-        ):
-            raise ValueError("Punctuation window exceeds source audio boundaries.")
-
-        source.setpos(start_frame)
-        frame_count = end_frame - start_frame
-        frames = source.readframes(frame_count)
-        if len(frames) != frame_count * source.getnchannels() * source.getsampwidth():
-            raise ValueError("Unable to read all frames for punctuation window.")
-
-        destination_path.parent.mkdir(parents=True, exist_ok=True)
-        with wave.open(str(destination_path), "wb") as destination:
-            destination.setnchannels(source.getnchannels())
-            destination.setsampwidth(source.getsampwidth())
-            destination.setframerate(rate)
-            destination.writeframes(frames)
-
-    return frame_count / rate
 
 
 class Transcriber:
@@ -238,39 +142,10 @@ class Transcriber:
             else (self._repo_root / worker_python).resolve()
         )
 
-        self._punctuation_backend = getattr(
-            settings, "asr_punctuation_backend", "none"
+        self._punctuation_processor = GgufPunctuationProcessor.from_settings(
+            settings, repo_root=self._repo_root
         )
 
-        punctuation_model_path = Path(
-            getattr(
-                settings,
-                "asr_punctuation_model_path",
-                "/var/lib/voqelis/asr-benchmark-transcribe-cpp/"
-                "gigaam-v3-e2e-ctc-Q4_K_M.gguf",
-            )
-        ).expanduser()
-        self._punctuation_model_path = (
-            punctuation_model_path
-            if punctuation_model_path.is_absolute()
-            else (self._repo_root / punctuation_model_path).resolve()
-        )
-
-        punctuation_python = Path(
-            getattr(
-                settings,
-                "asr_punctuation_worker_python",
-                "/var/lib/voqelis/asr-benchmark-transcribe-cpp/venv/bin/python",
-            )
-        ).expanduser()
-        self._punctuation_worker_python = (
-            punctuation_python
-            if punctuation_python.is_absolute()
-            else (self._repo_root / punctuation_python).resolve()
-        )
-        self._punctuation_worker_path = (
-            self._repo_root / "tools" / "asr_gguf_transcribe.py"
-        )
 
     def _load_sync(self) -> WhisperModel:
         logger.info(
@@ -390,24 +265,6 @@ class Transcriber:
         if process is not None:
             await self._stop_process(process)
 
-    async def _apply_gigaam_punctuation(
-        self,
-        audio_path: Path,
-        rnnt_text: str,
-        *,
-        fallback_text: str | None = None,
-    ) -> str:
-        return await apply_gigaam_punctuation(
-            audio_path=audio_path,
-            rnnt_text=rnnt_text,
-            fallback_text=fallback_text,
-            backend=self._punctuation_backend,
-            model_path=self._punctuation_model_path,
-            worker_python=self._punctuation_worker_python,
-            worker_path=self._punctuation_worker_path,
-            repo_root=self._repo_root,
-            temp_dir=self.settings.temp_dir,
-        )
 
 
     async def _transcribe_gigaam(self, audio_path: str) -> TranscriptionResult:
@@ -532,7 +389,7 @@ class Transcriber:
                     transcript_segments = ()
                     pause_aware_text = text
 
-                if self._punctuation_backend == "gigaam-v3-e2e-ctc-gguf":
+                if self._punctuation_processor is not None:
                     if duration > _MAX_PUNCTUATION_AUDIO_SECONDS:
                         logger.info(
                             "GigaAM E2E punctuation skipped: "
@@ -542,7 +399,7 @@ class Transcriber:
                         )
                     elif _has_significant_vad_pause(transcript_segments):
                         # The existing inference lock serializes both CPU models.
-                        pause_aware_text = await self._apply_gigaam_punctuation(
+                        pause_aware_text = await self._punctuation_processor.apply(
                             temporary_wav,
                             text,
                             fallback_text=pause_aware_text,

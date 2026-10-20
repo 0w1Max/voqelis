@@ -1,24 +1,71 @@
 """Optional GGUF punctuation subprocess adapter."""
 
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
 import os
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 
+from .config import Settings
 from .punctuation_projection import project_punctuation
 
 logger = logging.getLogger(__name__)
 _PUNCTUATION_INFERENCE_TIMEOUT_SECONDS = 30
 
 
-async def apply_gigaam_punctuation(
+@dataclass(frozen=True, slots=True)
+class GgufPunctuationProcessor:
+    """Configuration and lifecycle boundary of optional GGUF postprocessing."""
+
+    model_path: Path
+    worker_python: Path
+    worker_path: Path
+    repo_root: Path
+    temp_dir: Path
+
+    @classmethod
+    def from_settings(
+        cls, settings: Settings, *, repo_root: Path
+    ) -> GgufPunctuationProcessor | None:
+        if getattr(settings, "asr_punctuation_backend", "none") != "gigaam-v3-e2e-ctc-gguf":
+            return None
+
+        def resolve(path: Path) -> Path:
+            path = Path(path).expanduser()
+            return path if path.is_absolute() else (repo_root / path).resolve()
+
+        return cls(
+            model_path=resolve(settings.asr_punctuation_model_path),
+            worker_python=resolve(settings.asr_punctuation_worker_python),
+            worker_path=repo_root / "tools" / "asr_gguf_transcribe.py",
+            repo_root=repo_root,
+            temp_dir=settings.temp_dir,
+        )
+
+    async def apply(
+        self, audio_path: Path, rnnt_text: str, *, fallback_text: str | None = None
+    ) -> str:
+        return await _run_gigaam_punctuation(
+            audio_path=audio_path,
+            rnnt_text=rnnt_text,
+            fallback_text=fallback_text,
+            model_path=self.model_path,
+            worker_python=self.worker_python,
+            worker_path=self.worker_path,
+            repo_root=self.repo_root,
+            temp_dir=self.temp_dir,
+        )
+
+
+async def _run_gigaam_punctuation(
     *,
     audio_path: Path,
     rnnt_text: str,
     fallback_text: str | None,
-    backend: str,
     model_path: Path,
     worker_python: Path,
     worker_path: Path,
@@ -27,10 +74,7 @@ async def apply_gigaam_punctuation(
 ) -> str:
     """Project punctuation onto RNNT words; fail open to the RNNT text."""
     fallback = rnnt_text if fallback_text is None else fallback_text
-    if (
-        backend != "gigaam-v3-e2e-ctc-gguf"
-        or not rnnt_text.strip()
-    ):
+    if not rnnt_text.strip():
         return fallback
 
     required_paths = (

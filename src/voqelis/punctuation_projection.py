@@ -145,14 +145,30 @@ def project_punctuation(
 
         # Never duplicate punctuation that is already present in the RNNT text.
         if source_marks and not _PUNCTUATION_RE.search(target_gap):
-            dash_only = all(mark in "—–-" for mark in source_marks)
-            leading_space = ""
-            if dash_only:
-                first_mark = source_gap.find(source_marks[0])
-                if first_mark > 0 and source_gap[:first_mark].isspace():
-                    leading_space = " "
-            parts.append(leading_space)
-            parts.append(source_marks)
+            # A hyphen between the next two aligned words is a word joiner,
+            # not punctuation followed by a space. Preserve this structural
+            # boundary rather than producing "во- первых" or "из- за".
+            joins_compound = (
+                source_marks == "-"
+                and source_gap == "-"
+                and source_index is not None
+                and source_index + 1 < source_count
+                and target_index + 1 < target_count
+                and target_to_source.get(target_index + 1) == source_index + 1
+                and target_gap.isspace()
+            )
+            if joins_compound:
+                parts.append("-")
+                target_gap = ""
+            else:
+                dash_only = all(mark in "—–-" for mark in source_marks)
+                leading_space = ""
+                if dash_only:
+                    first_mark = source_gap.find(source_marks[0])
+                    if first_mark > 0 and source_gap[:first_mark].isspace():
+                        leading_space = " "
+                parts.append(leading_space)
+                parts.append(source_marks)
 
         parts.append(target_gap)
 
