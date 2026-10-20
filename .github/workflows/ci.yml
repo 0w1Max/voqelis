@@ -5,10 +5,12 @@ on:
     branches:
       - feature/planner-v1
       - refactor/planner-ai
+      - refactor/planner-service
   pull_request:
     branches:
       - feature/planner-v1
       - refactor/planner-ai
+      - refactor/planner-service
 
 jobs:
   test:
