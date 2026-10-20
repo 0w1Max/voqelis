@@ -10,7 +10,11 @@ import httpx
 
 from ..ai_extraction import _StructuredPlannerAI
 from ..ai_http import _provider_http_error
-from ..models import PlannerAIInvalidResponse, PlannerAIProviderError, PlannerAIUnavailable
+from ..models import (
+    PlannerAIInvalidResponse,
+    PlannerAIProviderError,
+    PlannerAIUnavailable,
+)
 
 logger = logging.getLogger(__name__)
 

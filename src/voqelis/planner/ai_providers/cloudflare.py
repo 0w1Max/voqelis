@@ -10,8 +10,8 @@ import httpx
 from ..ai_extraction import (
     TASK_SCHEMA,
     _parse_tasks_result,
-    _task_prompt,
     _StructuredPlannerAI,
+    _task_prompt,
 )
 from ..ai_http import _cloudflare_provider_http_error, _strict_schema
 from ..config import PlannerConfig

@@ -8,6 +8,7 @@ import os
 import time
 import uuid
 from collections.abc import Sequence
+from itertools import pairwise
 from pathlib import Path
 
 from faster_whisper import WhisperModel
@@ -306,7 +307,7 @@ class Transcriber:
                     )
                 raw_segments = response.get("segments")
                 if not isinstance(raw_segments, list):
-                    raise RuntimeError("GigaAM worker returned invalid segment data.")
+                    raise RuntimeError("GigaAM worker returned invalid segment data.")  # noqa: TRY004 - worker protocol error
 
                 text_parts: list[str] = []
                 parsed_segments: list[TranscriptSegment] = []
@@ -314,7 +315,7 @@ class Transcriber:
                 previous_start = -1.0
                 for row in raw_segments:
                     if not isinstance(row, dict) or not isinstance(row.get("text"), str):
-                        raise RuntimeError("GigaAM worker returned an invalid segment.")
+                        raise RuntimeError("GigaAM worker returned an invalid segment.")  # noqa: TRY004 - worker protocol error
                     segment_text = row["text"].strip()
                     if not segment_text:
                         continue
@@ -353,7 +354,7 @@ class Transcriber:
                 if timing_data_valid and len(parsed_segments) == len(text_parts):
                     gaps = [
                         round(current.start_seconds - previous.end_seconds, 3)
-                        for previous, current in zip(parsed_segments, parsed_segments[1:])
+                        for previous, current in pairwise(parsed_segments)
                     ]
                     logger.info(
                         "GigaAM VAD segmentation: segments=%d gaps_s=%s pause_gaps=%d",

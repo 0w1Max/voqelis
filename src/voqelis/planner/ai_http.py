@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 import re
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from datetime import time as datetime_time
 
 import httpx

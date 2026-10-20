@@ -9,7 +9,6 @@ from datetime import date, timedelta
 from .config import PlannerConfig
 from .models import PlannerAIInvalidResponse, TaskDraft
 
-
 TASK_SCHEMA = {
     "type": "object",
     "properties": {

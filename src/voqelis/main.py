@@ -7,8 +7,8 @@ from contextlib import suppress
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 
-from .bot import cleanup_temp_dir, create_router, run_worker
 from .asr_test_bot import AsrBenchmarkManager, create_asr_test_router
+from .bot import cleanup_temp_dir, create_router, run_worker
 from .config import load_settings
 from .planner.ai import (
     AIProviderRouter,

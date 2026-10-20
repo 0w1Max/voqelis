@@ -8,7 +8,11 @@ import httpx
 
 from ..ai_extraction import _StructuredPlannerAI
 from ..ai_http import _provider_http_error, _strict_schema
-from ..models import PlannerAIInvalidResponse, PlannerAIProviderError, PlannerAIUnavailable
+from ..models import (
+    PlannerAIInvalidResponse,
+    PlannerAIProviderError,
+    PlannerAIUnavailable,
+)
 
 
 class GroqPlannerAI(_StructuredPlannerAI):

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-import voqelis.asr_test_bot as asr_test_bot
+from voqelis import asr_test_bot
 from asr_benchmark import _critical_facts
 from voqelis.asr_test_bot import ASR_TEST_CASES, AsrBenchmarkManager
 
