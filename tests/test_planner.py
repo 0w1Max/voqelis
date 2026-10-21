@@ -985,7 +985,10 @@ def test_review_can_resume_final_questions(tmp_path: Path):
     service = PlannerService(store, PlannerConfig())
     for item in items:
         store.save_review(item.id, "+", "сделал", (), None)
-    asyncio.run(service._review_final1(1, "стал лучше планировать", day))
+    prompt = asyncio.run(service.start_review(1, day))
+    assert "оздоровлению" in prompt
+    replies = asyncio.run(service.handle_text(1, "стал лучше планировать", day))
+    assert "признаки срыва" in replies[0]
     assert store.session(1)["state"] == "review_final2"
     resumed = asyncio.run(service.start_review(1, day))
     assert "признаки срыва" in resumed.lower()

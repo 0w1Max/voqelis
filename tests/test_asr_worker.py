@@ -1,7 +1,7 @@
 import io
 import json
 
-import voqelis.asr_worker as asr_worker
+from voqelis import asr_worker
 
 
 def test_worker_keeps_json_stdout_protocol_and_reuses_loaded_models(monkeypatch) -> None:

@@ -6,6 +6,7 @@ import logging
 import os
 import shutil
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
@@ -119,6 +120,9 @@ class AsrBenchmarkManager:
 
     def has_session(self, user_id: int) -> bool:
         return user_id in self._sessions
+
+    def has_any_session(self) -> bool:
+        return bool(self._sessions)
 
     def get_session(self, user_id: int) -> AsrTestSession | None:
         return self._sessions.get(user_id)
@@ -403,6 +407,7 @@ def create_asr_test_router(
     *,
     manager: AsrBenchmarkManager,
     settings: Settings,
+    other_session_active: Callable[[], bool] | None = None,
 ) -> Router:
     router = Router(name="asr-telegram-benchmark")
     is_active_test_session = _ActiveTestSessionFilter(manager, settings)
@@ -418,6 +423,11 @@ def create_asr_test_router(
     async def on_asrtest(message: Message) -> None:
         if not is_allowed(message):
             await message.answer("ASR-тест доступен только разрешённому пользователю в личном чате.")
+            return
+        if other_session_active is not None and other_session_active():
+            await message.answer(
+                "Сначала заверши или отмени /asrgguf, затем запусти /asrtest."
+            )
             return
         if not manager.available:
             await message.answer(
@@ -596,6 +606,13 @@ def create_asr_test_router(
     @router.message(F.text, is_active_test_session)
     async def on_test_text(message: Message) -> None:
         if not is_allowed(message) or message.from_user is None:
+            return
+        first_word = (message.text or "").strip().split(maxsplit=1)
+        command = first_word[0].split("@", maxsplit=1)[0] if first_word else ""
+        if command == "/asrgguf":
+            await message.reply(
+                "Сначала заверши или отмени /asrtest, затем запусти /asrgguf."
+            )
             return
         session = manager.get_session(message.from_user.id)
         if session is None:

@@ -8,10 +8,12 @@ import os
 import time
 import uuid
 from collections.abc import Sequence
+from itertools import pairwise
 from pathlib import Path
 
 from faster_whisper import WhisperModel
 
+from .asr_punctuation import GgufPunctuationProcessor
 from .audio import convert_audio_to_wav, probe_duration_seconds
 from .config import Settings
 from .domain import TranscriptionResult, TranscriptSegment
@@ -23,6 +25,7 @@ GIGAAM_BACKENDS = frozenset(
 )
 _WORKER_START_TIMEOUT_SECONDS = 240
 _WORKER_INFERENCE_TIMEOUT_SECONDS = 240
+_MAX_PUNCTUATION_AUDIO_SECONDS = 25.0
 _PAUSE_THRESHOLD_SECONDS = 0.6
 _PAUSE_PUNCTUATION = frozenset(".,;:!?…")
 _SEGMENT_LEADING_PUNCTUATION = frozenset(",.;:!?…)]}")
@@ -103,6 +106,18 @@ def build_pause_aware_text(
     return result.strip()
 
 
+def _has_significant_vad_pause(
+    segments: Sequence[TranscriptSegment],
+) -> bool:
+    # Run the second model only when VAD found a meaningful silence gap.
+    return any(
+        current.start_seconds - previous.end_seconds >= _PAUSE_THRESHOLD_SECONDS
+        for previous, current in pairwise(segments)
+    )
+
+
+
+
 class Transcriber:
     """Owns one selected ASR backend and serializes inference."""
 
@@ -126,6 +141,11 @@ class Transcriber:
             if worker_python.is_absolute()
             else (self._repo_root / worker_python).resolve()
         )
+
+        self._punctuation_processor = GgufPunctuationProcessor.from_settings(
+            settings, repo_root=self._repo_root
+        )
+
 
     def _load_sync(self) -> WhisperModel:
         logger.info(
@@ -245,6 +265,8 @@ class Transcriber:
         if process is not None:
             await self._stop_process(process)
 
+
+
     async def _transcribe_gigaam(self, audio_path: str) -> TranscriptionResult:
         started = time.monotonic()
         temporary_wav = self.settings.temp_dir / f"voqelis-gigaam-{uuid.uuid4().hex}.wav"
@@ -306,7 +328,7 @@ class Transcriber:
                     )
                 raw_segments = response.get("segments")
                 if not isinstance(raw_segments, list):
-                    raise RuntimeError("GigaAM worker returned invalid segment data.")
+                    raise RuntimeError("GigaAM worker returned invalid segment data.")  # noqa: TRY004 - worker protocol error
 
                 text_parts: list[str] = []
                 parsed_segments: list[TranscriptSegment] = []
@@ -314,7 +336,7 @@ class Transcriber:
                 previous_start = -1.0
                 for row in raw_segments:
                     if not isinstance(row, dict) or not isinstance(row.get("text"), str):
-                        raise RuntimeError("GigaAM worker returned an invalid segment.")
+                        raise RuntimeError("GigaAM worker returned an invalid segment.")  # noqa: TRY004 - worker protocol error
                     segment_text = row["text"].strip()
                     if not segment_text:
                         continue
@@ -353,7 +375,7 @@ class Transcriber:
                 if timing_data_valid and len(parsed_segments) == len(text_parts):
                     gaps = [
                         round(current.start_seconds - previous.end_seconds, 3)
-                        for previous, current in zip(parsed_segments, parsed_segments[1:])
+                        for previous, current in pairwise(parsed_segments)
                     ]
                     logger.info(
                         "GigaAM VAD segmentation: segments=%d gaps_s=%s pause_gaps=%d",
@@ -366,6 +388,28 @@ class Transcriber:
                 else:
                     transcript_segments = ()
                     pause_aware_text = text
+
+                if self._punctuation_processor is not None:
+                    if duration > _MAX_PUNCTUATION_AUDIO_SECONDS:
+                        logger.info(
+                            "GigaAM E2E punctuation skipped: "
+                            "audio_duration_s=%.3f exceeds limit_s=%.1f",
+                            duration,
+                            _MAX_PUNCTUATION_AUDIO_SECONDS,
+                        )
+                    elif _has_significant_vad_pause(transcript_segments):
+                        # The existing inference lock serializes both CPU models.
+                        pause_aware_text = await self._punctuation_processor.apply(
+                            temporary_wav,
+                            text,
+                            fallback_text=pause_aware_text,
+                        )
+                    else:
+                        logger.debug(
+                            "GigaAM E2E punctuation skipped: "
+                            "no VAD pause >= %.1f seconds",
+                            _PAUSE_THRESHOLD_SECONDS,
+                        )
 
             elapsed = time.monotonic() - started
             return TranscriptionResult(

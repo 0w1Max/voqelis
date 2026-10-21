@@ -4,10 +4,15 @@ from pathlib import Path
 
 import pytest
 
-from voqelis.audio import convert_audio_to_wav, is_audio_document, probe_duration_seconds
+from voqelis.audio import (
+    convert_audio_to_wav,
+    is_audio_document,
+    probe_duration_seconds,
+)
 from voqelis.bot import run_worker
 from voqelis.domain import AudioJob, TranscriptionResult
 from voqelis.planner.config import PlannerConfig
+
 
 def test_audio_mime_is_accepted():
     assert is_audio_document(mime_type="audio/mpeg", file_name="unknown.bin")
