@@ -36,3 +36,27 @@ def test_rejects_unknown_model_labels():
 
 def test_empty_input():
     assert render_labeled_words("", []) == ""
+
+
+def test_time_tokens_do_not_get_extra_colons():
+    assert render_labeled_words(
+        "завтра в 21:00 ужинать потом в 22:00 читать книгу",
+        [
+            "UPPER_O", "LOWER_O", "LOWER_DVOETOCHIE", "LOWER_O",
+            "LOWER_COMMA", "LOWER_O", "LOWER_DVOETOCHIE", "LOWER_O", "LOWER_PERIOD",
+        ],
+    ) == "Завтра в 21:00 ужинать потом, в 22:00 читать книгу."
+
+
+def test_time_token_keeps_terminal_sentence_punctuation():
+    assert render_labeled_words("встреча в 13:00", [
+        "UPPER_O", "LOWER_O", "LOWER_PERIOD",
+    ]) == "Встреча в 13:00."
+
+
+def test_intermediate_times_cannot_be_broken_into_sentences():
+    assert render_labeled_words(
+        "с 23:00 до 01:00 читать", [
+            "LOWER_O", "LOWER_PERIOD", "LOWER_O", "LOWER_COMMA", "LOWER_PERIOD",
+        ]
+    ) == "с 23:00 до 01:00 читать."

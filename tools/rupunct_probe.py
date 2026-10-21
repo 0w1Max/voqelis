@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 import re
+import resource
 import statistics
 import sys
 import time
@@ -17,6 +18,10 @@ from pathlib import Path
 
 MODEL_SHA256 = "b105da023474d98aa13ba18953ae67b04b17bd0595034bc06030c17536893933"
 MAX_SUBTOKENS = 256
+_TIME_TOKEN = re.compile(r"\d{1,2}:\d{2}(?::\d{2})?\Z")
+_SAFE_FINAL_TIME_MARKS = frozenset({
+    "PERIOD", "QUESTION", "VOSKL", "QUESTIONVOSKL", "MNOGOTOCHIE",
+})
 CASE_MODES = {"LOWER", "UPPER", "UPPER_TOTAL"}
 MARKS = {
     "O": "", "PERIOD": ".", "COMMA": ",", "QUESTION": "?",
@@ -33,6 +38,9 @@ CASES = (
     "сегодня я купил молоко хлеб и яблоки",
     "я хотел выйти на прогулку но начался дождь",
     "сколько времени займёт поездка и когда мы вернёмся",
+    "завтра в 13:00 созвон потом в 14:30 встреча",
+    "завтра с 23:00 до 01:00 читать книгу",
+    "в 20:00 проверить почту",
 )
 
 
@@ -47,7 +55,7 @@ def render_labeled_words(text: str, labels: list[str]) -> str:
     if any(re.search(r"[.,!?;:…]$", word) for word in words):
         return text
     out = []
-    for word, label in zip(words, labels, strict=True):
+    for position, (word, label) in enumerate(zip(words, labels, strict=True)):
         case, sep, mark = label.rpartition("_")
         if not sep or case not in CASE_MODES or mark not in MARKS:
             raise ValueError(f"unsupported model label: {label!r}")
@@ -59,6 +67,14 @@ def render_labeled_words(text: str, labels: list[str]) -> str:
             adjusted = word
         if adjusted.casefold() != word.casefold():
             raise ValueError("model attempted to change lexical content")
+        # ASR time expressions are structured facts, not punctuation anchors.
+        # In particular, "21:00:" must never be produced from "21:00".
+        # Retain sentence-final punctuation, but never punctuate a time
+        # expression followed by other recognized words.
+        if _TIME_TOKEN.fullmatch(word) and (
+            position < len(words) - 1 or mark not in _SAFE_FINAL_TIME_MARKS
+        ):
+            mark = "O"
         out.append(adjusted + MARKS[mark])
     return " ".join(out)
 
@@ -138,6 +154,9 @@ def main() -> int:
     started = time.perf_counter()
     model = OnnxRUPunct(args.model_dir)
     print(f"Model load time: {time.perf_counter() - started:.3f}s")
+    # Linux ru_maxrss is KiB; systemd-run --pipe's reported peak can be
+    # misleading for a transient unit. Measure the Python process itself.
+    print(f"Process peak RSS after load: {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024:.1f} MiB")
     timings = []
     for text in (*CASES, *args.text):
         t0 = time.perf_counter()
@@ -150,6 +169,7 @@ def main() -> int:
         print(f"INPUT:  {text}\nOUTPUT: {output}\nLATENCY_MS: {timings[-1]:.1f}\n")
     print(f"Median latency: {statistics.median(timings):.1f} ms")
     print(f"Max latency: {max(timings):.1f} ms")
+    print(f"Process peak RSS: {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024:.1f} MiB")
     print("Note: manual quality review required; this benchmark does not prove accuracy.")
     return 0
 
