@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import suppress
+from pathlib import Path
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 
+from .asr_gguf_test_bot import GgufTestManager, create_asr_gguf_test_router
 from .asr_test_bot import AsrBenchmarkManager, create_asr_test_router
 from .bot import cleanup_temp_dir, create_router, run_worker
 from .config import load_settings
@@ -48,6 +50,16 @@ async def async_main() -> None:
     asr_test_manager = AsrBenchmarkManager(
         data_dir=settings.planner_db_path.parent / "asr-benchmark-telegram",
         timezone=planner_config.timezone,
+    )
+    repo_root = Path(__file__).resolve().parents[2]
+    gguf_work_dir = settings.planner_db_path.parent / "asr-benchmark-transcribe-cpp"
+    gguf_test_manager = GgufTestManager(
+        data_dir=settings.planner_db_path.parent / "asr-gguf-telegram",
+        timezone=planner_config.timezone,
+        model_path=gguf_work_dir / "gigaam-v3-e2e-ctc-Q4_K_M.gguf",
+        python_path=gguf_work_dir / "venv" / "bin" / "python",
+        worker_path=repo_root / "tools" / "asr_gguf_transcribe.py",
+        repo_root=repo_root,
     )
     groq_ai = (
         GroqPlannerAI(
@@ -108,7 +120,18 @@ async def async_main() -> None:
 
     dp = Dispatcher()
     dp.include_router(
-        create_asr_test_router(manager=asr_test_manager, settings=settings)
+        create_asr_test_router(
+            manager=asr_test_manager,
+            settings=settings,
+            other_session_active=gguf_test_manager.has_any_session,
+        )
+    )
+    dp.include_router(
+        create_asr_gguf_test_router(
+            manager=gguf_test_manager,
+            settings=settings,
+            other_session_active=asr_test_manager.has_any_session,
+        )
     )
     dp.include_router(create_planner_router(service=planner, allowed_user_ids=settings.allowed_user_ids))
     dp.include_router(create_router(settings=settings, queue=queue, planner=planner))
