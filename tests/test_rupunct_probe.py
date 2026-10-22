@@ -1,5 +1,7 @@
 """Pure tests; no ONNX download or optional dependencies required."""
 
+from itertools import pairwise
+
 import pytest
 
 from tools.rupunct_probe import OnnxRUPunct, plan_token_windows, render_labeled_words
@@ -72,8 +74,10 @@ def test_windows_cover_every_word_with_overlap():
     assert [i for start, _, emit_end in windows for i in range(start, emit_end)] == list(
         range(90)
     )
-    assert any(next_start < end for (_, end, _), (next_start, _, _) in
-               zip(windows, windows[1:], strict=False))
+    assert any(
+        next_start < end
+        for (_, end, _), (next_start, _, _) in pairwise(windows)
+    )
 
 
 def test_window_planner_rejects_oversized_word():
