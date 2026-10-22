@@ -3,15 +3,28 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import suppress
+from pathlib import Path
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 
+from .asr_gguf_test_bot import GgufTestManager, create_asr_gguf_test_router
+from .asr_test_bot import AsrBenchmarkManager, create_asr_test_router
 from .bot import cleanup_temp_dir, create_router, run_worker
 from .config import load_settings
+from .planner.ai import (
+    AIProviderRouter,
+    CloudflarePlannerAI,
+    GeminiPlannerAI,
+    GroqPlannerAI,
+)
+from .planner.bot import create_planner_router
+from .planner.config import PlannerConfig
+from .planner.service import PlannerService
+from .planner.store import PlannerStore
 from .queue import JobQueue
+from .text_punctuation import TextPunctuationProcessor
 from .transcription import Transcriber
-
 
 logger = logging.getLogger(__name__)
 
@@ -24,10 +37,83 @@ async def async_main() -> None:
         logger.info("Removed %s stale temporary file(s)", removed)
 
     transcriber = Transcriber(settings)
+    punctuation_processor = TextPunctuationProcessor.from_settings(settings)
 
     # Fail fast during service startup if the model cannot be loaded. This avoids
     # a bot that appears online but silently accumulates unusable jobs.
     await transcriber.start()
+
+    planner_store = PlannerStore(settings.planner_db_path)
+    planner_config = (
+        PlannerConfig.from_json_file(settings.planner_config_path)
+        if settings.planner_config_path.exists()
+        else PlannerConfig()
+    )
+    asr_test_manager = AsrBenchmarkManager(
+        data_dir=settings.planner_db_path.parent / "asr-benchmark-telegram",
+        timezone=planner_config.timezone,
+    )
+    repo_root = Path(__file__).resolve().parents[2]
+    gguf_work_dir = settings.planner_db_path.parent / "asr-benchmark-transcribe-cpp"
+    gguf_test_manager = GgufTestManager(
+        data_dir=settings.planner_db_path.parent / "asr-gguf-telegram",
+        timezone=planner_config.timezone,
+        model_path=gguf_work_dir / "gigaam-v3-e2e-ctc-Q4_K_M.gguf",
+        python_path=gguf_work_dir / "venv" / "bin" / "python",
+        worker_path=repo_root / "tools" / "asr_gguf_transcribe.py",
+        repo_root=repo_root,
+    )
+    groq_ai = (
+        GroqPlannerAI(
+            settings.groq_api_key,
+            model=settings.groq_model,
+            timeout_seconds=settings.planner_ai_timeout_seconds,
+        )
+        if settings.groq_api_key
+        else None
+    )
+    gemini_ai = (
+        GeminiPlannerAI(
+            settings.gemini_api_key,
+            model=settings.gemini_model,
+            timeout_seconds=settings.planner_ai_fallback_timeout_seconds,
+        )
+        if settings.gemini_api_key
+        else None
+    )
+    cloudflare_ai = (
+        CloudflarePlannerAI(
+            settings.cloudflare_api_token,
+            account_id=settings.cloudflare_account_id,
+            model=settings.cloudflare_model,
+            timeout_seconds=settings.cloudflare_timeout_seconds,
+        )
+        if settings.cloudflare_api_token and settings.cloudflare_account_id
+        else None
+    )
+    planner_ai = (
+        AIProviderRouter(
+            primary=groq_ai,
+            fallback=gemini_ai,
+            tertiary=cloudflare_ai,
+        )
+        if groq_ai or gemini_ai or cloudflare_ai
+        else None
+    )
+    if planner_ai is not None:
+        logger.info(
+            "Planner AI configured: primary=%s fallback=%s tertiary=%s",
+            getattr(groq_ai, "provider_name", "none") if groq_ai else "none",
+            getattr(gemini_ai, "provider_name", "none") if gemini_ai else "none",
+            getattr(cloudflare_ai, "provider_name", "none") if cloudflare_ai else "none",
+        )
+    planner = PlannerService(
+        planner_store,
+        config=planner_config,
+        ai=planner_ai,
+        export_dir=settings.temp_dir,
+        log_content=settings.planner_log_content,
+    )
 
     queue = JobQueue(
         max_pending_jobs=settings.max_pending_jobs,
@@ -35,7 +121,22 @@ async def async_main() -> None:
     )
 
     dp = Dispatcher()
-    dp.include_router(create_router(settings=settings, queue=queue))
+    dp.include_router(
+        create_asr_test_router(
+            manager=asr_test_manager,
+            settings=settings,
+            other_session_active=gguf_test_manager.has_any_session,
+        )
+    )
+    dp.include_router(
+        create_asr_gguf_test_router(
+            manager=gguf_test_manager,
+            settings=settings,
+            other_session_active=asr_test_manager.has_any_session,
+        )
+    )
+    dp.include_router(create_planner_router(service=planner, allowed_user_ids=settings.allowed_user_ids))
+    dp.include_router(create_router(settings=settings, queue=queue, planner=planner))
 
     async with Bot(
         token=settings.bot_token,
@@ -47,6 +148,9 @@ async def async_main() -> None:
                 queue=queue,
                 transcriber=transcriber,
                 settings=settings,
+                planner=planner,
+                log_content=settings.planner_log_content,
+                punctuation_processor=punctuation_processor,
             ),
             name="transcription-worker",
         )
@@ -61,6 +165,8 @@ async def async_main() -> None:
             worker_task.cancel()
             with suppress(asyncio.CancelledError):
                 await worker_task
+            await transcriber.close()
+            planner_store.close()
 
 
 def main() -> None:
