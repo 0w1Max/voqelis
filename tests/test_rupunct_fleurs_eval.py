@@ -3,8 +3,8 @@
 import pytest
 
 from tools.rupunct_fleurs_eval import (
-    boundary_counts,
     boundaries,
+    boundary_counts,
     choose_unique,
     evaluate,
     punctuation_summary,
