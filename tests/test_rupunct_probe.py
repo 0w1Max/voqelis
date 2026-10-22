@@ -2,7 +2,7 @@
 
 import pytest
 
-from tools.rupunct_probe import plan_token_windows, render_labeled_words
+from tools.rupunct_probe import OnnxRUPunct, plan_token_windows, render_labeled_words
 
 
 def test_capitalization_and_punctuation_do_not_modify_words():
@@ -91,3 +91,33 @@ def test_window_planner_rejects_too_many_windows():
 
 def test_window_planner_handles_empty_transcript():
     assert plan_token_windows(0, lambda start, end: 2) == []
+
+
+class _FakeTokenizer:
+    def encode(self, words, *, is_pretokenized):
+        assert is_pretokenized
+        return type("Encoding", (), {"ids": [0] * (2 + 2 * len(words))})()
+
+
+class _FakePunctuator(OnnxRUPunct):
+    def __init__(self):
+        self.tokenizer = _FakeTokenizer()
+        self.inference_calls = 0
+
+    def _predict_labels(self, words):
+        self.inference_calls += 1
+        return ["LOWER_O"] * len(words)
+
+
+def test_long_transcript_is_not_dropped_or_truncated():
+    model = _FakePunctuator()
+    original = " ".join(["слово"] * 500)
+    assert model.punctuate(original) == original
+    assert model.inference_calls > 1
+
+
+def test_excessively_long_transcript_fails_open_without_inference():
+    model = _FakePunctuator()
+    original = " ".join(["слово"] * 2049)
+    assert model.punctuate(original) == original
+    assert model.inference_calls == 0
