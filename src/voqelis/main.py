@@ -23,6 +23,7 @@ from .planner.config import PlannerConfig
 from .planner.service import PlannerService
 from .planner.store import PlannerStore
 from .queue import JobQueue
+from .text_punctuation import TextPunctuationProcessor
 from .transcription import Transcriber
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,7 @@ async def async_main() -> None:
         logger.info("Removed %s stale temporary file(s)", removed)
 
     transcriber = Transcriber(settings)
+    punctuation_processor = TextPunctuationProcessor.from_settings(settings)
 
     # Fail fast during service startup if the model cannot be loaded. This avoids
     # a bot that appears online but silently accumulates unusable jobs.
@@ -148,6 +150,7 @@ async def async_main() -> None:
                 settings=settings,
                 planner=planner,
                 log_content=settings.planner_log_content,
+                punctuation_processor=punctuation_processor,
             ),
             name="transcription-worker",
         )

@@ -25,6 +25,7 @@ from .planner.bot import planner_keyboard, planner_markup_for_state
 from .planner.service import PlannerService
 from .queue import JobQueue
 from .text import chunk_text
+from .text_punctuation import TextPunctuationProcessor
 from .transcription import Transcriber
 
 logger = logging.getLogger(__name__)
@@ -212,6 +213,7 @@ async def run_worker(
     settings: Settings,
     planner: PlannerService | None = None,
     log_content: bool = False,
+    punctuation_processor: TextPunctuationProcessor | None = None,
 ) -> None:
     planner_tz = ZoneInfo(planner.config.timezone) if planner else None
 
@@ -261,7 +263,12 @@ async def run_worker(
                         reply_markup=planner_markup_for_state(planner, job.user_id),
                     )
             else:
-                parts = chunk_text(result.pause_aware_text or result.text)
+                display_text = result.pause_aware_text or result.text
+                if punctuation_processor is not None:
+                    display_text = await punctuation_processor.format(
+                        result.text, fallback_text=display_text
+                    )
+                parts = chunk_text(display_text)
                 for index, part in enumerate(parts):
                     await bot.send_message(
                         job.chat_id,

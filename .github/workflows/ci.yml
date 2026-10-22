@@ -4,12 +4,14 @@ on:
   push:
     branches:
       - feature/planner-v1
+      - experiment/text-punctuation-v1
       - refactor/planner-ai
       - refactor/planner-service
       - integration/planner-asr-v1
   pull_request:
     branches:
       - feature/planner-v1
+      - experiment/text-punctuation-v1
       - refactor/planner-ai
       - refactor/planner-service
       - integration/planner-asr-v1
