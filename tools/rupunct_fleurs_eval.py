@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from tools.rupunct_probe import OnnxRUPunct
+from voqelis.rupunct import OnnxRUPunct
 
 WORD = re.compile(r"[^\W_]+", re.UNICODE)
 MARK = re.compile(r"[,.;:!?…—–-]+")
