@@ -173,3 +173,101 @@ async def test_plain_telegram_transcription_uses_punctuation_but_planner_does_no
     assert processor.calls == [(
         "завтра в 21:00 ужинать", "завтра, в 21:00 ужинать"
     )]
+
+
+
+@pytest.mark.asyncio
+async def test_planner_session_never_calls_punctuation_processor(
+    monkeypatch, tmp_path
+) -> None:
+    from voqelis.bot import run_worker
+
+    class FakeBot:
+        def __init__(self):
+            self.messages = []
+
+        async def send_chat_action(self, *_args):
+            pass
+
+        async def send_message(self, _chat_id, text, **_kwargs):
+            self.messages.append(text)
+
+    class FakeTranscriber:
+        async def transcribe(self, _path):
+            return TranscriptionResult(
+                text="завтра в 21:00 ужинать",
+                pause_aware_text="завтра, в 21:00 ужинать",
+                language="ru",
+                language_probability=0,
+                duration_seconds=3,
+                duration_after_vad_seconds=3,
+                processing_seconds=0.1,
+            )
+
+    class FakeQueue:
+        def __init__(self):
+            self.count = 0
+
+        async def get(self):
+            self.count += 1
+            if self.count > 1:
+                raise asyncio.CancelledError
+            return AudioJob(
+                chat_id=1, reply_to_message_id=2, user_id=3,
+                file_path=tmp_path / "voice.ogg"
+            )
+
+        async def release(self, _user_id):
+            pass
+
+        def task_done(self):
+            pass
+
+    class FakeStore:
+        def session(self, user_id):
+            assert user_id == 3
+            return {"state": "planning", "target_day": "2026-10-23"}
+
+    class FakePlanner:
+        def __init__(self):
+            self.store = FakeStore()
+            self.config = SimpleNamespace(timezone="Europe/Moscow")
+
+        async def handle_text(self, user_id, text, today):
+            assert user_id == 3
+            assert text == "завтра, в 21:00 ужинать"
+            return ["Planner ответ"]
+
+    class ForbiddenPunctuator:
+        async def format(self, *_args, **_kwargs):
+            raise AssertionError("Planner must not use presentation punctuation")
+
+    monkeypatch.setattr("voqelis.bot.probe_duration_seconds", lambda _path: 3.0)
+    monkeypatch.setattr("voqelis.bot.planner_markup_for_state", lambda *_args: None)
+    (tmp_path / "voice.ogg").write_bytes(b"test")
+    bot = FakeBot()
+    with pytest.raises(asyncio.CancelledError):
+        await run_worker(
+            bot=bot,
+            queue=FakeQueue(),
+            transcriber=FakeTranscriber(),
+            settings=SimpleNamespace(max_audio_seconds=90),
+            planner=FakePlanner(),
+            punctuation_processor=ForbiddenPunctuator(),
+        )
+    assert bot.messages == ["Planner ответ"]
+
+
+@pytest.mark.asyncio
+async def test_timeouts_disable_optional_punctuation_and_preserve_text(
+    monkeypatch, tmp_path
+) -> None:
+    import time
+
+    processor = TextPunctuationProcessor(tmp_path)
+    monkeypatch.setattr("voqelis.text_punctuation._TIMEOUT_SECONDS", 0.01)
+    processor._predict_sync = lambda text: (time.sleep(0.08), text.capitalize())[1]
+    assert await processor.format(
+        "проверка текста", fallback_text="проверка, текста"
+    ) == "проверка, текста"
+    assert processor._disabled is True
