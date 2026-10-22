@@ -14,10 +14,14 @@ import resource
 import statistics
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 MODEL_SHA256 = "b105da023474d98aa13ba18953ae67b04b17bd0595034bc06030c17536893933"
 MAX_SUBTOKENS = 256
+MAX_WORDS = 2048
+MAX_WINDOWS = 64
+OVERLAP_WORDS = 12
 _TIME_TOKEN = re.compile(r"\d{1,2}:\d{2}(?::\d{2})?\Z")
 _SAFE_FINAL_TIME_MARKS = frozenset({
     "PERIOD", "QUESTION", "VOSKL", "QUESTIONVOSKL", "MNOGOTOCHIE",
@@ -79,6 +83,48 @@ def render_labeled_words(text: str, labels: list[str]) -> str:
     return " ".join(out)
 
 
+def plan_token_windows(
+    word_count: int,
+    token_count: Callable[[int, int], int],
+    *,
+    max_subtokens: int = MAX_SUBTOKENS,
+    overlap_words: int = OVERLAP_WORDS,
+    max_windows: int = MAX_WINDOWS,
+) -> list[tuple[int, int, int]]:
+    """Plan bounded windows (start, end, emit_end) without dropping any words.
+
+    All indices refer to original words. Windows can overlap to avoid predicting
+    end-of-sentence punctuation merely because an inference window ended.
+    Model labels from the overlapping tail are discarded and recomputed in the
+    next window. If no safe bounded plan exists, fail rather than truncate.
+    """
+    if word_count < 0 or max_subtokens < 1 or overlap_words < 0 or max_windows < 1:
+        raise ValueError("invalid window planning parameters")
+    windows: list[tuple[int, int, int]] = []
+    start = 0
+    while start < word_count:
+        if len(windows) >= max_windows:
+            raise ValueError("too many model windows")
+        low, high, best = start + 1, word_count, start
+        while low <= high:
+            middle = (low + high) // 2
+            if token_count(start, middle) <= max_subtokens:
+                best = middle
+                low = middle + 1
+            else:
+                high = middle - 1
+        if best == start:
+            raise ValueError("single word exceeds model token budget")
+        width = best - start
+        overlap = min(overlap_words, width // 4) if best < word_count else 0
+        emit_end = best - overlap
+        if emit_end <= start:
+            raise ValueError("model window made no progress")
+        windows.append((start, best, emit_end))
+        start = emit_end
+    return windows
+
+
 class OnnxRUPunct:
     def __init__(self, model_dir: Path) -> None:
         try:
@@ -117,16 +163,11 @@ class OnnxRUPunct:
         }:
             raise ValueError("Unexpected ONNX inputs")
 
-    def punctuate(self, text: str) -> str:
-        words = text.split()
-        if not words:
-            return text
-        if any(re.search(r"[.,!?;:…]$", word) for word in words):
-            return text
+    def _predict_labels(self, words: list[str]) -> list[str]:
         encoding = self.tokenizer.encode(words, is_pretokenized=True)
         if len(encoding.ids) > MAX_SUBTOKENS:
-            return text  # long transcripts need separately tested chunking
-        first_positions = {}
+            raise ValueError("token budget exceeded during inference")
+        first_positions: dict[int, int] = {}
         for index, word_id in enumerate(encoding.word_ids):
             if word_id is not None and word_id not in first_positions:
                 first_positions[word_id] = index
@@ -142,8 +183,33 @@ class OnnxRUPunct:
         if logits.shape != (1, len(encoding.ids), 33):
             raise ValueError(f"Unexpected ONNX output shape: {logits.shape}")
         predictions = np.argmax(logits[0], axis=-1)
-        labels = [self.labels[int(predictions[first_positions[i]])] for i in range(len(words))]
-        return render_labeled_words(text, labels)
+        return [self.labels[int(predictions[first_positions[i]])] for i in range(len(words))]
+
+    def punctuate(self, text: str) -> str:
+        words = text.split()
+        if not words:
+            return text
+        if any(re.search(r"[.,!?;:…]$", word) for word in words):
+            return text
+        if len(words) > MAX_WORDS:
+            return text  # never block the application on unusually long input
+
+        def count_tokens(start: int, end: int) -> int:
+            return len(
+                self.tokenizer.encode(words[start:end], is_pretokenized=True).ids
+            )
+
+        try:
+            windows = plan_token_windows(len(words), count_tokens)
+        except ValueError:
+            return text  # impossible window: preserve original, never truncate
+        all_labels: list[str] = []
+        for start, end, emit_end in windows:
+            labels = self._predict_labels(words[start:end])
+            all_labels.extend(labels[:emit_end - start])
+        if len(all_labels) != len(words):
+            raise ValueError("Chunking lost or duplicated input words")
+        return render_labeled_words(text, all_labels)
 
 
 def main() -> int:
