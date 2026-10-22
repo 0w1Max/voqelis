@@ -20,6 +20,7 @@ ALLOWED_ASR_BACKENDS = {
 ALLOWED_ASR_PUNCTUATION_BACKENDS = {
     "none",
     "gigaam-v3-e2e-ctc-gguf",
+    "rupunct-small-int8",
 }
 
 
@@ -100,6 +101,9 @@ class Settings:
     )
     asr_punctuation_worker_python: Path = Path(
         "/var/lib/voqelis/asr-benchmark-transcribe-cpp/venv/bin/python"
+    )
+    asr_text_punctuation_model_dir: Path = Path(
+        "/var/lib/voqelis/rupunct-model-v1"
     )
 
 
@@ -259,6 +263,12 @@ def load_settings(env_file: Path | None = None) -> Settings:
         asr_punctuation_backend=asr_punctuation_backend,
         asr_punctuation_model_path=asr_punctuation_model_path,
         asr_punctuation_worker_python=asr_punctuation_worker_python,
+        asr_text_punctuation_model_dir=Path(
+            os.environ.get(
+                "ASR_TEXT_PUNCTUATION_MODEL_DIR",
+                "/var/lib/voqelis/rupunct-model-v1",
+            )
+        ).expanduser(),
     )
 
     settings.temp_dir.mkdir(parents=True, exist_ok=True)
