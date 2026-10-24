@@ -5,6 +5,7 @@ No Planner tables or schema changes. Voice capture is one-shot and expires.
 
 from __future__ import annotations
 
+import secrets
 import sqlite3
 import time
 import unicodedata
@@ -30,7 +31,9 @@ CREATE INDEX IF NOT EXISTS idx_notes_user_id ON notes(user_id, id DESC);
 
 CREATE TABLE IF NOT EXISTS note_voice_capture (
     user_id INTEGER PRIMARY KEY,
-    expires_at INTEGER NOT NULL
+    expires_at INTEGER NOT NULL,
+    token TEXT NOT NULL,
+    claimed INTEGER NOT NULL DEFAULT 0 CHECK(claimed IN (0, 1))
 );
 """
 
@@ -111,14 +114,18 @@ class NotesStore:
         with self.db:
             return self._insert(user_id, validated, validated, "text")
 
-    def arm_voice(self, user_id: int, *, now: int | None = None) -> None:
+    def arm_voice(self, user_id: int, *, now: int | None = None) -> str:
         current = int(time.time()) if now is None else now
+        token = secrets.token_hex(16)
         with self.db:
             self.db.execute(
-                "INSERT INTO note_voice_capture(user_id, expires_at) VALUES (?, ?) "
-                "ON CONFLICT(user_id) DO UPDATE SET expires_at=excluded.expires_at",
-                (user_id, current + CAPTURE_TTL_SECONDS),
+                "INSERT INTO note_voice_capture(user_id, expires_at, token, claimed) "
+                "VALUES (?, ?, ?, 0) "
+                "ON CONFLICT(user_id) DO UPDATE SET "
+                "expires_at=excluded.expires_at, token=excluded.token, claimed=0",
+                (user_id, current + CAPTURE_TTL_SECONDS, token),
             )
+        return token
 
     def cancel_voice(self, user_id: int) -> bool:
         with self.db:
@@ -131,10 +138,31 @@ class NotesStore:
     def pending_voice(self, user_id: int, *, now: int | None = None) -> bool:
         current = int(time.time()) if now is None else now
         row = self.db.execute(
-            "SELECT expires_at FROM note_voice_capture WHERE user_id=?",
+            "SELECT expires_at FROM note_voice_capture "
+            "WHERE user_id=? AND claimed=0",
             (user_id,),
         ).fetchone()
         return row is not None and int(row["expires_at"]) > current
+
+    def claim_voice(self, user_id: int, *, now: int | None = None) -> str | None:
+        """Bind the next accepted audio to its one-shot token atomically."""
+        current = int(time.time()) if now is None else now
+        with self.db:
+            self.db.execute("BEGIN IMMEDIATE")
+            row = self.db.execute(
+                "SELECT token FROM note_voice_capture "
+                "WHERE user_id=? AND claimed=0 AND expires_at>?",
+                (user_id, current),
+            ).fetchone()
+            if row is None:
+                return None
+            token = str(row["token"])
+            self.db.execute(
+                "UPDATE note_voice_capture SET claimed=1 "
+                "WHERE user_id=? AND token=? AND claimed=0",
+                (user_id, token),
+            )
+            return token
 
     def capture_voice(
         self,
@@ -142,24 +170,23 @@ class NotesStore:
         body: str,
         *,
         original_text: str,
-        now: int | None = None,
+        capture_token: str,
     ) -> Note | None:
         validated = _validate_body(body)
         original = _validate_body(original_text)
-        current = int(time.time()) if now is None else now
         with self.db:
-            # Reserve the database write transaction before checking one-shot state.
             self.db.execute("BEGIN IMMEDIATE")
             row = self.db.execute(
-                "SELECT expires_at FROM note_voice_capture WHERE user_id=?",
+                "SELECT token FROM note_voice_capture "
+                "WHERE user_id=? AND claimed=1",
                 (user_id,),
             ).fetchone()
-            if row is None or int(row["expires_at"]) <= current:
+            if row is None or str(row["token"]) != capture_token:
                 return None
             note = self._insert(user_id, validated, original, "voice")
             self.db.execute(
-                "DELETE FROM note_voice_capture WHERE user_id=?",
-                (user_id,),
+                "DELETE FROM note_voice_capture WHERE user_id=? AND token=?",
+                (user_id, capture_token),
             )
             return note
 

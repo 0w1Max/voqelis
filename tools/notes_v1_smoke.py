@@ -30,10 +30,13 @@ def main() -> None:
         try:
             text = store.create_text(1, "Проверить заметки и купить хлеб")
             store.arm_voice(1)
+            token = store.claim_voice(1)
+            assert token
             voice = store.capture_voice(
                 1,
                 "Сегодня хорошая погода.",
                 original_text="сегодня хорошая погода",
+                capture_token=token,
             )
             assert voice is not None
             assert not store.pending_voice(1)

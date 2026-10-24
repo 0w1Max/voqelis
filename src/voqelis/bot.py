@@ -175,20 +175,20 @@ def create_router(
                 )
 
             planner_session = planner.store.session(user_id) if planner else None
-            capture_note = (
-                planner_session is None
-                and notes is not None
-                and notes.pending_voice(user_id)
+            capture_token = (
+                notes.claim_voice(user_id)
+                if planner_session is None and notes is not None
+                else None
             )
             job = AudioJob(
                 chat_id=message.chat.id,
                 reply_to_message_id=message.message_id,
                 user_id=user_id,
                 file_path=raw_path,
-                capture_note=capture_note,
+                capture_token=capture_token,
             )
             await queue.put(job)
-            if capture_note:
+            if capture_token is not None:
                 await message.reply("✅ Принял. Распознаю и сохраню как заметку.")
             elif planner_session is None:
                 await message.reply("✅ Принял. Распознаю по очереди.")
@@ -283,10 +283,11 @@ async def run_worker(
                         result.text, fallback_text=display_text
                     )
                 delivery = display_text
-                if job.capture_note and notes is not None:
+                if job.capture_token is not None and notes is not None:
                     try:
                         note = notes.capture_voice(
-                            job.user_id, display_text, original=result.text
+                            job.user_id, display_text, original=result.text,
+                            capture_token=job.capture_token,
                         )
                     except ValueError:
                         delivery = (

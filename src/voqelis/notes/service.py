@@ -32,8 +32,15 @@ class NotesService:
     def pending_voice(self, user_id: int) -> bool:
         return self.store.pending_voice(user_id)
 
-    def capture_voice(self, user_id: int, text: str, *, original: str) -> Note | None:
-        return self.store.capture_voice(user_id, text, original_text=original)
+    def claim_voice(self, user_id: int) -> str | None:
+        return self.store.claim_voice(user_id)
+
+    def capture_voice(
+        self, user_id: int, text: str, *, original: str, capture_token: str
+    ) -> Note | None:
+        return self.store.capture_voice(
+            user_id, text, original_text=original, capture_token=capture_token
+        )
 
     def saved_message(self, note: Note) -> str:
         return f"📝 Заметка #{note.id} сохранена.\n\n{note.body}"

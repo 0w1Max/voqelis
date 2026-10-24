@@ -105,10 +105,13 @@ def test_empty_oversized_and_invalid_queries_fail_without_insert(notes_store) ->
 def test_voice_capture_one_shot_keeps_original_transcript(notes_store) -> None:
     notes_store.arm_voice(17, now=100)
     assert notes_store.pending_voice(17, now=100)
+    token = notes_store.claim_voice(17, now=101)
+    assert token
+    assert not notes_store.pending_voice(17, now=101)
+    assert notes_store.claim_voice(17, now=102) is None
     saved = notes_store.capture_voice(
         17, "Сегодня хорошая погода.",
-        original_text="сегодня хорошая погода",
-        now=101,
+        original_text="сегодня хорошая погода", capture_token=token,
     )
     assert saved is not None
     assert saved.source == "voice"
@@ -116,7 +119,7 @@ def test_voice_capture_one_shot_keeps_original_transcript(notes_store) -> None:
     assert saved.body == "Сегодня хорошая погода."
     assert not notes_store.pending_voice(17, now=102)
     assert notes_store.capture_voice(
-        17, "ещё голос", original_text="ещё голос", now=103,
+        17, "ещё голос", original_text="ещё голос", capture_token=token,
     ) is None
 
 
@@ -124,35 +127,76 @@ def test_voice_capture_expires_and_cancel_prevents_insert(notes_store) -> None:
     notes_store.arm_voice(8, now=100)
     assert notes_store.pending_voice(8, now=100 + CAPTURE_TTL_SECONDS - 1)
     assert not notes_store.pending_voice(8, now=100 + CAPTURE_TTL_SECONDS)
-    assert notes_store.capture_voice(
-        8, "просрочено", original_text="просрочено",
-        now=100 + CAPTURE_TTL_SECONDS,
-    ) is None
+    assert notes_store.claim_voice(8, now=100 + CAPTURE_TTL_SECONDS) is None
     notes_store.arm_voice(8, now=2000)
+    token = notes_store.claim_voice(8, now=2001)
+    assert token
     assert notes_store.cancel_voice(8) is True
     assert notes_store.cancel_voice(8) is False
     assert notes_store.capture_voice(
-        8, "не сохранить", original_text="не сохранить", now=2001,
+        8, "не сохранить", original_text="не сохранить", capture_token=token,
     ) is None
 
 
 def test_failed_voice_capture_does_not_consume_arm(notes_store) -> None:
     notes_store.arm_voice(1, now=10)
+    token = notes_store.claim_voice(1, now=11)
+    assert token
     with pytest.raises(ValueError):
         notes_store.capture_voice(
             1, "x" * (MAX_NOTE_CHARS + 1), original_text="исходный текст",
-            now=11,
+            capture_token=token,
         )
-    assert notes_store.pending_voice(1, now=12)
+    assert not notes_store.pending_voice(1, now=12)
     assert notes_store.recent(1) == []
 
 
 def test_voice_capture_is_user_isolated(notes_store) -> None:
     notes_store.arm_voice(1, now=20)
+    token = notes_store.claim_voice(1, now=21)
+    assert token
     assert notes_store.capture_voice(
-        2, "чужое", original_text="чужое", now=21,
+        2, "чужое", original_text="чужое", capture_token=token,
     ) is None
-    assert notes_store.pending_voice(1, now=21)
+    assert notes_store.capture_voice(
+        1, "своё", original_text="своё", capture_token=token,
+    ) is not None
+
+
+def test_cancel_then_rearm_does_not_save_stale_queued_voice(notes_store) -> None:
+    notes_store.arm_voice(1, now=100)
+    old_token = notes_store.claim_voice(1, now=101)
+    assert old_token
+    assert notes_store.cancel_voice(1)
+    notes_store.arm_voice(1, now=102)
+    new_token = notes_store.claim_voice(1, now=103)
+    assert new_token and new_token != old_token
+    assert notes_store.capture_voice(
+        1, "старое аудио", original_text="старое аудио",
+        capture_token=old_token,
+    ) is None
+    assert notes_store.capture_voice(
+        1, "новое аудио", original_text="новое аудио",
+        capture_token=new_token,
+    ) is not None
+    assert [n.body for n in notes_store.recent(1)] == ["новое аудио"]
+
+
+def test_rearm_without_cancel_invalidates_earlier_claim(notes_store) -> None:
+    notes_store.arm_voice(1, now=200)
+    old_token = notes_store.claim_voice(1, now=201)
+    assert old_token
+    notes_store.arm_voice(1, now=202)
+    new_token = notes_store.claim_voice(1, now=203)
+    assert new_token and new_token != old_token
+    assert notes_store.capture_voice(
+        1, "не сохранять", original_text="не сохранять",
+        capture_token=old_token,
+    ) is None
+    assert notes_store.capture_voice(
+        1, "сохранить", original_text="сохранить",
+        capture_token=new_token,
+    ) is not None
 
 
 def test_commands_and_note_service_output(notes_store) -> None:
@@ -241,7 +285,7 @@ async def _one_voice(
     bot = FakeBot()
     queue = FakeQueue(AudioJob(
         chat_id=10, reply_to_message_id=11, user_id=7, file_path=path,
-        capture_note=capture_note,
+        capture_token=notes.claim_voice(7) if capture_note else None,
     ))
     with pytest.raises(asyncio.CancelledError):
         await run_worker(
@@ -422,3 +466,15 @@ async def test_text_note_rejected_during_active_planner_session(notes_store) -> 
     await create(voice_note)
     assert "открыт Planner" in voice_note.answers[0]
     assert not notes_store.pending_voice(7)
+
+
+@pytest.mark.asyncio
+async def test_text_note_cancels_previous_pending_voice(notes_store) -> None:
+    service = NotesService(notes_store)
+    router = create_notes_router(service=service, allowed_user_ids=frozenset({7}))
+    create = _command_callback(router, "on_note")
+    await create(FakeMessage("/note"))
+    assert service.pending_voice(7)
+    await create(FakeMessage("/note Только текст"))
+    assert not service.pending_voice(7)
+    assert [n.body for n in notes_store.recent(7)] == ["Только текст"]

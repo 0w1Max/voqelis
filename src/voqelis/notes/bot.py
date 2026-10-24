@@ -62,6 +62,7 @@ def create_notes_router(
         except ValueError:
             await message.answer("Заметка должна содержать от 1 до 12000 символов.")
             return
+        service.cancel_voice(user_id)
         await _answer_long(message, service.saved_message(note))
 
     @router.message(Command("note_cancel"))
