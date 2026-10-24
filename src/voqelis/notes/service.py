@@ -61,7 +61,7 @@ class NotesService:
     def search_message(self, user_id: int, query: str) -> str:
         notes = self.store.search(user_id, query)
         if not notes:
-            return "По запросу ничего не найдено."
+            return "По запросу заметки не найдены."
         return f"🔎 Найденные заметки:\n{self._list_lines(notes)}\n\nОткрыть: /note_show ID"
 
     def get(self, user_id: int, note_id: int) -> Note | None:

@@ -51,7 +51,7 @@ def _normalized_search(text: str) -> str:
 
 def _validate_body(body: str) -> str:
     if not isinstance(body, str):
-        raise ValueError("Note body must be text")
+        raise TypeError("Note body must be text")
     clean = body.strip()
     if not clean or len(clean) > MAX_NOTE_CHARS:
         raise ValueError(f"Note must contain 1–{MAX_NOTE_CHARS} characters")
