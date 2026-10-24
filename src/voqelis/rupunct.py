@@ -27,6 +27,11 @@ MARKS = {
     "PERIODCOMMA": ";", "DEFIS": "-", "QUESTIONVOSKL": "?!",
     "MNOGOTOCHIE": "...",
 }
+_SENTENCE_END_MARKS = frozenset({
+    "PERIOD", "QUESTION", "VOSKL", "QUESTIONVOSKL", "MNOGOTOCHIE",
+})
+
+
 def render_labeled_words(text: str, labels: list[str]) -> str:
     """Only change casing and append punctuation, preserving every lexical word."""
     words = text.split()
@@ -38,6 +43,7 @@ def render_labeled_words(text: str, labels: list[str]) -> str:
     if any(re.search(r"[.,!?;:…]$", word) for word in words):
         return text
     out = []
+    capitalize_next = False
     for position, (word, label) in enumerate(zip(words, labels, strict=True)):
         case, sep, mark = label.rpartition("_")
         if not sep or case not in CASE_MODES or mark not in MARKS:
@@ -48,6 +54,10 @@ def render_labeled_words(text: str, labels: list[str]) -> str:
             adjusted = word[:1].upper() + word[1:]
         else:
             adjusted = word
+        # ONNX may predict a sentence boundary yet assign LOWER to the
+        # following word. Respect the punctuation boundary for readability.
+        if capitalize_next:
+            adjusted = adjusted[:1].upper() + adjusted[1:]
         if adjusted.casefold() != word.casefold():
             raise ValueError("model attempted to change lexical content")
         # ASR time expressions are structured facts, not punctuation anchors.
@@ -59,6 +69,7 @@ def render_labeled_words(text: str, labels: list[str]) -> str:
         ):
             mark = "O"
         out.append(adjusted + MARKS[mark])
+        capitalize_next = mark in _SENTENCE_END_MARKS
     return " ".join(out)
 
 
