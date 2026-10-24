@@ -10,6 +10,7 @@ class AudioJob:
     reply_to_message_id: int
     user_id: int
     file_path: Path
+    capture_token: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

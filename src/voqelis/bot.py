@@ -21,6 +21,7 @@ from aiogram.types import Message
 from .audio import AudioProcessingError, is_audio_document, probe_duration_seconds
 from .config import Settings
 from .domain import AudioJob
+from .notes.service import NotesService
 from .planner.bot import planner_keyboard, planner_markup_for_state
 from .planner.service import PlannerService
 from .queue import JobQueue
@@ -31,7 +32,10 @@ from .transcription import Transcriber
 logger = logging.getLogger(__name__)
 
 
-def create_router(*, settings: Settings, queue: JobQueue, planner: PlannerService | None = None) -> Router:
+def create_router(
+    *, settings: Settings, queue: JobQueue, planner: PlannerService | None = None,
+    notes: NotesService | None = None,
+) -> Router:
     router = Router(name="audio")
 
     def is_allowed(message: Message) -> bool:
@@ -62,7 +66,8 @@ def create_router(*, settings: Settings, queue: JobQueue, planner: PlannerServic
 
         await message.answer(
             "🎙️ Пришли голосовое сообщение или аудиофайл.\n"
-            "Я расшифрую его локально и верну текст.",
+            "Я расшифрую его локально и верну текст.\n\n"
+            "Заметки: /note текст, /note (следующий голос), /notes, /note_search.",
             reply_markup=planner_keyboard(),
         )
 
@@ -169,15 +174,25 @@ def create_router(*, settings: Settings, queue: JobQueue, planner: PlannerServic
                     f"{settings.max_file_size_bytes // 1024 // 1024} МБ."
                 )
 
+            planner_session = planner.store.session(user_id) if planner else None
+            capture_token = (
+                notes.claim_voice(user_id)
+                if message.voice is not None
+                and planner_session is None
+                and notes is not None
+                else None
+            )
             job = AudioJob(
                 chat_id=message.chat.id,
                 reply_to_message_id=message.message_id,
                 user_id=user_id,
                 file_path=raw_path,
+                capture_token=capture_token,
             )
             await queue.put(job)
-            planner_session = planner.store.session(user_id) if planner else None
-            if planner_session is None:
+            if capture_token is not None:
+                await message.reply("✅ Принял. Распознаю и сохраню как заметку.")
+            elif planner_session is None:
                 await message.reply("✅ Принял. Распознаю по очереди.")
         except _UserInputError as exc:
             raw_path.unlink(missing_ok=True)
@@ -214,6 +229,7 @@ async def run_worker(
     planner: PlannerService | None = None,
     log_content: bool = False,
     punctuation_processor: TextPunctuationProcessor | None = None,
+    notes: NotesService | None = None,
 ) -> None:
     planner_tz = ZoneInfo(planner.config.timezone) if planner else None
 
@@ -268,7 +284,23 @@ async def run_worker(
                     display_text = await punctuation_processor.format(
                         result.text, fallback_text=display_text
                     )
-                parts = chunk_text(display_text)
+                delivery = display_text
+                if job.capture_token is not None and notes is not None:
+                    try:
+                        note = notes.capture_voice(
+                            job.user_id, display_text, original=result.text,
+                            capture_token=job.capture_token,
+                        )
+                    except ValueError:
+                        delivery = (
+                            "⚠️ Голосовая заметка длиннее 12000 символов "
+                            "и не сохранена. Пришли более короткую запись "
+                            "или используй /note_cancel."
+                        )
+                    else:
+                        if note is not None:
+                            delivery = notes.saved_message(note)
+                parts = chunk_text(delivery)
                 for index, part in enumerate(parts):
                     await bot.send_message(
                         job.chat_id,
