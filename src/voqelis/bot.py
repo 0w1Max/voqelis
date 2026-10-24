@@ -177,7 +177,9 @@ def create_router(
             planner_session = planner.store.session(user_id) if planner else None
             capture_token = (
                 notes.claim_voice(user_id)
-                if planner_session is None and notes is not None
+                if message.voice is not None
+                and planner_session is None
+                and notes is not None
                 else None
             )
             job = AudioJob(
