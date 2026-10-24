@@ -125,3 +125,53 @@ def test_excessively_long_transcript_fails_open_without_inference():
     original = " ".join(["слово"] * 2049)
     assert model.punctuate(original) == original
     assert model.inference_calls == 0
+
+
+def test_sentence_boundary_capitalizes_next_word_even_when_model_says_lower():
+    raw = "привет сегодня работаю нужно купить продукты"
+    labels = [
+        "UPPER_COMMA", "LOWER_O", "LOWER_PERIOD",
+        "LOWER_O", "LOWER_O", "LOWER_PERIOD",
+    ]
+    assert render_labeled_words(raw, labels) == (
+        "Привет, сегодня работаю. Нужно купить продукты."
+    )
+
+
+def test_question_and_exclamation_capitalize_following_sentence():
+    raw = "как дела всё хорошо тогда отлично"
+    labels = [
+        "UPPER_O", "LOWER_QUESTION", "LOWER_O", "LOWER_VOSKL",
+        "LOWER_O", "LOWER_PERIOD",
+    ]
+    assert render_labeled_words(raw, labels) == (
+        "Как дела? Всё хорошо! Тогда отлично."
+    )
+
+
+def test_comma_colon_semicolon_dashes_do_not_start_a_new_sentence():
+    raw = "один два три четыре пять"
+    labels = [
+        "UPPER_COMMA", "LOWER_DVOETOCHIE", "LOWER_PERIODCOMMA",
+        "LOWER_TIRE", "LOWER_PERIOD",
+    ]
+    assert render_labeled_words(raw, labels) == (
+        "Один, два: три; четыре — пять."
+    )
+
+
+def test_clock_time_suppression_does_not_trigger_capitalization():
+    raw = "в 21:00 ужинать затем читать"
+    labels = ["LOWER_O", "LOWER_PERIOD", "LOWER_O", "LOWER_PERIOD", "LOWER_PERIOD"]
+    assert render_labeled_words(raw, labels) == "в 21:00 ужинать. Затем читать."
+
+
+def test_sentence_case_preserves_times_and_lexical_content():
+    raw = "в 21:00 ужинать потом в 22:00 читать книгу"
+    labels = [
+        "LOWER_O", "LOWER_O", "LOWER_PERIOD", "LOWER_O", "LOWER_O",
+        "LOWER_O", "LOWER_O", "LOWER_PERIOD",
+    ]
+    result = render_labeled_words(raw, labels)
+    assert result == "в 21:00 ужинать. Потом в 22:00 читать книгу."
+    assert result.replace(".", "").replace(":", ":").split()[0] == "в"
