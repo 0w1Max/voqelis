@@ -315,3 +315,109 @@ async def test_voice_with_planner_session_never_creates_note(
     )
     assert replies == ["Planner обработал голос"]
     assert notes_store.recent(7) == []
+
+
+
+class FakeMessage:
+    def __init__(self, text: str, *, user_id: int = 7) -> None:
+        from aiogram.enums import ChatType
+
+        self.text = text
+        self.chat = SimpleNamespace(type=ChatType.PRIVATE)
+        self.from_user = SimpleNamespace(id=user_id)
+        self.answers: list[str] = []
+
+    async def answer(self, text: str, **kwargs) -> None:
+        self.answers.append(text)
+
+
+def _command_callback(router, name: str):
+    return next(
+        handler.callback
+        for handler in router.message.handlers
+        if handler.callback.__name__ == name
+    )
+
+
+@pytest.mark.asyncio
+async def test_notes_telegram_commands_create_search_show_and_cancel(notes_store) -> None:
+    service = NotesService(notes_store)
+    router = create_notes_router(
+        service=service, allowed_user_ids=frozenset({7})
+    )
+    create = _command_callback(router, "on_note")
+    list_notes = _command_callback(router, "on_list")
+    search = _command_callback(router, "on_search")
+    show = _command_callback(router, "on_show")
+    cancel = _command_callback(router, "on_cancel")
+
+    text_command = FakeMessage("/note Новая полезная мысль")
+    await create(text_command)
+    assert "Заметка #1 сохранена" in text_command.answers[0]
+    assert "Новая полезная мысль" in text_command.answers[0]
+
+    list_command = FakeMessage("/notes")
+    await list_notes(list_command)
+    assert "Новая полезная мысль" in list_command.answers[0]
+
+    search_command = FakeMessage("/note_search ПОЛЕЗНАЯ")
+    await search(search_command)
+    assert "Новая полезная мысль" in search_command.answers[0]
+
+    show_command = FakeMessage("/note_show 1")
+    await show(show_command)
+    assert "Новая полезная мысль" in show_command.answers[0]
+
+    arm_command = FakeMessage("/note")
+    await create(arm_command)
+    assert service.pending_voice(7)
+    assert "Отправь одно голосовое" in arm_command.answers[0]
+
+    cancel_command = FakeMessage("/note_cancel")
+    await cancel(cancel_command)
+    assert not service.pending_voice(7)
+
+    invalid_show = FakeMessage("/note_show нечисло")
+    await show(invalid_show)
+    assert "Используй /note_show" in invalid_show.answers[0]
+
+
+@pytest.mark.asyncio
+async def test_notes_commands_reject_unauthorized_user(notes_store) -> None:
+    service = NotesService(notes_store)
+    router = create_notes_router(
+        service=service, allowed_user_ids=frozenset({7})
+    )
+    create = _command_callback(router, "on_note")
+    show = _command_callback(router, "on_show")
+    unauthorized = FakeMessage("/note Не чужое дело", user_id=19)
+    await create(unauthorized)
+    assert unauthorized.answers == []
+    assert notes_store.recent(19) == []
+    assert not notes_store.pending_voice(19)
+    invalid_show = FakeMessage("/note_show 1", user_id=19)
+    await show(invalid_show)
+    assert invalid_show.answers == []
+
+
+@pytest.mark.asyncio
+async def test_text_note_rejected_during_active_planner_session(notes_store) -> None:
+    service = NotesService(notes_store)
+
+    class PlannerStub:
+        store = SimpleNamespace(session=lambda _user_id: {"state": "planning"})
+
+    router = create_notes_router(
+        service=service,
+        allowed_user_ids=frozenset({7}),
+        planner=PlannerStub(),
+    )
+    create = _command_callback(router, "on_note")
+    text_note = FakeMessage("/note заметка во время Planner")
+    await create(text_note)
+    assert "открыт Planner" in text_note.answers[0]
+    assert notes_store.recent(7) == []
+    voice_note = FakeMessage("/note")
+    await create(voice_note)
+    assert "открыт Planner" in voice_note.answers[0]
+    assert not notes_store.pending_voice(7)
