@@ -46,7 +46,7 @@ class Note:
 
 
 def _normalized_search(text: str) -> str:
-    return unicodedata.normalize("NFKC", text).casefold()
+    return unicodedata.normalize("NFKC", text).casefold().replace("ё", "е")
 
 
 def _validate_body(body: str) -> str:

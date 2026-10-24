@@ -74,6 +74,7 @@ def test_search_casefold_unicode_and_literal_sql_characters(notes_store) -> None
     two = notes_store.create_text(11, "Это 100% результат, пример_a")
     notes_store.create_text(12, "проект")
     assert [n.id for n in notes_store.search(11, "ёЖик")] == [one.id]
+    assert [n.id for n in notes_store.search(11, "ежик")] == [one.id]
     assert [n.id for n in notes_store.search(11, "проект")] == [one.id]
     assert [n.id for n in notes_store.search(11, "100%")] == [two.id]
     assert [n.id for n in notes_store.search(11, "пример_")] == [two.id]
