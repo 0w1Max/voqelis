@@ -21,6 +21,8 @@ from aiogram.types import Message
 from .audio import AudioProcessingError, is_audio_document, probe_duration_seconds
 from .config import Settings
 from .domain import AudioJob
+from .day_facts.bot import facts_markup
+from .day_facts.service import DayFactsService
 from .notes.service import NotesService
 from .planner.bot import planner_keyboard, planner_markup_for_state
 from .planner.service import PlannerService
@@ -35,6 +37,7 @@ logger = logging.getLogger(__name__)
 def create_router(
     *, settings: Settings, queue: JobQueue, planner: PlannerService | None = None,
     notes: NotesService | None = None,
+    day_facts: DayFactsService | None = None,
 ) -> Router:
     router = Router(name="audio")
 
@@ -67,7 +70,8 @@ def create_router(
         await message.answer(
             "🎙️ Пришли голосовое сообщение или аудиофайл.\n"
             "Я расшифрую его локально и верну текст.\n\n"
-            "Заметки: /note текст, /note (следующий голос), /notes, /note_search.",
+            "Заметки: /note текст, /note (следующий голос), /notes, /note_search.\n"
+            "Факты дня: /facts, /facts_history, /facts_export.",
             reply_markup=planner_keyboard(),
         )
 
@@ -175,10 +179,21 @@ def create_router(
                 )
 
             planner_session = planner.store.session(user_id) if planner else None
+            facts_draft = (
+                day_facts.store.draft(user_id) if day_facts is not None else None
+            )
+            day_facts_token = (
+                facts_draft.token
+                if message.voice is not None
+                and planner_session is None
+                and facts_draft is not None
+                else None
+            )
             capture_token = (
                 notes.claim_voice(user_id)
                 if message.voice is not None
                 and planner_session is None
+                and facts_draft is None
                 and notes is not None
                 else None
             )
@@ -188,9 +203,12 @@ def create_router(
                 user_id=user_id,
                 file_path=raw_path,
                 capture_token=capture_token,
+                day_facts_token=day_facts_token,
             )
             await queue.put(job)
-            if capture_token is not None:
+            if day_facts_token is not None:
+                await message.reply("✅ Принял. Добавлю в черновик «Факты дня».")
+            elif capture_token is not None:
                 await message.reply("✅ Принял. Распознаю и сохраню как заметку.")
             elif planner_session is None:
                 await message.reply("✅ Принял. Распознаю по очереди.")
@@ -230,6 +248,7 @@ async def run_worker(
     log_content: bool = False,
     punctuation_processor: TextPunctuationProcessor | None = None,
     notes: NotesService | None = None,
+    day_facts: DayFactsService | None = None,
 ) -> None:
     planner_tz = ZoneInfo(planner.config.timezone) if planner else None
 
@@ -278,6 +297,53 @@ async def run_worker(
                         parse_mode=None,
                         reply_markup=planner_markup_for_state(planner, job.user_id),
                     )
+            elif day_facts is not None and day_facts.store.draft(job.user_id):
+                if job.day_facts_token is None:
+                    await bot.send_message(
+                        job.chat_id,
+                        "Активен режим «Факты дня». Голосовое не добавлено, "
+                        "потому что оно не относится к текущему шагу. "
+                        "Повтори запись или введи /facts.",
+                        reply_to_message_id=job.reply_to_message_id,
+                    )
+                    continue
+                display_text = result.pause_aware_text or result.text
+                if punctuation_processor is not None:
+                    display_text = await punctuation_processor.format(
+                        result.text, fallback_text=display_text
+                    )
+                try:
+                    updated = day_facts.accept(
+                        job.user_id, job.day_facts_token,
+                        display_text, raw=result.text,
+                    )
+                except ValueError:
+                    await bot.send_message(
+                        job.chat_id, "Текст слишком длинный. Раздели запись на части.",
+                        reply_to_message_id=job.reply_to_message_id,
+                    )
+                    continue
+                if updated is None:
+                    await bot.send_message(
+                        job.chat_id,
+                        "Черновик уже изменился. Это голосовое не сохранено. "
+                        "Повтори запись в текущем разделе: /facts.",
+                        reply_to_message_id=job.reply_to_message_id,
+                    )
+                else:
+                    parts = chunk_text(day_facts.render(updated))
+                    for index, part in enumerate(parts):
+                        await bot.send_message(
+                            job.chat_id, part, parse_mode=None,
+                            reply_to_message_id=(
+                                job.reply_to_message_id if index == 0 else None
+                            ),
+                            reply_markup=(
+                                facts_markup(updated) if index == len(parts) - 1 else None
+                            ),
+                        )
+                        if index < len(parts) - 1:
+                            await asyncio.sleep(1.05)
             else:
                 display_text = result.pause_aware_text or result.text
                 if punctuation_processor is not None:

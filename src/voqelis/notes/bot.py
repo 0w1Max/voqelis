@@ -8,6 +8,7 @@ from aiogram.filters import Command
 from aiogram.types import Message
 
 from ..planner.service import PlannerService
+from ..day_facts.service import DayFactsService
 from ..text import chunk_text
 from .service import NotesService
 
@@ -27,6 +28,7 @@ def create_notes_router(
     service: NotesService,
     allowed_user_ids: frozenset[int],
     planner: PlannerService | None = None,
+    day_facts: DayFactsService | None = None,
 ) -> Router:
     router = Router(name="notes")
 
@@ -46,6 +48,11 @@ def create_notes_router(
             await message.answer(
                 "Сейчас открыт Planner. Заверши его через «⏹️ Выйти из режима» "
                 "перед созданием заметки."
+            )
+            return
+        if day_facts is not None and day_facts.store.draft(user_id) is not None:
+            await message.answer(
+                "Сначала заверши или отмени черновик «Факты дня»: /facts_cancel."
             )
             return
         text = _argument(message.text or "")
