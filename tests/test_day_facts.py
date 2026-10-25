@@ -57,9 +57,15 @@ def test_sentence_split_uses_full_stops_not_commas() -> None:
     assert split_sentences("Я не так общаюсь? Я плохой друг!") == (
         "Я не так общаюсь?", "Я плохой друг!"
     )
-    assert split_sentences("факт без точки следующий факт без точки") == (
-        "факт без точки следующий факт без точки",
+    assert split_sentences("факт без точки другой факт без точки") == (
+        "факт без точки другой факт без точки",
     )
+    assert split_sentences(
+        "Друг смотрел в окно следующий факт мы разошлись по домам"
+    ) == ("Друг смотрел в окно", "мы разошлись по домам")
+    assert split_sentences(
+        "Я испортил встречу следующее суждение я плохой друг"
+    ) == ("Я испортил встречу", "я плохой друг")
 
 
 def test_explicit_split_allows_boundary_correction() -> None:
@@ -245,8 +251,6 @@ def test_many_day_entries_export_more_than_one_page(store, tmp_path):
         store.save(1, d.token)
     entries = store.for_day(1, day)
     assert len(entries) == 25
-    from reportlab.pdfbase import pdfdoc
-    del pdfdoc  # basic import smoke, no external PDF parser dependency
     output = export_pdf(entries, day, tmp_path / "many.pdf")
     output_phone = export_pdf(entries, day, tmp_path / "many-mobile.pdf", mobile=True)
     assert output.stat().st_size > 3000

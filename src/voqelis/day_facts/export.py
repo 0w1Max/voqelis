@@ -188,7 +188,6 @@ def export_pdf(
     from reportlab.lib.units import mm
     from reportlab.platypus import (
         HRFlowable,
-        KeepTogether,
         SimpleDocTemplate,
         Spacer,
         Table,
@@ -214,10 +213,10 @@ def export_pdf(
         # A5 portrait: reading a wide 3-column table on a phone is not practical.
         # Each situation retains all three fields, in their original order.
         for position, entry in enumerate(entries, 1):
-            story.append(KeepTogether([
-                _paragraph(f"Ситуация {position}", label),
-                _paragraph(f"Событие: {entry.event}", mobile_body),
-            ]))
+            # Avoid KeepTogether on unbounded dictated paragraphs:
+            # an individual event may span several phone pages.
+            story.append(_paragraph(f"Ситуация {position}", label))
+            story.append(_paragraph(f"Событие: {entry.event}", mobile_body))
             story.append(_paragraph("Факты дня", label))
             for index, fact in enumerate(entry.facts, 1):
                 story.append(_paragraph(f"{index}. {fact}", mobile_body))
@@ -240,7 +239,10 @@ def export_pdf(
                 _paragraph(_numbered(entry.facts), body),
                 _paragraph(_numbered(entry.judgments), body),
             ])
-        table = Table(rows, colWidths=col_widths, repeatRows=1, hAlign="LEFT")
+        table = Table(
+            rows, colWidths=col_widths, repeatRows=1,
+            splitByRow=1, splitInRow=1, hAlign="LEFT",
+        )
         table.setStyle(TableStyle([
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E9F0F4")),

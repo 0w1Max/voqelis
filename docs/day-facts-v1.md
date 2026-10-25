@@ -10,6 +10,8 @@ tables**. Authorized Telegram users can create multiple situations per date.
 2. Say/write the **event**. One event is stored per situation.
 3. Say/write **facts**. Each sentence ending in `.`, `?`, `!`, or `…`
    is proposed as a separate numbered item. Commas alone do not split.
+   For a missed boundary, say "следующий факт" or "следующее суждение"
+   between items; the marker itself is not saved.
 4. Tap **Далее** (or `/facts_next`) to begin **ошибочные суждения**.
 5. Say/write self-reported judgments; they are likewise numbered.
 6. Tap **Далее**, check all three fields, correct where needed, then

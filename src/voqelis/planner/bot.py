@@ -26,6 +26,7 @@ def planner_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="📅 Планирование дня")],
+            [KeyboardButton(text="📘 Факты дня")],
             [KeyboardButton(text="📋 Текущий план"), KeyboardButton(text="🗓 История планов")],
             [KeyboardButton(text="🔎 Анализ активного дня"), KeyboardButton(text="🧹 Очистить план")],
             [KeyboardButton(text="🗑 Удалить строку")],

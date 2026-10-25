@@ -41,10 +41,29 @@ def facts_markup(draft: FactsDraft) -> InlineKeyboardMarkup:
             rows.append([
                 InlineKeyboardButton(text="➡️ Далее", callback_data=f"df:next:{token}")
             ])
+    if draft.stage == "review":
+        rows.append([
+            InlineKeyboardButton(text="✏️ Как исправить", callback_data=f"df:help:{token}")
+        ])
     rows.append([
         InlineKeyboardButton(text="❌ Отмена", callback_data=f"df:cancel:{token}")
     ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def export_markup(day: date) -> InlineKeyboardMarkup:
+    iso = day.isoformat()
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="📄 Word", callback_data=f"df:export:word:{iso}"),
+            InlineKeyboardButton(text="📕 PDF", callback_data=f"df:export:pdf:{iso}"),
+        ],
+        [
+            InlineKeyboardButton(
+                text="📱 PDF для телефона", callback_data=f"df:export:mobile:{iso}"
+            ),
+        ],
+    ])
 
 
 def _argument(text: str) -> str:
@@ -81,6 +100,7 @@ def create_day_facts_router(
         )
 
     @router.message(Command("facts"))
+    @router.message(F.text == "📘 Факты дня")
     async def on_start(message: Message) -> None:
         if not allowed(message):
             return
@@ -186,6 +206,37 @@ def create_day_facts_router(
             return
         await _send(message, service.day_message(message.from_user.id, day))
 
+    async def send_export(message: Message, user_id: int, kind: str, day: date) -> None:
+        # sqlite3 connections belong to the event-loop thread. The actual
+        # rendering is pure and safe to move into a worker thread.
+        entries = service.store.for_day(user_id, day)
+        if not entries:
+            await message.answer("Нет сохранённых ситуаций за указанную дату.")
+            return
+
+        extension = "docx" if kind == "word" else "pdf"
+        output = export_dir / f"facts-{uuid4().hex}.{extension}"
+        try:
+            if kind == "word":
+                await asyncio.to_thread(export_docx, entries, day, output)
+            else:
+                await asyncio.to_thread(
+                    export_pdf, entries, day, output, mobile=(kind == "mobile"),
+                )
+            await message.answer_document(
+                FSInputFile(
+                    output, filename=f"fakty-dnya-{day.isoformat()}-{kind}.{extension}"
+                ),
+                caption=f"Факты дня · {day:%d.%m.%Y} · {kind}",
+            )
+        except Exception:
+            logger.exception(
+                "DAY_FACTS_EXPORT_FAILED user=%s format=%s", user_id, kind
+            )
+            await message.answer("Не удалось создать документ. Ошибка записана в журнал.")
+        finally:
+            output.unlink(missing_ok=True)
+
     @router.message(Command("facts_export"))
     async def on_export(message: Message) -> None:
         if not allowed(message):
@@ -202,36 +253,7 @@ def create_day_facts_router(
         except ValueError:
             await message.answer("Проверь дату в формате ГГГГ-ММ-ДД.")
             return
-        # Fetch SQLite data on the event-loop thread; sqlite3 connections are
-        # thread-affine. Only the pure document rendering runs in a worker thread.
-        entries = service.store.for_day(message.from_user.id, target_day)
-        if not entries:
-            await message.answer("Нет сохранённых ситуаций за указанную дату.")
-            return
-
-        extension = "docx" if args[0] == "word" else "pdf"
-        output = export_dir / f"facts-{uuid4().hex}.{extension}"
-        try:
-            if args[0] == "word":
-                await asyncio.to_thread(export_docx, entries, target_day, output)
-            else:
-                await asyncio.to_thread(
-                    export_pdf, entries, target_day, output,
-                    mobile=(args[0] == "mobile"),
-                )
-            await message.answer_document(
-                FSInputFile(
-                    output,
-                    filename=f"fakty-dnya-{target_day.isoformat()}-{args[0]}.{extension}",
-                ),
-                caption=f"Факты дня · {target_day:%d.%m.%Y} · {args[0]}",
-            )
-        except Exception:
-            logger.exception("DAY_FACTS_EXPORT_FAILED user=%s format=%s",
-                             message.from_user.id, args[0])
-            await message.answer("Не удалось создать документ. Ошибка записана в журнал.")
-        finally:
-            output.unlink(missing_ok=True)
+        await send_export(message, message.from_user.id, args[0], target_day)
 
     @router.callback_query(F.data.startswith("df:"))
     async def on_callback(callback: CallbackQuery) -> None:
@@ -242,10 +264,35 @@ def create_day_facts_router(
         ):
             await callback.answer()
             return
-        action, _, token = (callback.data or "")[3:].partition(":")
+        data = callback.data or ""
+        if data.startswith("df:export:"):
+            parts = data.split(":")
+            if len(parts) != 4 or parts[2] not in {"word", "pdf", "mobile"}:
+                await callback.answer("Неизвестный формат.", show_alert=True)
+                return
+            try:
+                target = date.fromisoformat(parts[3])
+            except ValueError:
+                await callback.answer("Некорректная дата.", show_alert=True)
+                return
+            await callback.answer()
+            await send_export(
+                callback.message, callback.from_user.id, parts[2], target
+            )
+            return
+
+        action, _, token = data[3:].partition(":")
         draft = service.store.draft(callback.from_user.id)
         if not draft or token != draft.token:
             await callback.answer("Эта кнопка устарела. Введи /facts.", show_alert=True)
+            return
+        if action == "help":
+            await callback.answer()
+            await callback.message.answer(
+                "Изменить пункт: /facts_edit facts 1 | исправленный текст\n"
+                "Разделить: /facts_split judgments 1 | первая мысль | вторая мысль\n"
+                "Событие: /facts_edit event 1 | исправленное событие"
+            )
             return
         if action == "cancel":
             service.store.cancel(callback.from_user.id)
@@ -259,7 +306,8 @@ def create_day_facts_router(
                 await callback.message.answer(
                     f"✅ Ситуация #{saved.id} сохранена за {saved.day:%d.%m.%Y}.\n"
                     "Добавить ещё: /facts\n"
-                    "Экспорт: /facts_export word | pdf | mobile"
+                    "Экспорт: /facts_export word | pdf | mobile",
+                    reply_markup=export_markup(saved.day),
                 )
             else:
                 await callback.message.answer("Черновик изменился. Введи /facts.")
