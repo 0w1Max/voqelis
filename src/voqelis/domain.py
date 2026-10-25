@@ -11,6 +11,7 @@ class AudioJob:
     user_id: int
     file_path: Path
     capture_token: str | None = None
+    day_facts_token: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

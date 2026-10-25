@@ -1,0 +1,313 @@
+"""Independent SQLite-backed day-facts state machine.
+
+One user -> at most one draft. State changes are transactional and token-checked,
+so stale voice jobs and old callback buttons cannot mutate a newer draft.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import secrets
+import sqlite3
+import stat
+from dataclasses import dataclass
+from datetime import UTC, date, datetime
+from pathlib import Path
+from typing import Literal
+
+from .sentences import MAX_INPUT_CHARS, split_explicit, split_sentences
+
+Stage = Literal["event", "facts", "judgments", "review"]
+STAGES = ("event", "facts", "judgments", "review")
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS day_facts_entries (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    day TEXT NOT NULL,
+    event TEXT NOT NULL,
+    facts_json TEXT NOT NULL,
+    judgments_json TEXT NOT NULL,
+    raw_inputs_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_day_facts_user_day
+    ON day_facts_entries(user_id, day, id);
+CREATE TABLE IF NOT EXISTS day_facts_drafts (
+    user_id INTEGER PRIMARY KEY,
+    day TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    token TEXT NOT NULL,
+    event TEXT NOT NULL DEFAULT '',
+    facts_json TEXT NOT NULL DEFAULT '[]',
+    judgments_json TEXT NOT NULL DEFAULT '[]',
+    raw_inputs_json TEXT NOT NULL DEFAULT '[]',
+    updated_at TEXT NOT NULL
+);
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class FactsEntry:
+    id: int
+    user_id: int
+    day: date
+    event: str
+    facts: tuple[str, ...]
+    judgments: tuple[str, ...]
+    created_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class FactsDraft:
+    user_id: int
+    day: date
+    stage: Stage
+    token: str
+    event: str
+    facts: tuple[str, ...]
+    judgments: tuple[str, ...]
+
+
+def _token() -> str:
+    return secrets.token_hex(12)
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def _checked_text(text: str) -> str:
+    clean = text.strip()
+    if not clean or len(clean) > MAX_INPUT_CHARS:
+        raise ValueError("Text must contain 1–12000 characters")
+    return clean
+
+
+class DayFactsStore:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # This database contains sensitive personal journal entries. Create it
+        # with owner-only permissions and reject symlink/directory targets.
+        # SQLite's WAL/SHM files inherit the main database's secure mode.
+        fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise ValueError("Day Facts database must be a regular file")
+            os.fchmod(fd, 0o600)
+        finally:
+            os.close(fd)
+        self.db = sqlite3.connect(path, timeout=5)
+        self.db.row_factory = sqlite3.Row
+        self.db.execute("PRAGMA journal_mode=WAL")
+        self.db.executescript(SCHEMA)
+
+    def close(self) -> None:
+        self.db.close()
+
+    @staticmethod
+    def _draft(row: sqlite3.Row) -> FactsDraft:
+        return FactsDraft(
+            user_id=row["user_id"], day=date.fromisoformat(row["day"]),
+            stage=row["stage"], token=row["token"], event=row["event"],
+            facts=tuple(json.loads(row["facts_json"])),
+            judgments=tuple(json.loads(row["judgments_json"])),
+        )
+
+    def draft(self, user_id: int) -> FactsDraft | None:
+        row = self.db.execute(
+            "SELECT * FROM day_facts_drafts WHERE user_id=?", (user_id,)
+        ).fetchone()
+        return self._draft(row) if row else None
+
+    def begin(self, user_id: int, day: date) -> FactsDraft:
+        # Do not overwrite an unfinished daily record.
+        existing = self.draft(user_id)
+        if existing:
+            return existing
+        with self.db:
+            self.db.execute(
+                "INSERT INTO day_facts_drafts "
+                "(user_id, day, stage, token, updated_at) VALUES (?, ?, 'event', ?, ?)",
+                (user_id, day.isoformat(), _token(), _now()),
+            )
+        result = self.draft(user_id)
+        assert result is not None
+        return result
+
+    def cancel(self, user_id: int) -> bool:
+        with self.db:
+            result = self.db.execute(
+                "DELETE FROM day_facts_drafts WHERE user_id=?", (user_id,)
+            )
+        return result.rowcount > 0
+
+    def accept(
+        self, user_id: int, token: str, text: str, *, raw_text: str | None = None
+    ) -> FactsDraft | None:
+        clean = _checked_text(text)
+        raw = _checked_text(raw_text if raw_text is not None else text)
+        with self.db:
+            self.db.execute("BEGIN IMMEDIATE")
+            row = self.db.execute(
+                "SELECT * FROM day_facts_drafts WHERE user_id=? AND token=?",
+                (user_id, token),
+            ).fetchone()
+            if not row or row["stage"] == "review":
+                return None
+            field = row["stage"]
+            event = row["event"]
+            facts = json.loads(row["facts_json"])
+            judgments = json.loads(row["judgments_json"])
+            originals = json.loads(row["raw_inputs_json"])
+            if field == "event":
+                event = clean
+                new_stage = "facts"
+            elif field == "facts":
+                facts.extend(split_sentences(clean))
+                new_stage = "facts"
+            else:
+                judgments.extend(split_sentences(clean))
+                new_stage = "judgments"
+            originals.append({"field": field, "raw": raw, "visible": clean})
+            self.db.execute(
+                "UPDATE day_facts_drafts SET stage=?, token=?, event=?, "
+                "facts_json=?, judgments_json=?, raw_inputs_json=?, updated_at=? "
+                "WHERE user_id=? AND token=?",
+                (
+                    new_stage, _token(), event,
+                    json.dumps(facts, ensure_ascii=False),
+                    json.dumps(judgments, ensure_ascii=False),
+                    json.dumps(originals, ensure_ascii=False),
+                    _now(), user_id, token,
+                ),
+            )
+        return self.draft(user_id)
+
+    def next(self, user_id: int, token: str) -> FactsDraft | None:
+        with self.db:
+            self.db.execute("BEGIN IMMEDIATE")
+            row = self.db.execute(
+                "SELECT * FROM day_facts_drafts WHERE user_id=? AND token=?",
+                (user_id, token),
+            ).fetchone()
+            if row is None:
+                return None
+            if row["stage"] == "facts" and json.loads(row["facts_json"]):
+                stage = "judgments"
+            elif row["stage"] == "judgments" and json.loads(row["judgments_json"]):
+                stage = "review"
+            else:
+                raise ValueError("Finish the current section before continuing")
+            self.db.execute(
+                "UPDATE day_facts_drafts SET stage=?, token=?, updated_at=? "
+                "WHERE user_id=? AND token=?",
+                (stage, _token(), _now(), user_id, token),
+            )
+        return self.draft(user_id)
+
+    def correct(
+        self, user_id: int, token: str, field: str, index: int, text: str,
+        *, split: bool = False,
+    ) -> FactsDraft | None:
+        if field not in {"event", "facts", "judgments"}:
+            raise ValueError("Unknown field")
+        pieces = split_explicit(text) if split else (_checked_text(text),)
+        with self.db:
+            self.db.execute("BEGIN IMMEDIATE")
+            row = self.db.execute(
+                "SELECT * FROM day_facts_drafts WHERE user_id=? AND token=?",
+                (user_id, token),
+            ).fetchone()
+            if not row:
+                return None
+            if field == "event":
+                if index != 1 or split:
+                    raise ValueError("Event is one text field")
+                event = pieces[0]
+                facts = json.loads(row["facts_json"])
+                judgments = json.loads(row["judgments_json"])
+            else:
+                event = row["event"]
+                facts = json.loads(row["facts_json"])
+                judgments = json.loads(row["judgments_json"])
+                items = facts if field == "facts" else judgments
+                if not 1 <= index <= len(items):
+                    raise ValueError("Item number not found")
+                items[index - 1:index] = pieces
+            self.db.execute(
+                "UPDATE day_facts_drafts SET token=?, event=?, facts_json=?, "
+                "judgments_json=?, updated_at=? WHERE user_id=? AND token=?",
+                (
+                    _token(), event, json.dumps(facts, ensure_ascii=False),
+                    json.dumps(judgments, ensure_ascii=False), _now(), user_id, token,
+                ),
+            )
+        return self.draft(user_id)
+
+    def save(self, user_id: int, token: str) -> FactsEntry | None:
+        with self.db:
+            self.db.execute("BEGIN IMMEDIATE")
+            row = self.db.execute(
+                "SELECT * FROM day_facts_drafts WHERE user_id=? AND token=? AND stage='review'",
+                (user_id, token),
+            ).fetchone()
+            if row is None:
+                return None
+            if not row["event"] or not json.loads(row["facts_json"]) or not json.loads(
+                row["judgments_json"]
+            ):
+                raise ValueError("Record is incomplete")
+            cursor = self.db.execute(
+                "INSERT INTO day_facts_entries "
+                "(user_id,day,event,facts_json,judgments_json,raw_inputs_json,created_at) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (
+                    user_id, row["day"], row["event"], row["facts_json"],
+                    row["judgments_json"], row["raw_inputs_json"], _now(),
+                ),
+            )
+            self.db.execute(
+                "DELETE FROM day_facts_drafts WHERE user_id=? AND token=?",
+                (user_id, token),
+            )
+            new_id = int(cursor.lastrowid)
+        return self.get(user_id, new_id)
+
+    def get(self, user_id: int, entry_id: int) -> FactsEntry | None:
+        row = self.db.execute(
+            "SELECT * FROM day_facts_entries WHERE user_id=? AND id=?",
+            (user_id, entry_id),
+        ).fetchone()
+        return self._entry(row) if row else None
+
+    @staticmethod
+    def _entry(row: sqlite3.Row) -> FactsEntry:
+        return FactsEntry(
+            id=row["id"], user_id=row["user_id"],
+            day=date.fromisoformat(row["day"]), event=row["event"],
+            facts=tuple(json.loads(row["facts_json"])),
+            judgments=tuple(json.loads(row["judgments_json"])),
+            created_at=row["created_at"],
+        )
+
+    def for_day(self, user_id: int, day: date) -> list[FactsEntry]:
+        rows = self.db.execute(
+            "SELECT * FROM day_facts_entries WHERE user_id=? AND day=? ORDER BY id",
+            (user_id, day.isoformat()),
+        ).fetchall()
+        return [self._entry(row) for row in rows]
+
+    def history(self, user_id: int, limit: int = 12) -> list[tuple[str, int]]:
+        if not 1 <= limit <= 50:
+            raise ValueError("Bad limit")
+        return [
+            (str(row["day"]), int(row["n"]))
+            for row in self.db.execute(
+                "SELECT day,COUNT(*) AS n FROM day_facts_entries WHERE user_id=? "
+                "GROUP BY day ORDER BY day DESC LIMIT ?",
+                (user_id, limit),
+            )
+        ]

@@ -347,9 +347,9 @@ async def test_voice_with_planner_session_never_creates_note(
         store = Store()
 
         async def handle_text(self, user_id, text, today):
-            assert user_id == 7
-            assert text == "сегодня, хорошая погода"
-            return ["Planner обработал голос"]
+            raise AssertionError(
+                "A voice captured as a Note must not enter Planner after mode switch"
+            )
 
     monkeypatch.setattr(
         "voqelis.bot.planner_markup_for_state", lambda *_args: None
@@ -358,7 +358,8 @@ async def test_voice_with_planner_session_never_creates_note(
         tmp_path, monkeypatch, notes=notes, capture_note=True,
         planner=FakePlanner(),
     )
-    assert replies == ["Planner обработал голос"]
+    assert len(replies) == 1
+    assert "не добавлено ни в Planner" in replies[0]
     assert notes_store.recent(7) == []
 
 
