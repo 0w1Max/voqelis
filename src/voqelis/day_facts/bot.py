@@ -232,6 +232,9 @@ def create_day_facts_router(
         extension = "docx" if kind == "word" else "pdf"
         output = export_dir / f"facts-{uuid4().hex}.{extension}"
         try:
+            # Prevent sensitive reports from ever being written as world-
+            # readable files, even briefly while ReportLab/Word is rendering.
+            output.touch(mode=0o600, exist_ok=False)
             if kind == "word":
                 await asyncio.to_thread(export_docx, entries, day, output)
             else:

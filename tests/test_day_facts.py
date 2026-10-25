@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import stat
 from datetime import date
 from pathlib import Path
 
@@ -571,3 +572,62 @@ async def test_plain_voice_remains_plain_when_facts_mode_started_after_admission
         )
     assert bot.replies[0][0].startswith("Друг общался")
     assert store.draft(1) == draft
+
+
+
+def test_day_facts_db_permissions_and_symlink_rejection(tmp_path):
+    private_db = tmp_path / "private.sqlite3"
+    ours = DayFactsStore(private_db)
+    try:
+        assert stat.S_IMODE(private_db.stat().st_mode) == 0o600
+    finally:
+        ours.close()
+    # Repair overly broad legacy permissions at next safe open.
+    private_db.chmod(0o644)
+    reopened = DayFactsStore(private_db)
+    try:
+        assert stat.S_IMODE(private_db.stat().st_mode) == 0o600
+    finally:
+        reopened.close()
+    alias = tmp_path / "linked.sqlite3"
+    alias.symlink_to(private_db)
+    with pytest.raises(OSError):
+        DayFactsStore(alias)
+
+
+@pytest.mark.asyncio
+async def test_export_document_is_never_world_readable(store, tmp_path):
+    service = DayFactsService(store)
+    draft = fill_record(store, 1, date(2026, 10, 26))
+    store.save(1, draft.token)
+
+    class FakeMessage:
+        text = "/facts_export pdf"
+        from_user = SimpleNamespace(id=1)
+        chat = SimpleNamespace(type="private")
+
+        def __init__(self):
+            self.mode = None
+            self.responses = []
+
+        async def answer(self, value, **kwargs):
+            self.responses.append(value)
+
+        async def answer_document(self, attachment, **kwargs):
+            self.mode = stat.S_IMODE(Path(attachment.path).stat().st_mode)
+            assert Path(attachment.path).read_bytes().startswith(b"%PDF")
+
+    planner = SimpleNamespace(store=SimpleNamespace(session=lambda _id: None))
+    notes = SimpleNamespace(pending_voice=lambda _id: False)
+    router = create_day_facts_router(
+        service=service, allowed_user_ids=frozenset({1}), planner=planner,
+        notes=notes, export_dir=tmp_path,
+    )
+    handler = next(
+        h.callback for h in router.message.handlers
+        if h.callback.__name__ == "on_export"
+    )
+    msg = FakeMessage()
+    await handler(msg)
+    assert msg.mode == 0o600
+    assert not msg.responses

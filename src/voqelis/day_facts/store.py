@@ -7,8 +7,10 @@ so stale voice jobs and old callback buttons cannot mutate a newer draft.
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import sqlite3
+import stat
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -87,6 +89,16 @@ class DayFactsStore:
     def __init__(self, path: Path) -> None:
         self.path = path
         path.parent.mkdir(parents=True, exist_ok=True)
+        # This database contains sensitive personal journal entries. Create it
+        # with owner-only permissions and reject symlink/directory targets.
+        # SQLite's WAL/SHM files inherit the main database's secure mode.
+        fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise ValueError("Day Facts database must be a regular file")
+            os.fchmod(fd, 0o600)
+        finally:
+            os.close(fd)
         self.db = sqlite3.connect(path, timeout=5)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
