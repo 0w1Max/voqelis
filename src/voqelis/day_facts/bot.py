@@ -28,6 +28,16 @@ from .store import FactsDraft
 
 logger = logging.getLogger(__name__)
 
+# Planner's permanent reply keyboard stays visible during Day Facts.
+# Never mistake a tap on an unrelated menu action for dictated clinical text.
+_OTHER_MENU_ACTIONS = frozenset({
+    "📅 Планирование дня", "📋 Текущий план", "🗓 История планов",
+    "🔎 Анализ активного дня", "🧹 Очистить план", "🗑 Удалить строку",
+    "🎙️ Рассказать весь день", "✏️ Редактировать план",
+    "✏️ Исправить анализ", "📄 DOCX", "📕 PDF",
+    "⏹️ Выйти из режима",
+})
+
 
 def facts_markup(draft: FactsDraft) -> InlineKeyboardMarkup:
     token = draft.token
@@ -130,6 +140,11 @@ def create_day_facts_router(
         draft = service.store.draft(message.from_user.id)
         if not draft:
             await message.answer("Нет активного черновика. Начни с /facts.")
+            return
+        if draft.stage == "review":
+            await message.answer(
+                "Запись уже на проверке. Нажми «Сохранить» или исправь пункты."
+            )
             return
         try:
             updated = service.store.next(message.from_user.id, draft.token)
@@ -339,6 +354,13 @@ def create_day_facts_router(
     )
     async def on_field_text(message: Message) -> None:
         if not allowed(message):
+            return
+        if message.text in _OTHER_MENU_ACTIONS:
+            await message.answer(
+                "Сейчас открыт черновик «Факты дня». "
+                "Заверши запись или используй /facts_cancel, "
+                "чтобы вернуться к другим режимам."
+            )
             return
         draft = service.store.draft(message.from_user.id)
         if not draft:

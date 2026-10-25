@@ -452,3 +452,22 @@ async def test_export_command_executes_real_threaded_docx_without_sqlite_error(
     assert msg.documents[0][1][:2] == b"PK"
     assert not Path(msg.documents[0][0]).exists()
     assert msg.messages == []
+
+
+
+def test_very_long_event_can_export_across_pdf_pages(store, tmp_path):
+    day = date(2026, 10, 26)
+    d = store.begin(1, day)
+    # The event is one text field; it can be longer than a single PDF page.
+    lengthy = ("Говорили о погоде и планах на неделю. " * 105).strip()
+    d = store.accept(1, d.token, lengthy)
+    d = store.accept(1, d.token, "Факт один. Факт два.")
+    d = store.next(1, d.token)
+    d = store.accept(1, d.token, "Первая мысль. Вторая мысль.")
+    d = store.next(1, d.token)
+    assert store.save(1, d.token)
+    entries = store.for_day(1, day)
+    assert export_pdf(entries, day, tmp_path / "long.pdf").stat().st_size > 3000
+    assert export_pdf(
+        entries, day, tmp_path / "long-mobile.pdf", mobile=True,
+    ).stat().st_size > 3000
