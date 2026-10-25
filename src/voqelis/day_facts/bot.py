@@ -12,10 +12,15 @@ from aiogram import F, Router
 from aiogram.enums import ChatType
 from aiogram.filters import Command
 from aiogram.types import (
-    CallbackQuery, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message,
+    CallbackQuery,
+    FSInputFile,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
 )
 
 from ..notes.service import NotesService
+from .export import export_docx, export_pdf
 from ..planner.service import PlannerService
 from ..text import chunk_text
 from .service import EDIT_ALIASES, DayFactsService
@@ -197,16 +202,23 @@ def create_day_facts_router(
         except ValueError:
             await message.answer("Проверь дату в формате ГГГГ-ММ-ДД.")
             return
-        if not service.store.for_day(message.from_user.id, target_day):
+        # Fetch SQLite data on the event-loop thread; sqlite3 connections are
+        # thread-affine. Only the pure document rendering runs in a worker thread.
+        entries = service.store.for_day(message.from_user.id, target_day)
+        if not entries:
             await message.answer("Нет сохранённых ситуаций за указанную дату.")
             return
 
         extension = "docx" if args[0] == "word" else "pdf"
         output = export_dir / f"facts-{uuid4().hex}.{extension}"
         try:
-            await asyncio.to_thread(
-                service.export, message.from_user.id, target_day, args[0], output
-            )
+            if args[0] == "word":
+                await asyncio.to_thread(export_docx, entries, target_day, output)
+            else:
+                await asyncio.to_thread(
+                    export_pdf, entries, target_day, output,
+                    mobile=(args[0] == "mobile"),
+                )
             await message.answer_document(
                 FSInputFile(
                     output,

@@ -187,7 +187,11 @@ def export_pdf(
     from reportlab.lib.pagesizes import A4, A5, landscape
     from reportlab.lib.units import mm
     from reportlab.platypus import (
-        HRFlowable, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table,
+        HRFlowable,
+        KeepTogether,
+        SimpleDocTemplate,
+        Spacer,
+        Table,
         TableStyle,
     )
 

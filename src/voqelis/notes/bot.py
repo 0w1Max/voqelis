@@ -7,8 +7,8 @@ from aiogram.enums import ChatType
 from aiogram.filters import Command
 from aiogram.types import Message
 
-from ..planner.service import PlannerService
 from ..day_facts.service import DayFactsService
+from ..planner.service import PlannerService
 from ..text import chunk_text
 from .service import NotesService
 
