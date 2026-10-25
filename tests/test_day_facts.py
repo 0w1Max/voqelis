@@ -264,3 +264,191 @@ def test_invalid_export_inputs_fail_closed(store, tmp_path):
     item = store.save(1, d.token)
     with pytest.raises(ValueError):
         export_docx([item], date(2026, 10, 27), tmp_path / "wrong.docx")
+
+
+# Telegram/ASR regression tests: model text is presentation, not a fact source of truth.
+import asyncio
+from types import SimpleNamespace
+
+from voqelis.bot import run_worker
+from voqelis.day_facts.bot import create_day_facts_router, export_markup, facts_markup
+from voqelis.domain import AudioJob, TranscriptionResult
+
+
+class _FakeBot:
+    def __init__(self):
+        self.replies = []
+
+    async def send_chat_action(self, *_args):
+        pass
+
+    async def send_message(self, _chat_id, body, **kwargs):
+        self.replies.append((body, kwargs))
+
+
+class _FakeQueue:
+    def __init__(self, job):
+        self.job = job
+        self.n = 0
+
+    async def get(self):
+        self.n += 1
+        if self.n > 1:
+            raise asyncio.CancelledError
+        return self.job
+
+    async def release(self, _id):
+        pass
+
+    def task_done(self):
+        pass
+
+
+class _FakeASR:
+    async def transcribe(self, _path):
+        return TranscriptionResult(
+            text="друг общался раздраженно был в своих мыслях мы разошлись по домам",
+            pause_aware_text=None,
+            language="ru",
+            language_probability=0,
+            duration_seconds=3,
+            duration_after_vad_seconds=3,
+            processing_seconds=0.1,
+        )
+
+
+class _FakePunctuation:
+    async def format(self, source, *, fallback_text):
+        assert source.startswith("друг общался")
+        return (
+            "Друг общался раздражённо, был в своих мыслях. "
+            "Мы разошлись по домам."
+        )
+
+
+async def _worker_case(tmp_path, monkeypatch, service, token):
+    from voqelis import bot as bot_module
+
+    path = tmp_path / "sample.ogg"
+    path.write_bytes(b"x")
+    monkeypatch.setattr(bot_module, "probe_duration_seconds", lambda _path: 3)
+    bot = _FakeBot()
+    job = AudioJob(
+        chat_id=7, reply_to_message_id=10, user_id=1,
+        file_path=path, day_facts_token=token,
+    )
+    with pytest.raises(asyncio.CancelledError):
+        await run_worker(
+            bot=bot,
+            queue=_FakeQueue(job),
+            transcriber=_FakeASR(),
+            settings=SimpleNamespace(max_audio_seconds=90),
+            day_facts=service,
+            punctuation_processor=_FakePunctuation(),
+        )
+    return bot.replies
+
+
+@pytest.mark.asyncio
+async def test_voice_to_facts_preserves_original_words_and_multiple_items(
+    store, tmp_path, monkeypatch
+):
+    service = DayFactsService(store)
+    draft = store.begin(1, date(2026, 10, 26))
+    draft = store.accept(1, draft.token, "Прогулка с другом.")
+    result = await _worker_case(tmp_path, monkeypatch, service, draft.token)
+    after = store.draft(1)
+    assert after is not None and after.stage == "facts"
+    assert len(after.facts) == 2
+    assert "Друг общался" in result[0][0]
+    assert "2. Мы разошлись" in result[0][0]
+    assert result[0][1]["reply_markup"] is not None
+    raw = store.db.execute(
+        "SELECT raw_inputs_json FROM day_facts_drafts WHERE user_id=1"
+    ).fetchone()[0]
+    assert "друг общался раздраженно" in raw
+
+
+@pytest.mark.asyncio
+async def test_stale_voice_queued_before_step_change_cannot_mutate_facts(
+    store, tmp_path, monkeypatch
+):
+    service = DayFactsService(store)
+    draft = store.begin(1, date(2026, 10, 26))
+    stale = draft.token
+    changed = store.accept(1, stale, "Уже другое событие.")
+    assert changed is not None
+    result = await _worker_case(tmp_path, monkeypatch, service, stale)
+    assert "не сохранено" in result[0][0]
+    assert store.draft(1) == changed
+
+
+def test_day_facts_router_has_command_and_keyboard_handlers(store, tmp_path):
+    service = DayFactsService(store)
+    planner = SimpleNamespace(store=SimpleNamespace(session=lambda _id: None))
+    notes = SimpleNamespace(pending_voice=lambda _id: False)
+    router = create_day_facts_router(
+        service=service, allowed_user_ids=frozenset({1}), planner=planner,
+        notes=notes, export_dir=tmp_path,
+    )
+    callbacks = {h.callback.__name__ for h in router.message.handlers}
+    assert {
+        "on_start", "on_cancel", "on_next", "on_edit", "on_split",
+        "on_history", "on_day", "on_export", "on_field_text",
+    } <= callbacks
+    assert len(router.callback_query.handlers) == 1
+    d = store.begin(1, date(2026, 10, 26))
+    assert len(facts_markup(d).inline_keyboard) == 1
+    export_buttons = [
+        button.callback_data
+        for row in export_markup(date(2026, 10, 26)).inline_keyboard
+        for button in row
+    ]
+    assert export_buttons == [
+        "df:export:word:2026-10-26",
+        "df:export:pdf:2026-10-26",
+        "df:export:mobile:2026-10-26",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_export_command_executes_real_threaded_docx_without_sqlite_error(
+    store, tmp_path
+):
+    service = DayFactsService(store)
+    draft = fill_record(store, 1, date(2026, 10, 26))
+    store.save(1, draft.token)
+
+    class FakeMessage:
+        text = "/facts_export word"
+        from_user = SimpleNamespace(id=1)
+        chat = SimpleNamespace(type="private")
+
+        def __init__(self):
+            self.documents = []
+            self.messages = []
+
+        async def answer(self, value, **kwargs):
+            self.messages.append(value)
+
+        async def answer_document(self, attachment, **kwargs):
+            # FSInputFile is lazily opened; inspect while still inside the
+            # export handler, before the generated temporary file is removed.
+            self.documents.append((attachment.path, Path(attachment.path).read_bytes()))
+
+    planner = SimpleNamespace(store=SimpleNamespace(session=lambda _id: None))
+    notes = SimpleNamespace(pending_voice=lambda _id: False)
+    router = create_day_facts_router(
+        service=service, allowed_user_ids=frozenset({1}), planner=planner,
+        notes=notes, export_dir=tmp_path,
+    )
+    handler = next(
+        h.callback for h in router.message.handlers
+        if h.callback.__name__ == "on_export"
+    )
+    msg = FakeMessage()
+    await handler(msg)
+    assert len(msg.documents) == 1
+    assert msg.documents[0][1][:2] == b"PK"
+    assert not Path(msg.documents[0][0]).exists()
+    assert msg.messages == []
