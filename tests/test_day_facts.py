@@ -471,3 +471,103 @@ def test_very_long_event_can_export_across_pdf_pages(store, tmp_path):
     assert export_pdf(
         entries, day, tmp_path / "long-mobile.pdf", mobile=True,
     ).stat().st_size > 3000
+
+
+
+@pytest.mark.asyncio
+async def test_stale_day_facts_voice_is_not_mistaken_for_planner_task(
+    store, tmp_path, monkeypatch
+):
+    from voqelis import bot as bot_module
+
+    service = DayFactsService(store)
+    draft = store.begin(1, date(2026, 10, 26))
+    path = tmp_path / "voice-plan-race.ogg"
+    path.write_bytes(b"sample")
+    monkeypatch.setattr(bot_module, "probe_duration_seconds", lambda _: 3)
+
+    class GuardPlanner:
+        config = SimpleNamespace(timezone="Europe/Moscow")
+        store = SimpleNamespace(session=lambda _id: {
+            "state": "planning", "target_day": "2026-10-26",
+        })
+
+        async def handle_text(self, *args, **kwargs):
+            raise AssertionError("Must never create a Planner task from a facts voice")
+
+    bot = _FakeBot()
+    job = AudioJob(
+        chat_id=7, reply_to_message_id=10, user_id=1, file_path=path,
+        day_facts_token=draft.token,
+    )
+    with pytest.raises(asyncio.CancelledError):
+        await run_worker(
+            bot=bot, queue=_FakeQueue(job), transcriber=_FakeASR(),
+            settings=SimpleNamespace(max_audio_seconds=90), planner=GuardPlanner(),
+            day_facts=service, punctuation_processor=_FakePunctuation(),
+        )
+    assert "не добавлено" in bot.replies[0][0]
+    assert store.draft(1) == draft
+    assert store.for_day(1, date(2026, 10, 26)) == []
+
+
+@pytest.mark.asyncio
+async def test_queued_note_keeps_note_intent_when_facts_started_later(
+    store, tmp_path, monkeypatch
+):
+    from voqelis import bot as bot_module
+    from voqelis.notes.service import NotesService
+    from voqelis.notes.store import NotesStore
+
+    notes_store = NotesStore(tmp_path / "notes.sqlite3")
+    try:
+        notes = NotesService(notes_store)
+        notes.arm_voice(1)
+        note_token = notes.claim_voice(1)
+        assert note_token
+        day_facts = DayFactsService(store)
+        draft = store.begin(1, date(2026, 10, 26))
+
+        path = tmp_path / "voice-notes-race.ogg"
+        path.write_bytes(b"sample")
+        monkeypatch.setattr(bot_module, "probe_duration_seconds", lambda _: 3)
+        bot = _FakeBot()
+        job = AudioJob(
+            chat_id=7, reply_to_message_id=10, user_id=1, file_path=path,
+            capture_token=note_token,
+        )
+        with pytest.raises(asyncio.CancelledError):
+            await run_worker(
+                bot=bot, queue=_FakeQueue(job), transcriber=_FakeASR(),
+                settings=SimpleNamespace(max_audio_seconds=90),
+                notes=notes, day_facts=day_facts,
+                punctuation_processor=_FakePunctuation(),
+            )
+        assert len(notes_store.recent(1)) == 1
+        assert "Заметка #1 сохранена" in bot.replies[0][0]
+        assert store.draft(1) == draft
+    finally:
+        notes_store.close()
+
+
+@pytest.mark.asyncio
+async def test_plain_voice_remains_plain_when_facts_mode_started_after_admission(
+    store, tmp_path, monkeypatch
+):
+    from voqelis import bot as bot_module
+
+    service = DayFactsService(store)
+    draft = store.begin(1, date(2026, 10, 26))
+    path = tmp_path / "previous-voice.ogg"
+    path.write_bytes(b"sample")
+    monkeypatch.setattr(bot_module, "probe_duration_seconds", lambda _: 3)
+    bot = _FakeBot()
+    job = AudioJob(chat_id=7, reply_to_message_id=10, user_id=1, file_path=path)
+    with pytest.raises(asyncio.CancelledError):
+        await run_worker(
+            bot=bot, queue=_FakeQueue(job), transcriber=_FakeASR(),
+            settings=SimpleNamespace(max_audio_seconds=90),
+            day_facts=service, punctuation_processor=_FakePunctuation(),
+        )
+    assert bot.replies[0][0].startswith("Друг общался")
+    assert store.draft(1) == draft
