@@ -20,9 +20,9 @@ from aiogram.types import (
 )
 
 from ..notes.service import NotesService
-from .export import export_docx, export_pdf
 from ..planner.service import PlannerService
 from ..text import chunk_text
+from .export import export_docx, export_pdf
 from .service import EDIT_ALIASES, DayFactsService
 from .store import FactsDraft
 
