@@ -276,6 +276,19 @@ async def run_worker(
                 continue
 
             session = planner.store.session(job.user_id) if planner else None
+            if planner and session and (
+                job.day_facts_token is not None or job.capture_token is not None
+            ):
+                # A note/facts recording accepted before the Planner session
+                # appeared must never be converted into Planner tasks.
+                await bot.send_message(
+                    job.chat_id,
+                    "Режим изменился во время распознавания. "
+                    "Это сообщение не добавлено ни в Planner, ни в дневник. "
+                    "Повтори его в нужном режиме.",
+                    reply_to_message_id=job.reply_to_message_id,
+                )
+                continue
             if planner and session:
                 today = datetime.now(planner_tz).date()
                 if log_content:
@@ -297,16 +310,9 @@ async def run_worker(
                         parse_mode=None,
                         reply_markup=planner_markup_for_state(planner, job.user_id),
                     )
-            elif day_facts is not None and day_facts.store.draft(job.user_id):
-                if job.day_facts_token is None:
-                    await bot.send_message(
-                        job.chat_id,
-                        "Активен режим «Факты дня». Голосовое не добавлено, "
-                        "потому что оно не относится к текущему шагу. "
-                        "Повтори запись или введи /facts.",
-                        reply_to_message_id=job.reply_to_message_id,
-                    )
-                    continue
+            elif day_facts is not None and job.day_facts_token is not None:
+                # Route by the immutable intent captured at queue admission,
+                # NOT whichever module happens to be active after ASR.
                 display_text = result.pause_aware_text or result.text
                 if punctuation_processor is not None:
                     display_text = await punctuation_processor.format(
