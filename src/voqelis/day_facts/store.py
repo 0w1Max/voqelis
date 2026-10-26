@@ -350,7 +350,7 @@ class DayFactsStore:
         with self.db:
             self.db.execute("BEGIN IMMEDIATE")
             row = self.db.execute(
-                "SELECT stage, raw_inputs_json FROM day_facts_drafts "
+                "SELECT stage, raw_inputs_json, edit_field FROM day_facts_drafts "
                 "WHERE user_id=? AND token=?",
                 (user_id, token),
             ).fetchone()
@@ -387,7 +387,7 @@ class DayFactsStore:
         with self.db:
             self.db.execute("BEGIN IMMEDIATE")
             row = self.db.execute(
-                "SELECT stage, raw_inputs_json FROM day_facts_drafts "
+                "SELECT stage, raw_inputs_json, edit_field FROM day_facts_drafts "
                 "WHERE user_id=? AND token=?",
                 (user_id, token),
             ).fetchone()
