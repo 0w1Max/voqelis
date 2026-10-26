@@ -28,6 +28,24 @@ def split_sentences(text: str) -> tuple[str, ...]:
     )
 
 
+def split_voice_items(text: str) -> tuple[str, ...]:
+    """Treat a voice message as one item unless the speaker explicitly separates it.
+
+    Automatic punctuation is only a *presentation hint*, not an instruction to
+    split a personal diary entry. Spoken markers are deliberate separators;
+    malformed leading/trailing markers fail closed rather than losing words.
+    """
+    source = text.strip()
+    if not source or len(source) > MAX_INPUT_CHARS:
+        raise ValueError("Text must contain 1–12000 characters")
+    if not _SPOKEN_MARKER.search(source):
+        return (source,)
+    parts = tuple(part.strip() for part in _SPOKEN_MARKER.split(source))
+    if any(not part for part in parts):
+        raise ValueError("Each spoken item must contain text")
+    return parts
+
+
 def split_explicit(text: str) -> tuple[str, ...]:
     """User-provided ' | ' delimiters override missing ASR sentence boundaries."""
     pieces = [part.strip() for part in text.split("|")]
