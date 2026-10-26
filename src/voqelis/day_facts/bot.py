@@ -50,6 +50,13 @@ _OTHER_MENU_ACTIONS = frozenset({
 
 def facts_markup(draft: FactsDraft) -> InlineKeyboardMarkup:
     token = draft.token
+    if draft.edit_field is not None:
+        return InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(
+                text="↩️ Отмена исправления",
+                callback_data=f"df:unedit:{token}",
+            )
+        ]])
     rows: list[list[InlineKeyboardButton]] = []
     if draft.stage == "review":
         rows.append([
@@ -75,15 +82,74 @@ def facts_markup(draft: FactsDraft) -> InlineKeyboardMarkup:
                 callback_data=f"df:redo:judgments:{token}",
             )
         ])
-    if draft.stage != "event":
+    if draft.event:
         rows.append([
             InlineKeyboardButton(
-                text="✏️ Исправить текст", callback_data=f"df:help:{token}"
+                text="✏️ Исправить",
+                callback_data=f"df:edit:{token}",
             )
         ])
     rows.append([
         InlineKeyboardButton(text="❌ Отмена", callback_data=f"df:cancel:{token}")
     ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def edit_sections_markup(draft: FactsDraft) -> InlineKeyboardMarkup:
+    """Choose WHAT to fix, with no command syntax shown to users."""
+    token = draft.token
+    rows = [[InlineKeyboardButton(
+        text="📝 Событие", callback_data=f"df:pick:event:1:{token}"
+    )]]
+    if draft.facts:
+        rows.append([InlineKeyboardButton(
+            text=f"📋 Факты ({len(draft.facts)})",
+            callback_data=f"df:items:facts:0:{token}",
+        )])
+    if draft.judgments:
+        rows.append([InlineKeyboardButton(
+            text=f"💭 Суждения ({len(draft.judgments)})",
+            callback_data=f"df:items:judgments:0:{token}",
+        )])
+    rows.append([InlineKeyboardButton(
+        text="↩️ Назад", callback_data=f"df:back:{token}",
+    )])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def edit_items_markup(draft: FactsDraft, field: str, page: int) -> InlineKeyboardMarkup:
+    if field not in {"facts", "judgments"}:
+        raise ValueError("Unknown section")
+    items = draft.facts if field == "facts" else draft.judgments
+    per_page = 8
+    if not 0 <= page < max(1, (len(items) + per_page - 1) // per_page):
+        raise ValueError("Invalid page")
+    token = draft.token
+    rows = []
+    for index in range(page * per_page, min(len(items), (page + 1) * per_page)):
+        # Telegram callback_data contains only index and opaque session token,
+        # never sensitive clinical text.
+        preview = items[index].replace("\n", " ").strip()
+        if len(preview) > 43:
+            preview = preview[:40].rstrip() + "…"
+        rows.append([InlineKeyboardButton(
+            text=f"{index + 1}. {preview}",
+            callback_data=f"df:pick:{field}:{index + 1}:{token}",
+        )])
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(
+            text="⬅️", callback_data=f"df:items:{field}:{page - 1}:{token}"
+        ))
+    if (page + 1) * per_page < len(items):
+        nav.append(InlineKeyboardButton(
+            text="➡️", callback_data=f"df:items:{field}:{page + 1}:{token}"
+        ))
+    if nav:
+        rows.append(nav)
+    rows.append([InlineKeyboardButton(
+        text="↩️ Назад к разделам", callback_data=f"df:edit:{token}",
+    )])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -370,14 +436,32 @@ def create_day_facts_router(
             return
 
         action, _, payload = data[3:].partition(":")
-        if action == "redo":
-            field, delim, token = payload.partition(":")
-            if not delim or field not in {"facts", "judgments"}:
-                await callback.answer("Некорректная команда.", show_alert=True)
+        if action in {"redo", "items", "pick"}:
+            parts = payload.split(":")
+            if action == "redo":
+                valid = len(parts) == 2 and parts[0] in {"facts", "judgments"}
+            elif action == "items":
+                valid = (
+                    len(parts) == 3
+                    and parts[0] in {"facts", "judgments"}
+                    and parts[1].isdigit()
+                )
+            else:
+                valid = (
+                    len(parts) == 3
+                    and parts[0] in {"event", "facts", "judgments"}
+                    and parts[1].isdigit()
+                )
+            if not valid:
+                await callback.answer("Эта кнопка недействительна.", show_alert=True)
                 return
+            field = parts[0]
+            token = parts[-1]
+            selected = int(parts[1]) if len(parts) == 3 else None
         else:
             field = ""
             token = payload
+            selected = None
         draft = service.store.draft(callback.from_user.id)
         if not draft or token != draft.token:
             await callback.answer("Эта кнопка устарела. Введи /facts.", show_alert=True)
@@ -399,19 +483,57 @@ def create_day_facts_router(
                 await callback.message.answer(description)
                 await _send(callback.message, service.render(changed), draft=changed)
             return
-        if action == "help":
+        if action in {"edit", "help"}:
+            if draft.edit_field is not None:
+                await callback.answer("Сначала закончи исправление.", show_alert=True)
+                return
             await callback.answer()
             await callback.message.answer(
-                "✏️ Исправить один пункт:\n"
-                "/facts_edit facts 1 | Друг общался раздражённо, был в своих мыслях.\n\n"
-                "Заменить все факты текстом:\n"
-                "/facts_replace facts | Первый факт. Второй факт.\n\n"
-                "Заменить суждения:\n"
-                "/facts_replace judgments | Первая мысль. Вторая мысль.\n\n"
-                "Разделить пункт вручную:\n"
-                "/facts_split facts 1 | Первый факт | Второй факт\n\n"
-                "Можно также нажать «🔄 Повторить факты» и продиктовать заново."
+                "✏️ Что нужно исправить? Выбери раздел кнопкой ниже.",
+                reply_markup=edit_sections_markup(draft),
             )
+            return
+        if action == "items":
+            if draft.edit_field is not None:
+                await callback.answer("Сначала закончи исправление.", show_alert=True)
+                return
+            try:
+                keyboard = edit_items_markup(draft, field, selected)
+            except ValueError:
+                await callback.answer("Нет пунктов на этой странице.", show_alert=True)
+                return
+            await callback.answer()
+            await callback.message.answer(
+                "Выбери пункт, который нужно исправить:",
+                reply_markup=keyboard,
+            )
+            return
+        if action == "pick":
+            try:
+                updated = service.store.select_edit(
+                    callback.from_user.id, token, field, selected,
+                )
+            except ValueError:
+                await callback.answer("Этот пункт сейчас недоступен.", show_alert=True)
+                return
+            await callback.answer()
+            if updated is not None:
+                await _send(callback.message, service.render(updated), draft=updated)
+            return
+        if action == "unedit":
+            try:
+                updated = service.store.cancel_edit(callback.from_user.id, token)
+            except ValueError:
+                await callback.answer("Исправление уже завершено.", show_alert=True)
+                return
+            await callback.answer()
+            if updated is not None:
+                await callback.message.answer("Исправление отменено. Запись не изменилась.")
+                await _send(callback.message, service.render(updated), draft=updated)
+            return
+        if action == "back":
+            await callback.answer()
+            await _send(callback.message, service.render(draft), draft=draft)
             return
         if action == "cancel":
             service.store.cancel(callback.from_user.id)
