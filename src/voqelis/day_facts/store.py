@@ -214,12 +214,16 @@ class DayFactsStore:
                     # A single voice message is one fact unless an explicit
                     # spoken marker separates multiple facts. Written input
                     # retains the existing punctuation-based split behavior.
-                    splitter = split_voice_items if voice_dictation else split_sentences
-                    facts.extend(splitter(clean))
+                    if voice_dictation:
+                        facts.extend(split_voice_items(clean, field="facts"))
+                    else:
+                        facts.extend(split_sentences(clean))
                     new_stage = "facts"
                 else:
-                    splitter = split_voice_items if voice_dictation else split_sentences
-                    judgments.extend(splitter(clean))
+                    if voice_dictation:
+                        judgments.extend(split_voice_items(clean, field="judgments"))
+                    else:
+                        judgments.extend(split_sentences(clean))
                     new_stage = "judgments"
                 originals.append({"field": field, "raw": raw, "visible": clean})
             self.db.execute(
