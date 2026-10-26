@@ -10,7 +10,11 @@ from pathlib import Path
 import pytest
 
 from voqelis.day_facts.export import TITLE, export_docx, export_pdf
-from voqelis.day_facts.sentences import split_explicit, split_sentences, split_voice_items
+from voqelis.day_facts.sentences import (
+    split_explicit,
+    split_sentences,
+    split_voice_items,
+)
 from voqelis.day_facts.service import DayFactsService
 from voqelis.day_facts.store import DayFactsStore
 
@@ -455,8 +459,8 @@ async def test_voice_to_facts_preserves_original_words_as_single_item(
     after = store.draft(1)
     assert after is not None and after.stage == "facts"
     assert after.facts == (
-        "Друг общался раздражённо, был в своих мыслях. "
-        "Мы разошлись по домам.",
+        ("Друг общался раздражённо, был в своих мыслях. "
+         "Мы разошлись по домам."),
     )
     assert "Друг общался" in result[0][0]
     assert "1. Друг общался" in result[0][0]
