@@ -247,6 +247,77 @@ class DayFactsStore:
             )
         return self.draft(user_id)
 
+    def reset_section(self, user_id: int, token: str, field: str) -> FactsDraft | None:
+        """Discard only the selected list and re-open its dictation step.
+
+        Requires the current draft's token: previously queued voice messages
+        and old callback buttons become stale after resetting a section.
+        """
+        if field not in {"facts", "judgments"}:
+            raise ValueError("Only facts and judgments can be re-dictated")
+        with self.db:
+            self.db.execute("BEGIN IMMEDIATE")
+            row = self.db.execute(
+                "SELECT stage, raw_inputs_json FROM day_facts_drafts "
+                "WHERE user_id=? AND token=?",
+                (user_id, token),
+            ).fetchone()
+            if row is None:
+                return None
+            if field == "facts" and row["stage"] not in {"facts", "review"}:
+                raise ValueError("Facts cannot be reset in this stage")
+            if field == "judgments" and row["stage"] not in {"judgments", "review"}:
+                raise ValueError("Judgments cannot be reset in this stage")
+            originals = json.loads(row["raw_inputs_json"])
+            originals.append({"field": field, "action": "reset"})
+            column = "facts_json" if field == "facts" else "judgments_json"
+            self.db.execute(
+                f"UPDATE day_facts_drafts SET {column}='[]', stage=?, "
+                "token=?, raw_inputs_json=?, updated_at=? "
+                "WHERE user_id=? AND token=?",
+                (
+                    field, _token(), json.dumps(originals, ensure_ascii=False),
+                    _now(), user_id, token,
+                ),
+            )
+        return self.draft(user_id)
+
+    def replace_section(
+        self, user_id: int, token: str, field: str, text: str
+    ) -> FactsDraft | None:
+        """Replace the entire numbered list using corrected written sentences."""
+        if field not in {"facts", "judgments"}:
+            raise ValueError("Unknown section")
+        clean = _checked_text(text)
+        items = split_sentences(clean)
+        with self.db:
+            self.db.execute("BEGIN IMMEDIATE")
+            row = self.db.execute(
+                "SELECT stage, raw_inputs_json FROM day_facts_drafts "
+                "WHERE user_id=? AND token=?",
+                (user_id, token),
+            ).fetchone()
+            if row is None:
+                return None
+            if field == "facts" and row["stage"] not in {"facts", "review"}:
+                raise ValueError("Facts cannot be replaced in this stage")
+            if field == "judgments" and row["stage"] not in {"judgments", "review"}:
+                raise ValueError("Judgments cannot be replaced in this stage")
+            originals = json.loads(row["raw_inputs_json"])
+            originals.append({"field": field, "action": "replace", "visible": clean})
+            column = "facts_json" if field == "facts" else "judgments_json"
+            self.db.execute(
+                f"UPDATE day_facts_drafts SET {column}=?, token=?, "
+                "raw_inputs_json=?, updated_at=? "
+                "WHERE user_id=? AND token=?",
+                (
+                    json.dumps(items, ensure_ascii=False), _token(),
+                    json.dumps(originals, ensure_ascii=False),
+                    _now(), user_id, token,
+                ),
+            )
+        return self.draft(user_id)
+
     def save(self, user_id: int, token: str) -> FactsEntry | None:
         with self.db:
             self.db.execute("BEGIN IMMEDIATE")
