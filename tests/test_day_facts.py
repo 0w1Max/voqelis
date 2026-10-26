@@ -1315,3 +1315,19 @@ def test_cancel_edit_menu_restores_original_draft(store):
     assert returned.facts == d.facts
     assert returned.judgments == d.judgments
     assert store.accept(71, chooser.token, "поздняя диктовка") is None
+
+
+
+def test_resuming_selector_shows_category_buttons_instead_of_dead_end(store):
+    from voqelis.day_facts.bot import facts_markup
+
+    draft = fill_record(store, 71, date(2026, 10, 26))
+    selector = store.open_edit_menu(71, draft.token)
+    buttons = [
+        item.text
+        for row in facts_markup(selector).inline_keyboard
+        for item in row
+    ]
+    assert "📝 Событие" in buttons
+    assert any("Факты" in item for item in buttons)
+    assert "↩️ Назад" in buttons
