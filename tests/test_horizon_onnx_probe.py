@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
-from tools.horizon_onnx_probe import last_token_indices, render_marks
+from tools.horizon_onnx_probe import HorizonONNX, last_token_indices, render_marks
 
 
 def test_last_subtoken_is_selected_by_word_id() -> None:
@@ -63,3 +65,57 @@ def test_rejects_wrong_count_bad_label_and_prepunctuated_text() -> None:
         render_marks("один", ["BAD"])
     with pytest.raises(ValueError, match="already contains"):
         render_marks("друг пришёл.", ["0", "0"])
+
+
+def test_inference_uses_pretokenized_ids_not_unicode_offsets() -> None:
+    """Regression: no strict character-offset match for the word 'был'."""
+    class FakeEncoding:
+        ids = [100, 21, 22, 23, 101]
+        attention_mask = [1] * 5
+        type_ids = [0] * 5
+        word_ids = [None, 0, 1, 1, None]
+
+    class FakeTokenizer:
+        def encode(self, words, *, is_pretokenized=False):
+            assert words == ["друг", "был"]
+            assert is_pretokenized is True
+            return FakeEncoding()
+
+    class FakeLogits:
+        shape = (1, 5, 6)
+
+        def __getitem__(self, index):
+            assert index == 0
+            return [[0] * 6] * 5
+
+    class FakeSession:
+        def run(self, _, feed):
+            assert len(feed["input_ids"][0]) == 5
+            return [FakeLogits()]
+
+    class FakeNp:
+        int32 = int
+        int64 = int
+
+        @staticmethod
+        def asarray(values, dtype):
+            assert dtype is int
+            return values
+
+        @staticmethod
+        def argmax(logits, axis):
+            assert axis == -1
+            assert len(logits) == 5
+            return [0, 0, 0, 1, 0]
+
+    model = object.__new__(HorizonONNX)
+    model.tokenizer = FakeTokenizer()
+    model.session = FakeSession()
+    model.model_inputs = [
+        SimpleNamespace(name="input_ids", type="tensor(int64)"),
+        SimpleNamespace(name="attention_mask", type="tensor(int64)"),
+    ]
+    model.np = FakeNp()
+    model.labels = {0: "0", 1: "."}
+
+    assert model.punctuate("друг был") == "друг был."
