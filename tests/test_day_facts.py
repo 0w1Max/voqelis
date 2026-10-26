@@ -1096,10 +1096,15 @@ async def test_edit_callback_button_replaces_only_selected_fact(store, tmp_path)
             self.acks.append((args, kwargs))
 
     msg = FakeMessage()
+    first = FakeCallback(f"df:edit:{d.token}", msg)
+    await on_callback(first)
+    assert first.acks
+    chooser = store.draft(71)
+    assert chooser.edit_field == "select"
+    assert chooser.token != d.token
     for data in (
-        f"df:edit:{d.token}",
-        f"df:items:facts:0:{d.token}",
-        f"df:pick:facts:1:{d.token}",
+        f"df:items:facts:0:{chooser.token}",
+        f"df:pick:facts:1:{chooser.token}",
     ):
         cb = FakeCallback(data, msg)
         await on_callback(cb)
@@ -1193,4 +1198,120 @@ async def test_old_edit_command_without_arguments_opens_button_picker(store, tmp
     ]
     assert "📝 Событие" in controls
     assert any("Факты" in name for name in controls)
-    assert store.draft(71) == d
+    chooser = store.draft(71)
+    assert chooser.edit_field == "select"
+    assert chooser.token != d.token
+    assert chooser.facts == d.facts
+
+
+
+def test_opening_edit_menu_blocks_append_until_item_is_selected(store):
+    d = fill_record(store, 71, date(2026, 10, 26))
+    chooser = store.open_edit_menu(71, d.token)
+    assert chooser.edit_field == "select"
+    assert chooser.edit_index is None
+    assert store.accept(71, chooser.token, "ошибочно отправленный факт") is None
+    assert store.accept(71, d.token, "старое голосовое из очереди") is None
+    assert store.draft(71).facts == d.facts
+    with pytest.raises(ValueError):
+        store.next(71, chooser.token)
+    assert store.save(71, chooser.token) is None
+    picked = store.select_edit(71, chooser.token, "facts", 1)
+    assert picked.edit_field == "facts"
+    assert picked.token != chooser.token
+    corrected = store.accept(
+        71, picked.token, "Друг общался раздражённо, был в своих мыслях."
+    )
+    assert corrected.facts[0] == "Друг общался раздражённо, был в своих мыслях."
+    assert corrected.facts[1] == d.facts[1]
+    assert corrected.edit_field is None
+
+
+@pytest.mark.asyncio
+async def test_text_during_item_choice_is_rejected_not_appended(store, tmp_path):
+    service = DayFactsService(store)
+    d = fill_record(store, 71, date(2026, 10, 26))
+    chooser = store.open_edit_menu(71, d.token)
+    planner = SimpleNamespace(store=SimpleNamespace(session=lambda _id: None))
+    notes = SimpleNamespace(pending_voice=lambda _id: False)
+    router = create_day_facts_router(
+        service=service, allowed_user_ids=frozenset({71}),
+        planner=planner, notes=notes, export_dir=tmp_path,
+    )
+    on_field = next(
+        h.callback for h in router.message.handlers
+        if h.callback.__name__ == "on_field_text"
+    )
+
+    class FakeMessage:
+        text = "Друг общался раздражённо, был в своих мыслях."
+        chat = SimpleNamespace(type="private")
+        from_user = SimpleNamespace(id=71)
+
+        def __init__(self):
+            self.responses = []
+
+        async def answer(self, body, **kwargs):
+            self.responses.append(body)
+
+    msg = FakeMessage()
+    await on_field(msg)
+    assert "Сначала выбери раздел" in msg.responses[0]
+    assert store.draft(71) == chooser
+    assert store.draft(71).facts == d.facts
+
+
+@pytest.mark.asyncio
+async def test_voice_in_item_chooser_is_rejected_before_download_or_queue(store):
+    from voqelis.bot import create_router
+
+    service = DayFactsService(store)
+    d = fill_record(store, 71, date(2026, 10, 26))
+    chooser = store.open_edit_menu(71, d.token)
+
+    class StubQueue:
+        async def reserve(self, user_id):
+            raise AssertionError("Voice must be blocked before queue reservation")
+
+    router = create_router(
+        settings=SimpleNamespace(
+            allowed_user_ids=frozenset({71}),
+            max_file_size_bytes=1000000,
+            max_audio_seconds=60,
+        ),
+        queue=StubQueue(),
+        day_facts=service,
+    )
+    on_audio = next(
+        h.callback for h in router.message.handlers
+        if h.callback.__name__ == "on_audio"
+    )
+
+    class FakeMessage:
+        chat = SimpleNamespace(type="private")
+        from_user = SimpleNamespace(id=71)
+        voice = SimpleNamespace(file_id="fake", file_size=100, duration=3)
+        audio = None
+        document = None
+
+        def __init__(self):
+            self.replies = []
+
+        async def reply(self, body):
+            self.replies.append(body)
+
+    msg = FakeMessage()
+    await on_audio(msg, SimpleNamespace())
+    assert len(msg.replies) == 1
+    assert "Сначала выбери" in msg.replies[0]
+    assert store.draft(71) == chooser
+
+
+def test_cancel_edit_menu_restores_original_draft(store):
+    d = fill_record(store, 71, date(2026, 10, 26))
+    chooser = store.open_edit_menu(71, d.token)
+    returned = store.cancel_edit(71, chooser.token)
+    assert returned.edit_field is None
+    assert returned.facts == d.facts
+    assert returned.judgments == d.judgments
+    assert store.accept(71, chooser.token, "поздняя диктовка") is None
