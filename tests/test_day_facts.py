@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from voqelis.day_facts.export import TITLE, export_docx, export_pdf
-from voqelis.day_facts.sentences import split_explicit, split_sentences
+from voqelis.day_facts.sentences import split_explicit, split_sentences, split_voice_items
 from voqelis.day_facts.service import DayFactsService
 from voqelis.day_facts.store import DayFactsStore
 
@@ -67,6 +67,100 @@ def test_sentence_split_uses_full_stops_not_commas() -> None:
     assert split_sentences(
         "Я испортил встречу следующее суждение я плохой друг"
     ) == ("Я испортил встречу", "я плохой друг")
+
+
+
+# Voice-specific capture: punctuation is presentation, not an implicit
+# instruction to split the user's personal diary into multiple records.
+def test_voice_split_preserves_internal_periods_and_respects_spoken_markers() -> None:
+    text = "Друг говорил тихо. Потом посмотрел в окно."
+    assert split_voice_items(text) == (text,)
+    assert split_voice_items(
+        "Друг говорил тихо. Следующий факт мы разошлись по домам."
+    ) == ("Друг говорил тихо.", "мы разошлись по домам.")
+    assert split_voice_items(
+        "Я расстроился? Следующее суждение я плохо поговорил."
+    ) == ("Я расстроился?", "я плохо поговорил.")
+    with pytest.raises(ValueError):
+        split_voice_items("следующий факт")
+    with pytest.raises(ValueError):
+        split_voice_items("Событие. Следующий факт")
+
+
+def test_voice_accept_adds_exactly_one_fact_and_one_judgment(store) -> None:
+    draft = store.begin(88, date(2026, 10, 26))
+    draft = store.accept(88, draft.token, "Встреча с другом")
+    old = draft.token
+    text = "Друг говорил тихо. Потом посмотрел в окно."
+    draft = store.accept(
+        88, old, text, raw_text="друг говорил тихо потом посмотрел в окно",
+        voice_dictation=True,
+    )
+    assert draft is not None
+    assert draft.facts == (text,)
+    assert store.accept(88, old, "устаревший голос", voice_dictation=True) is None
+
+    draft = store.accept(
+        88, draft.token, "Мы попрощались.", voice_dictation=True,
+    )
+    assert draft.facts == (text, "Мы попрощались.")
+    draft = store.next(88, draft.token)
+    draft = store.accept(
+        88, draft.token, "Мне показалось, что я плохо общался. "
+        "Я испортил встречу.",
+        voice_dictation=True,
+    )
+    assert draft.judgments == (
+        "Мне показалось, что я плохо общался. Я испортил встречу.",
+    )
+    draft = store.next(88, draft.token)
+    saved = store.save(88, draft.token)
+    assert saved is not None
+    assert saved.facts == (text, "Мы попрощались.")
+    raw = store.db.execute(
+        "SELECT raw_inputs_json FROM day_facts_entries WHERE id=?", (saved.id,)
+    ).fetchone()[0]
+    assert "друг говорил тихо потом посмотрел в окно" in raw
+
+
+def test_explicit_spoken_marker_is_the_only_voice_split(store) -> None:
+    draft = store.begin(89, date(2026, 10, 26))
+    draft = store.accept(89, draft.token, "Встреча")
+    draft = store.accept(
+        89, draft.token,
+        "Друг отвечал кратко. Следующий факт мы пошли домой. "
+        "Следующий факт наступил вечер.",
+        voice_dictation=True,
+    )
+    assert draft.facts == (
+        "Друг отвечал кратко.",
+        "мы пошли домой.",
+        "наступил вечер.",
+    )
+    draft = store.next(89, draft.token)
+    draft = store.accept(
+        89, draft.token,
+        "Мне было грустно. Следующее суждение я плохой собеседник.",
+        voice_dictation=True,
+    )
+    assert draft.judgments == ("Мне было грустно.", "я плохой собеседник.")
+
+
+def test_malformed_voice_marker_cannot_modify_draft(store) -> None:
+    draft = store.begin(90, date(2026, 10, 26))
+    draft = store.accept(90, draft.token, "Событие")
+    with pytest.raises(ValueError, match="spoken item"):
+        store.accept(
+            90, draft.token, "История. Следующий факт", voice_dictation=True,
+        )
+    assert store.draft(90) == draft
+
+
+def test_text_input_preserves_existing_period_based_splitting(store) -> None:
+    draft = store.begin(91, date(2026, 10, 26))
+    draft = store.accept(91, draft.token, "Событие")
+    draft = store.accept(91, draft.token, "Один факт. Второй факт.")
+    assert draft.facts == ("Один факт.", "Второй факт.")
 
 
 def test_explicit_split_allows_boundary_correction() -> None:
@@ -351,7 +445,7 @@ async def _worker_case(tmp_path, monkeypatch, service, token):
 
 
 @pytest.mark.asyncio
-async def test_voice_to_facts_preserves_original_words_and_multiple_items(
+async def test_voice_to_facts_preserves_original_words_as_single_item(
     store, tmp_path, monkeypatch
 ):
     service = DayFactsService(store)
@@ -360,9 +454,13 @@ async def test_voice_to_facts_preserves_original_words_and_multiple_items(
     result = await _worker_case(tmp_path, monkeypatch, service, draft.token)
     after = store.draft(1)
     assert after is not None and after.stage == "facts"
-    assert len(after.facts) == 2
+    assert after.facts == (
+        "Друг общался раздражённо, был в своих мыслях. "
+        "Мы разошлись по домам.",
+    )
     assert "Друг общался" in result[0][0]
-    assert "2. Мы разошлись" in result[0][0]
+    assert "1. Друг общался" in result[0][0]
+    assert "2. Мы разошлись" not in result[0][0]
     assert result[0][1]["reply_markup"] is not None
     raw = store.db.execute(
         "SELECT raw_inputs_json FROM day_facts_drafts WHERE user_id=1"
@@ -414,9 +512,10 @@ def test_day_facts_router_has_command_and_keyboard_handlers(store, tmp_path):
 
 @pytest.mark.asyncio
 async def test_export_command_executes_real_threaded_docx_without_sqlite_error(
-    store, tmp_path
+    store, tmp_path, monkeypatch
 ):
     service = DayFactsService(store)
+    monkeypatch.setattr(service, "today", lambda: date(2026, 10, 26))
     draft = fill_record(store, 1, date(2026, 10, 26))
     store.save(1, draft.token)
 
@@ -596,8 +695,9 @@ def test_day_facts_db_permissions_and_symlink_rejection(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_export_document_is_never_world_readable(store, tmp_path):
+async def test_export_document_is_never_world_readable(store, tmp_path, monkeypatch):
     service = DayFactsService(store)
+    monkeypatch.setattr(service, "today", lambda: date(2026, 10, 26))
     draft = fill_record(store, 1, date(2026, 10, 26))
     store.save(1, draft.token)
 
