@@ -44,6 +44,25 @@ class DayFactsService:
 
     def render(self, draft: FactsDraft) -> str:
         heading = f"📘 Факты дня · {draft.day:%d.%m.%Y}"
+        if draft.edit_field is not None:
+            if draft.edit_field == "event":
+                current = draft.event
+                label = "событие"
+            else:
+                items = draft.facts if draft.edit_field == "facts" else draft.judgments
+                current = items[draft.edit_index - 1]
+                label = (
+                    f"факт №{draft.edit_index}"
+                    if draft.edit_field == "facts"
+                    else f"суждение №{draft.edit_index}"
+                )
+            return (
+                f"{heading}\n\n✏️ Исправляем {label}\n\n"
+                f"Сейчас записано:\n{current}\n\n"
+                "Отправь новый текст или голосовое сообщение. "
+                "Оно заменит ТОЛЬКО этот пункт, остальные останутся без изменений.\n"
+                "Чтобы ничего не менять, нажми «Отмена исправления»."
+            )
         if draft.stage == "event":
             return f"{heading}\n\nРасскажи, какое событие произошло."
         if draft.stage == "facts":
@@ -52,8 +71,9 @@ class DayFactsService:
                 f"Факты дня:\n{_enumerate(draft.facts)}\n\n"
                 "Расскажи факты голосом или текстом. Предложения после точки "
                 "предварительно разделяются на отдельные пункты.\n"
-                "Новое сообщение добавляет пункты. Для замены нажми "
-                "«🔄 Повторить факты». Для правки — «✏️ Исправить текст».\n"
+                "Новое сообщение добавляет пункты. Чтобы передиктовать всё, "
+                "нажми «🔄 Повторить факты». Чтобы исправить одну запись — "
+                "«✏️ Исправить».\n"
                 "Закончил — нажми «➡️ Далее»."
             )
         if draft.stage == "judgments":
@@ -73,7 +93,7 @@ class DayFactsService:
             f"Ошибочные суждения:\n{_enumerate(draft.judgments)}\n\n"
             "Для новой диктовки нажми «🔄 Повторить факты» или "
             "«🔄 Повторить суждения».\n"
-            "Для исправления формулировки нажми «✏️ Исправить текст».\n"
+            "Для исправления одного пункта нажми «✏️ Исправить».\n"
             "Когда всё верно, нажми «✅ Сохранить»."
         )
 
