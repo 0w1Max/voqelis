@@ -19,6 +19,15 @@ from aiogram.types import (
     Message,
 )
 
+from ..menu import (
+    FACTS_HISTORY,
+    FACTS_MOBILE,
+    FACTS_PDF,
+    FACTS_START,
+    FACTS_TODAY,
+    FACTS_WORD,
+    main_keyboard,
+)
 from ..notes.service import NotesService
 from ..planner.service import PlannerService
 from ..text import chunk_text
@@ -41,19 +50,36 @@ _OTHER_MENU_ACTIONS = frozenset({
 
 def facts_markup(draft: FactsDraft) -> InlineKeyboardMarkup:
     token = draft.token
-    if draft.stage == "review":
-        rows = [
-            [InlineKeyboardButton(text="✅ Сохранить", callback_data=f"df:save:{token}")],
-        ]
-    else:
-        rows = []
-        if draft.stage in {"facts", "judgments"}:
-            rows.append([
-                InlineKeyboardButton(text="➡️ Далее", callback_data=f"df:next:{token}")
-            ])
+    rows: list[list[InlineKeyboardButton]] = []
     if draft.stage == "review":
         rows.append([
-            InlineKeyboardButton(text="✏️ Как исправить", callback_data=f"df:help:{token}")
+            InlineKeyboardButton(text="✅ Сохранить", callback_data=f"df:save:{token}")
+        ])
+    elif draft.stage in {"facts", "judgments"}:
+        rows.append([
+            InlineKeyboardButton(text="➡️ Далее", callback_data=f"df:next:{token}")
+        ])
+    # A redo clears only the targeted draft section, then the next voice
+    # recording starts from a clean list. No saved entries are modified.
+    if draft.stage in {"facts", "review"}:
+        rows.append([
+            InlineKeyboardButton(
+                text="🔄 Повторить факты",
+                callback_data=f"df:redo:facts:{token}",
+            )
+        ])
+    if draft.stage in {"judgments", "review"}:
+        rows.append([
+            InlineKeyboardButton(
+                text="🔄 Повторить суждения",
+                callback_data=f"df:redo:judgments:{token}",
+            )
+        ])
+    if draft.stage != "event":
+        rows.append([
+            InlineKeyboardButton(
+                text="✏️ Исправить текст", callback_data=f"df:help:{token}"
+            )
         ])
     rows.append([
         InlineKeyboardButton(text="❌ Отмена", callback_data=f"df:cancel:{token}")
@@ -110,7 +136,7 @@ def create_day_facts_router(
         )
 
     @router.message(Command("facts"))
-    @router.message(F.text == "📘 Факты дня")
+    @router.message(F.text == FACTS_START)
     async def on_start(message: Message) -> None:
         if not allowed(message):
             return
@@ -126,6 +152,9 @@ def create_day_facts_router(
             )
             return
         draft = service.start(user_id)
+        # Update the persistent Telegram reply keyboard, even if the user
+        # still sees the older Planner menu from a previous bot release.
+        await message.answer("📘 Меню «Факты дня»", reply_markup=main_keyboard())
         await _send(message, service.render(draft), draft=draft)
 
     @router.message(Command("facts_cancel"))
@@ -205,12 +234,45 @@ def create_day_facts_router(
         if allowed(message):
             await _correction(message, split=True)
 
+    @router.message(Command("facts_replace"))
+    async def on_replace(message: Message) -> None:
+        if not allowed(message):
+            return
+        draft = service.store.draft(message.from_user.id)
+        if draft is None:
+            await message.answer("Нет активного черновика. Начни с /facts.")
+            return
+        raw = _argument(message.text or "")
+        field_label, sep, body = raw.partition("|")
+        field = EDIT_ALIASES.get(field_label.strip().casefold())
+        if not sep or field not in {"facts", "judgments"}:
+            await message.answer(
+                "Используй: /facts_replace facts | первый факт. Второй факт.\n"
+                "Или: /facts_replace judgments | первая мысль. Вторая мысль."
+            )
+            return
+        try:
+            changed = service.store.replace_section(
+                message.from_user.id, draft.token, field, body.strip()
+            )
+        except ValueError:
+            await message.answer(
+                "Не удалось заменить список. Проверь этап и текст после |."
+            )
+            return
+        if changed is None:
+            await message.answer("Черновик изменился. Обнови его командой /facts.")
+        else:
+            await _send(message, service.render(changed), draft=changed)
+
     @router.message(Command("facts_history"))
+    @router.message(F.text == FACTS_HISTORY)
     async def on_history(message: Message) -> None:
         if allowed(message):
             await _send(message, service.history_message(message.from_user.id))
 
     @router.message(Command("facts_day"))
+    @router.message(F.text == FACTS_TODAY)
     async def on_day(message: Message) -> None:
         if not allowed(message):
             return
@@ -220,6 +282,9 @@ def create_day_facts_router(
             await message.answer("Дата: /facts_day 2026-10-26")
             return
         await _send(message, service.day_message(message.from_user.id, day))
+        draft = service.store.draft(message.from_user.id)
+        if draft is not None and draft.day == day:
+            await _send(message, service.render(draft), draft=draft)
 
     async def send_export(message: Message, user_id: int, kind: str, day: date) -> None:
         # sqlite3 connections belong to the event-loop thread. The actual
@@ -256,10 +321,15 @@ def create_day_facts_router(
             output.unlink(missing_ok=True)
 
     @router.message(Command("facts_export"))
+    @router.message(F.text == FACTS_WORD)
+    @router.message(F.text == FACTS_PDF)
+    @router.message(F.text == FACTS_MOBILE)
     async def on_export(message: Message) -> None:
         if not allowed(message):
             return
-        args = _argument(message.text or "").split()
+        shortcuts = {FACTS_WORD: "word", FACTS_PDF: "pdf", FACTS_MOBILE: "mobile"}
+        text = message.text or ""
+        args = [shortcuts[text]] if text in shortcuts else _argument(text).split()
         if not args or len(args) > 2 or args[0] not in {"word", "pdf", "mobile"}:
             await message.answer(
                 "Экспорт: /facts_export word, /facts_export pdf, "
@@ -299,17 +369,48 @@ def create_day_facts_router(
             )
             return
 
-        action, _, token = data[3:].partition(":")
+        action, _, payload = data[3:].partition(":")
+        if action == "redo":
+            field, delim, token = payload.partition(":")
+            if not delim or field not in {"facts", "judgments"}:
+                await callback.answer("Некорректная команда.", show_alert=True)
+                return
+        else:
+            field = ""
+            token = payload
         draft = service.store.draft(callback.from_user.id)
         if not draft or token != draft.token:
             await callback.answer("Эта кнопка устарела. Введи /facts.", show_alert=True)
             return
+        if action == "redo":
+            try:
+                changed = service.store.reset_section(callback.from_user.id, token, field)
+            except ValueError:
+                await callback.answer("Этот раздел сейчас нельзя повторить.", show_alert=True)
+                return
+            await callback.answer()
+            if changed is not None:
+                description = (
+                    "Факты очищены. Отправь новое голосовое или текст — "
+                    "это будет новый список фактов."
+                    if field == "facts"
+                    else "Суждения очищены. Продиктуй их заново или напиши текстом."
+                )
+                await callback.message.answer(description)
+                await _send(callback.message, service.render(changed), draft=changed)
+            return
         if action == "help":
             await callback.answer()
             await callback.message.answer(
-                "Изменить пункт: /facts_edit facts 1 | исправленный текст\n"
-                "Разделить: /facts_split judgments 1 | первая мысль | вторая мысль\n"
-                "Событие: /facts_edit event 1 | исправленное событие"
+                "✏️ Исправить один пункт:\n"
+                "/facts_edit facts 1 | Друг общался раздражённо, был в своих мыслях.\n\n"
+                "Заменить все факты текстом:\n"
+                "/facts_replace facts | Первый факт. Второй факт.\n\n"
+                "Заменить суждения:\n"
+                "/facts_replace judgments | Первая мысль. Вторая мысль.\n\n"
+                "Разделить пункт вручную:\n"
+                "/facts_split facts 1 | Первый факт | Второй факт\n\n"
+                "Можно также нажать «🔄 Повторить факты» и продиктовать заново."
             )
             return
         if action == "cancel":
