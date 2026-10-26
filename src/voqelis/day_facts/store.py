@@ -16,7 +16,12 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Literal
 
-from .sentences import MAX_INPUT_CHARS, split_explicit, split_sentences, split_voice_items
+from .sentences import (
+    MAX_INPUT_CHARS,
+    split_explicit,
+    split_sentences,
+    split_voice_items,
+)
 
 Stage = Literal["event", "facts", "judgments", "review"]
 STAGES = ("event", "facts", "judgments", "review")
