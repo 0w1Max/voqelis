@@ -16,7 +16,12 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Literal
 
-from .sentences import MAX_INPUT_CHARS, split_explicit, split_sentences
+from .sentences import (
+    MAX_INPUT_CHARS,
+    split_explicit,
+    split_sentences,
+    split_voice_items,
+)
 
 Stage = Literal["event", "facts", "judgments", "review"]
 STAGES = ("event", "facts", "judgments", "review")
@@ -160,7 +165,8 @@ class DayFactsStore:
         return result.rowcount > 0
 
     def accept(
-        self, user_id: int, token: str, text: str, *, raw_text: str | None = None
+        self, user_id: int, token: str, text: str, *,
+        raw_text: str | None = None, voice_dictation: bool = False,
     ) -> FactsDraft | None:
         clean = _checked_text(text)
         raw = _checked_text(raw_text if raw_text is not None else text)
@@ -205,10 +211,19 @@ class DayFactsStore:
                     event = clean
                     new_stage = "facts"
                 elif field == "facts":
-                    facts.extend(split_sentences(clean))
+                    # A single voice message is one fact unless an explicit
+                    # spoken marker separates multiple facts. Written input
+                    # retains the existing punctuation-based split behavior.
+                    if voice_dictation:
+                        facts.extend(split_voice_items(clean, field="facts"))
+                    else:
+                        facts.extend(split_sentences(clean))
                     new_stage = "facts"
                 else:
-                    judgments.extend(split_sentences(clean))
+                    if voice_dictation:
+                        judgments.extend(split_voice_items(clean, field="judgments"))
+                    else:
+                        judgments.extend(split_sentences(clean))
                     new_stage = "judgments"
                 originals.append({"field": field, "raw": raw, "visible": clean})
             self.db.execute(

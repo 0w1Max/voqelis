@@ -38,9 +38,12 @@ class DayFactsService:
         return self.store.begin(user_id, self.today())
 
     def accept(
-        self, user_id: int, token: str, text: str, *, raw: str | None = None
+        self, user_id: int, token: str, text: str, *,
+        raw: str | None = None, voice_dictation: bool = False,
     ) -> FactsDraft | None:
-        return self.store.accept(user_id, token, text, raw_text=raw)
+        return self.store.accept(
+            user_id, token, text, raw_text=raw, voice_dictation=voice_dictation,
+        )
 
     def render(self, draft: FactsDraft) -> str:
         heading = f"📘 Факты дня · {draft.day:%d.%m.%Y}"
@@ -74,8 +77,10 @@ class DayFactsService:
             return (
                 f"{heading}\n\nСобытие:\n{draft.event}\n\n"
                 f"Факты дня:\n{_enumerate(draft.facts)}\n\n"
-                "Расскажи факты голосом или текстом. Предложения после точки "
-                "предварительно разделяются на отдельные пункты.\n"
+                "Одно голосовое — один факт, даже если внутри несколько предложений. "
+                "Чтобы разделить одно голосовое на несколько фактов, скажи "
+                "«следующий факт». В тексте предложения после точки "
+                "разделяются на пункты.\n"
                 "Новое сообщение добавляет пункты. Чтобы передиктовать всё, "
                 "нажми «🔄 Повторить факты». Чтобы исправить одну запись — "
                 "«✏️ Исправить».\n"
@@ -85,8 +90,9 @@ class DayFactsService:
             return (
                 f"{heading}\n\nОшибочные суждения:\n"
                 f"{_enumerate(draft.judgments)}\n\n"
-                "Перечисли свои суждения голосом или текстом. "
-                "Это твои формулировки, бот не оценивает их правильность.\n"
+                "Одно голосовое — одно суждение. Для нескольких пунктов в одном "
+                "голосовом скажи «следующее суждение». Текстовые предложения "
+                "после точки разделяются. Бот не оценивает твои формулировки.\n"
                 "Новое сообщение добавляет пункты. Для замены нажми "
                 "«🔄 Повторить суждения».\n"
                 "Закончил — нажми «➡️ Далее»."
