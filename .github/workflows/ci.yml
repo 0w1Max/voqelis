@@ -31,7 +31,7 @@ jobs:
         run: python -m pip install -r requirements-dev.txt
       - name: Ruff
         run: |
-          python -m ruff check --isolated --ignore UP017,UP041 src tests
+          python -m ruff check --isolated --ignore UP017,UP041 src tests tools/horizon_onnx_probe.py tools/horizon_model_fetch.py
       - name: Compile
         run: python -m compileall -q src tests planner_ai_benchmark.py
       - name: Pytest

@@ -1,0 +1,122 @@
+"""Pure offline tests for the new optional Horizon benchmark adapter."""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+import pytest
+
+from tools.horizon_onnx_probe import HorizonONNX, last_token_indices, render_marks
+
+
+def test_last_subtoken_is_selected_by_word_id() -> None:
+    # Original text has Cyrillic and normalization-sensitive words. A
+    # tokenizer can have offset end positions that differ from input spans;
+    # word_ids from pretokenized input reliably select the last subtoken.
+    ids = [None, 0, 1, 1, 2, 2, 2, 3, 4, 5, None]
+    assert last_token_indices(6, ids) == [1, 3, 6, 7, 8, 9]
+
+
+def test_aligns_user_failure_case_byl_and_clock() -> None:
+    # 13:00 may be several subtokens, but is still one input word.
+    # Same principle fixes failure at 25:28 ("был") in the live probe.
+    ids = [None, 0, 0, 1, 1, 2, 2, 3, 4, 5, 5, 5, 6, None]
+    assert last_token_indices(7, ids) == [2, 4, 6, 7, 8, 11, 12]
+
+
+def test_fails_closed_on_truncated_or_missing_word() -> None:
+    with pytest.raises(ValueError, match="lost or truncated"):
+        last_token_indices(2, [None, 0, 0, None])
+    with pytest.raises(ValueError, match="lost or truncated"):
+        last_token_indices(1, [None, None])
+    with pytest.raises(ValueError, match="No input words"):
+        last_token_indices(0, [None])
+
+
+def test_rejects_reordered_or_invalid_word_ids() -> None:
+    with pytest.raises(ValueError, match="invalid or reordered"):
+        last_token_indices(2, [None, 1, 0, None])
+    with pytest.raises(ValueError, match="invalid or reordered"):
+        last_token_indices(2, [None, 0, 2])
+    with pytest.raises(ValueError, match="invalid or reordered"):
+        last_token_indices(1, [None, True, None])
+
+
+def test_renders_only_punctuation_and_preserves_original_words() -> None:
+    assert render_marks("друг общался раздраженно", ["0", "0", "."]) == (
+        "друг общался раздраженно."
+    )
+    assert render_marks("мы разошлись по домам", ["0", "0", "0", "."]) == (
+        "мы разошлись по домам."
+    )
+
+
+def test_suppresses_punctuation_inside_clock_values_and_dashes() -> None:
+    assert render_marks("завтра в 13:00 созвон", ["0", "0", ",", "."]) == (
+        "завтра в 13:00 созвон."
+    )
+    assert render_marks("сегодня завтра", ["-", "."]) == "сегодня завтра."
+
+
+def test_rejects_wrong_count_bad_label_and_prepunctuated_text() -> None:
+    with pytest.raises(ValueError, match="count mismatch"):
+        render_marks("один два", ["."])
+    with pytest.raises(ValueError, match="Unexpected label"):
+        render_marks("один", ["BAD"])
+    with pytest.raises(ValueError, match="already contains"):
+        render_marks("друг пришёл.", ["0", "0"])
+
+
+def test_inference_uses_pretokenized_ids_not_unicode_offsets() -> None:
+    """Regression: no strict character-offset match for the word 'был'."""
+    class FakeEncoding:
+        def __init__(self):
+            self.ids = [100, 21, 22, 23, 101]
+            self.attention_mask = [1] * 5
+            self.type_ids = [0] * 5
+            self.word_ids = [None, 0, 1, 1, None]
+
+    class FakeTokenizer:
+        def encode(self, words, *, is_pretokenized=False):
+            assert words == ["друг", "был"]
+            assert is_pretokenized is True
+            return FakeEncoding()
+
+    class FakeLogits:
+        shape = (1, 5, 6)
+
+        def __getitem__(self, index):
+            assert index == 0
+            return [[0] * 6] * 5
+
+    class FakeSession:
+        def run(self, _, feed):
+            assert len(feed["input_ids"][0]) == 5
+            return [FakeLogits()]
+
+    class FakeNp:
+        int32 = int
+        int64 = int
+
+        @staticmethod
+        def asarray(values, dtype):
+            assert dtype is int
+            return values
+
+        @staticmethod
+        def argmax(logits, axis):
+            assert axis == -1
+            assert len(logits) == 5
+            return [0, 0, 0, 1, 0]
+
+    model = object.__new__(HorizonONNX)
+    model.tokenizer = FakeTokenizer()
+    model.session = FakeSession()
+    model.model_inputs = [
+        SimpleNamespace(name="input_ids", type="tensor(int64)"),
+        SimpleNamespace(name="attention_mask", type="tensor(int64)"),
+    ]
+    model.np = FakeNp()
+    model.labels = {0: "0", 1: ".", 2: ",", 3: "?", 4: ":", 5: "-"}
+
+    assert model.punctuate("друг был") == "друг был."
