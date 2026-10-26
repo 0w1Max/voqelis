@@ -145,6 +145,14 @@ def create_router(
             return
 
         user_id = message.from_user.id
+        if day_facts is not None:
+            current_facts = day_facts.store.draft(user_id)
+            if current_facts is not None and current_facts.edit_field == "select":
+                await message.reply(
+                    "✏️ Сначала выбери раздел и конкретный пункт кнопками. "
+                    "Голосовое пока не добавлено."
+                )
+                return
         if not await queue.reserve(user_id):
             snapshot = queue.snapshot()
             await message.reply(
