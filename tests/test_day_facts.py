@@ -858,3 +858,39 @@ async def test_replace_command_corrects_text_without_redo(store, tmp_path):
     assert updated.judgments == pending.judgments
     assert updated.stage == "review"
     assert any("Друг общался раздражённо" in value for value in msg.responses)
+
+
+
+def test_existing_doubled_facts_draft_survives_upgrade_and_can_be_redone(tmp_path):
+    """Regression for 26 Oct Telegram: user repeated the same voice twice."""
+    path = tmp_path / "production-shaped.sqlite3"
+    before = DayFactsStore(path)
+    draft = before.begin(17, date(2026, 10, 26))
+    draft = before.accept(
+        17, draft.token, "Гуляли с анонимным другом, он был без настроения."
+    )
+    words = "Друг общался, раздраженно был в своих мыслях. Мы разошлись по домам."
+    draft = before.accept(17, draft.token, words, raw_text=words)
+    draft = before.accept(17, draft.token, words, raw_text=words)
+    assert len(draft.facts) == 4
+    before.close()
+
+    upgraded = DayFactsStore(path)
+    try:
+        restored = upgraded.draft(17)
+        assert restored.facts == draft.facts
+        reset = upgraded.reset_section(17, restored.token, "facts")
+        assert reset.facts == ()
+        assert reset.event == restored.event
+        assert upgraded.accept(17, restored.token, "queued old speech") is None
+        corrected = upgraded.accept(
+            17, reset.token,
+            "Друг общался раздражённо, был в своих мыслях. Мы разошлись по домам.",
+        )
+        assert corrected.facts == (
+            "Друг общался раздражённо, был в своих мыслях.",
+            "Мы разошлись по домам.",
+        )
+        assert len(corrected.facts) == 2
+    finally:
+        upgraded.close()
