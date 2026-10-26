@@ -1148,3 +1148,49 @@ async def test_voice_edit_uses_queued_token_and_returns_review(store, tmp_path, 
     )
     assert len(now.facts) == 2
     assert store.accept(71, original, "повтор") is None
+
+
+
+@pytest.mark.asyncio
+async def test_old_edit_command_without_arguments_opens_button_picker(store, tmp_path):
+    """Telegram users should not see programming-like argument instructions."""
+    from voqelis.day_facts.bot import create_day_facts_router
+
+    d = fill_record(store, 71, date(2026, 10, 26))
+    service = DayFactsService(store)
+    planner = SimpleNamespace(store=SimpleNamespace(session=lambda _id: None))
+    notes = SimpleNamespace(pending_voice=lambda _id: False)
+    router = create_day_facts_router(
+        service=service, allowed_user_ids=frozenset({71}),
+        planner=planner, notes=notes, export_dir=tmp_path,
+    )
+    edit_handler = next(
+        h.callback for h in router.message.handlers
+        if h.callback.__name__ == "on_edit"
+    )
+
+    class FakeMessage:
+        from_user = SimpleNamespace(id=71)
+        chat = SimpleNamespace(type="private")
+        text = "/facts_edit"
+
+        def __init__(self):
+            self.answers = []
+
+        async def answer(self, body, **kwargs):
+            self.answers.append((body, kwargs))
+
+    message = FakeMessage()
+    await edit_handler(message)
+    assert len(message.answers) == 1
+    prompt, kwargs = message.answers[0]
+    assert "Выбери кнопкой" in prompt
+    assert "/facts_edit facts" not in prompt
+    controls = [
+        btn.text
+        for row in kwargs["reply_markup"].inline_keyboard
+        for btn in row
+    ]
+    assert "📝 Событие" in controls
+    assert any("Факты" in name for name in controls)
+    assert store.draft(71) == d
