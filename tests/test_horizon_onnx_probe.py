@@ -70,10 +70,11 @@ def test_rejects_wrong_count_bad_label_and_prepunctuated_text() -> None:
 def test_inference_uses_pretokenized_ids_not_unicode_offsets() -> None:
     """Regression: no strict character-offset match for the word 'был'."""
     class FakeEncoding:
-        ids = [100, 21, 22, 23, 101]
-        attention_mask = [1] * 5
-        type_ids = [0] * 5
-        word_ids = [None, 0, 1, 1, None]
+        def __init__(self):
+            self.ids = [100, 21, 22, 23, 101]
+            self.attention_mask = [1] * 5
+            self.type_ids = [0] * 5
+            self.word_ids = [None, 0, 1, 1, None]
 
     class FakeTokenizer:
         def encode(self, words, *, is_pretokenized=False):
