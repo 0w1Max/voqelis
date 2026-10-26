@@ -23,8 +23,9 @@ from .config import Settings
 from .day_facts.bot import facts_markup
 from .day_facts.service import DayFactsService
 from .domain import AudioJob
+from .menu import main_keyboard
 from .notes.service import NotesService
-from .planner.bot import planner_keyboard, planner_markup_for_state
+from .planner.bot import planner_markup_for_state
 from .planner.service import PlannerService
 from .queue import JobQueue
 from .text import chunk_text
@@ -70,9 +71,10 @@ def create_router(
         await message.answer(
             "🎙️ Пришли голосовое сообщение или аудиофайл.\n"
             "Я расшифрую его локально и верну текст.\n\n"
-            "Заметки: /note текст, /note (следующий голос), /notes, /note_search.\n"
-            "Факты дня: /facts, /facts_history, /facts_export.",
-            reply_markup=planner_keyboard(),
+            "Главный раздел: 📘 Факты дня.\n"
+            "История и экспорт доступны кнопками в меню.\n"
+            "Планировщик по-прежнему доступен через команды.",
+            reply_markup=main_keyboard(),
         )
 
     @router.message(Command("status"))

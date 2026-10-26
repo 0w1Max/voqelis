@@ -12,32 +12,19 @@ from aiogram.types import (
     FSInputFile,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    KeyboardButton,
     Message,
     ReplyKeyboardMarkup,
 )
 
+from ..menu import main_keyboard
 from .service import PlannerService
 
 logger = logging.getLogger(__name__)
 
 
 def planner_keyboard() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="📅 Планирование дня")],
-            [KeyboardButton(text="📘 Факты дня")],
-            [KeyboardButton(text="📋 Текущий план"), KeyboardButton(text="🗓 История планов")],
-            [KeyboardButton(text="🔎 Анализ активного дня"), KeyboardButton(text="🧹 Очистить план")],
-            [KeyboardButton(text="🗑 Удалить строку")],
-            [KeyboardButton(text="🎙️ Рассказать весь день")],
-            [KeyboardButton(text="✏️ Редактировать план")],
-            [KeyboardButton(text="✏️ Исправить анализ")],
-            [KeyboardButton(text="📄 DOCX"), KeyboardButton(text="📕 PDF")],
-            [KeyboardButton(text="⏹️ Выйти из режима")],
-        ],
-        resize_keyboard=True,
-    )
+    """Backwards-compatible UI reference; keep Planner features on the server."""
+    return main_keyboard()
 
 
 def review_keyboard() -> InlineKeyboardMarkup:
