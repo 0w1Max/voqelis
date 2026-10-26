@@ -117,6 +117,6 @@ def test_inference_uses_pretokenized_ids_not_unicode_offsets() -> None:
         SimpleNamespace(name="attention_mask", type="tensor(int64)"),
     ]
     model.np = FakeNp()
-    model.labels = {0: "0", 1: "."}
+    model.labels = {0: "0", 1: ".", 2: ",", 3: "?", 4: ":", 5: "-"}
 
     assert model.punctuate("друг был") == "друг был."
