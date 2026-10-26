@@ -631,3 +631,230 @@ async def test_export_document_is_never_world_readable(store, tmp_path):
     await handler(msg)
     assert msg.mode == 0o600
     assert not msg.responses
+
+
+
+def test_home_keyboard_shows_only_day_facts_features() -> None:
+    from voqelis.menu import main_keyboard
+    from voqelis.planner.bot import planner_keyboard
+
+    expected = [
+        "📘 Факты дня", "📋 Текущие факты дня", "🗓 История фактов",
+        "📄 Word", "📕 PDF", "📱 PDF для телефона",
+    ]
+    for keyboard in (main_keyboard(), planner_keyboard()):
+        buttons = [item.text for row in keyboard.keyboard for item in row]
+        assert buttons == expected
+        assert all("Планирован" not in label for label in buttons)
+        assert not any("DOCX" in label for label in buttons)
+
+
+def test_redo_facts_discards_duplicates_without_touching_event_or_judgments(store):
+    day = date(2026, 10, 26)
+    draft = fill_record(store, 17, day)
+    before_facts = draft.facts
+    old_token = draft.token
+    restarted = store.reset_section(17, draft.token, "facts")
+    assert restarted is not None
+    assert restarted.stage == "facts"
+    assert restarted.facts == ()
+    assert restarted.judgments == draft.judgments
+    assert restarted.event == draft.event
+    assert restarted.token != old_token
+    assert store.accept(17, old_token, "Старое голосовое") is None
+    assert store.reset_section(17, old_token, "facts") is None
+    redictated = store.accept(
+        17, restarted.token,
+        "Друг общался раздражённо, был в своих мыслях. Мы разошлись по домам.",
+    )
+    assert redictated is not None
+    assert redictated.facts == before_facts
+    assert len(redictated.facts) == 2
+    to_judgments = store.next(17, redictated.token)
+    assert to_judgments.judgments == draft.judgments
+    back_to_review = store.next(17, to_judgments.token)
+    saved = store.save(17, back_to_review.token)
+    assert saved is not None
+    assert saved.facts == before_facts
+    assert saved.judgments == draft.judgments
+    assert len(store.for_day(17, day)) == 1
+
+
+def test_redo_judgments_does_not_erase_facts(store):
+    draft = fill_record(store, 17, date(2026, 10, 26))
+    updated = store.reset_section(17, draft.token, "judgments")
+    assert updated.stage == "judgments"
+    assert updated.facts == draft.facts
+    assert updated.judgments == ()
+    new = store.accept(17, updated.token, "Мне показалось, что я плохой друг.")
+    assert new.judgments == ("Мне показалось, что я плохой друг.",)
+    review = store.next(17, new.token)
+    saved = store.save(17, review.token)
+    assert saved.facts == draft.facts
+    assert saved.judgments == ("Мне показалось, что я плохой друг.",)
+
+
+def test_replace_whole_facts_list_fixes_comma_without_duplicate(store):
+    draft = fill_record(store, 17, date(2026, 10, 26))
+    fixed = store.replace_section(
+        17, draft.token, "facts",
+        "Друг общался раздражённо, был в своих мыслях. Мы разошлись по домам.",
+    )
+    assert fixed.stage == "review"
+    assert fixed.facts == (
+        "Друг общался раздражённо, был в своих мыслях.",
+        "Мы разошлись по домам.",
+    )
+    assert fixed.judgments == draft.judgments
+    assert fixed.token != draft.token
+    assert store.replace_section(17, draft.token, "facts", "старое") is None
+    saved = store.save(17, fixed.token)
+    assert saved.facts == fixed.facts
+    assert len(saved.facts) == 2
+
+
+def test_reset_and_replace_scope_and_invalid_stage(store):
+    a = store.begin(17, date(2026, 10, 26))
+    with pytest.raises(ValueError):
+        store.reset_section(17, a.token, "facts")
+    with pytest.raises(ValueError):
+        store.replace_section(17, a.token, "judgments", "текст")
+    with pytest.raises(ValueError):
+        store.reset_section(17, a.token, "event")
+    assert store.reset_section(18, a.token, "facts") is None
+    assert store.replace_section(18, a.token, "facts", "чужие слова") is None
+    a = store.accept(17, a.token, "Событие")
+    with pytest.raises(ValueError):
+        store.reset_section(17, a.token, "judgments")
+    with pytest.raises(ValueError):
+        store.replace_section(17, a.token, "facts", " ")
+    after = store.replace_section(
+        17, a.token, "facts", "Первый факт. Второй факт."
+    )
+    assert after.facts == ("Первый факт.", "Второй факт.")
+    assert after.stage == "facts"
+
+
+@pytest.mark.asyncio
+async def test_redo_callback_requires_current_token_and_redicts_cleanly(
+    store, tmp_path
+):
+    service = DayFactsService(store)
+    pending = fill_record(store, 17, date(2026, 10, 26))
+    planner = SimpleNamespace(store=SimpleNamespace(session=lambda _id: None))
+    notes = SimpleNamespace(pending_voice=lambda _id: False)
+    router = create_day_facts_router(
+        service=service, allowed_user_ids=frozenset({17}),
+        planner=planner, notes=notes, export_dir=tmp_path,
+    )
+    on_callback = router.callback_query.handlers[0].callback
+
+    class MessageStub:
+        chat = SimpleNamespace(type="private")
+
+        def __init__(self):
+            self.responses = []
+
+        async def answer(self, value, **kwargs):
+            self.responses.append((value, kwargs))
+
+    class CallbackStub:
+        from_user = SimpleNamespace(id=17)
+
+        def __init__(self, message, data):
+            self.message = message
+            self.data = data
+            self.ack = []
+
+        async def answer(self, value="", **kwargs):
+            self.ack.append((value, kwargs))
+
+    message = MessageStub()
+    command = f"df:redo:facts:{pending.token}"
+    assert command in [
+        item.callback_data
+        for line in facts_markup(pending).inline_keyboard for item in line
+    ]
+    callback = CallbackStub(message, command)
+    await on_callback(callback)
+    assert callback.ack
+    after = store.draft(17)
+    assert after.facts == ()
+    assert after.judgments == pending.judgments
+    assert after.stage == "facts"
+    assert any("Факты очищены" in text for text, _ in message.responses)
+
+    await on_callback(CallbackStub(message, command))
+    assert store.draft(17) == after
+    # An already queued ASR transcript can no longer re-add the old facts.
+    assert store.accept(17, pending.token, "старое сообщение") is None
+
+
+@pytest.mark.asyncio
+async def test_day_facts_menu_routes_today_and_history_without_modifying_draft(
+    store, tmp_path
+):
+    service = DayFactsService(store)
+    pending = store.begin(17, date(2026, 10, 26))
+    planner = SimpleNamespace(store=SimpleNamespace(session=lambda _id: None))
+    notes = SimpleNamespace(pending_voice=lambda _id: False)
+    router = create_day_facts_router(
+        service=service, allowed_user_ids=frozenset({17}),
+        planner=planner, notes=notes, export_dir=tmp_path,
+    )
+    handlers = {h.callback.__name__: h.callback for h in router.message.handlers}
+
+    class MessageStub:
+        chat = SimpleNamespace(type="private")
+        from_user = SimpleNamespace(id=17)
+
+        def __init__(self, text):
+            self.text = text
+            self.responses = []
+
+        async def answer(self, value, **kwargs):
+            self.responses.append((value, kwargs))
+
+    for text, func_name in (
+        ("📋 Текущие факты дня", "on_day"),
+        ("🗓 История фактов", "on_history"),
+    ):
+        msg = MessageStub(text)
+        await handlers[func_name](msg)
+        assert msg.responses
+        assert store.draft(17) == pending
+
+
+@pytest.mark.asyncio
+async def test_replace_command_corrects_text_without_redo(store, tmp_path):
+    service = DayFactsService(store)
+    pending = fill_record(store, 17, date(2026, 10, 26))
+    planner = SimpleNamespace(store=SimpleNamespace(session=lambda _id: None))
+    notes = SimpleNamespace(pending_voice=lambda _id: False)
+    router = create_day_facts_router(
+        service=service, allowed_user_ids=frozenset({17}),
+        planner=planner, notes=notes, export_dir=tmp_path,
+    )
+    handlers = {h.callback.__name__: h.callback for h in router.message.handlers}
+
+    class MessageStub:
+        chat = SimpleNamespace(type="private")
+        from_user = SimpleNamespace(id=17)
+        text = (
+            "/facts_replace facts | Друг общался раздражённо, "
+            "был в своих мыслях. Мы разошлись по домам."
+        )
+
+        def __init__(self):
+            self.responses = []
+
+        async def answer(self, value, **kwargs):
+            self.responses.append(value)
+
+    msg = MessageStub()
+    await handlers["on_replace"](msg)
+    updated = store.draft(17)
+    assert len(updated.facts) == 2
+    assert updated.judgments == pending.judgments
+    assert updated.stage == "review"
+    assert any("Друг общался раздражённо" in value for value in msg.responses)
