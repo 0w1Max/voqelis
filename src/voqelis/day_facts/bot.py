@@ -292,13 +292,43 @@ def create_day_facts_router(
 
     @router.message(Command("facts_edit"))
     async def on_edit(message: Message) -> None:
-        if allowed(message):
-            await _correction(message, split=False)
+        if not allowed(message):
+            return
+        if not _argument(message.text or ""):
+            draft = service.store.draft(message.from_user.id)
+            if draft is None:
+                await message.answer("Нет черновика. Нажми «📘 Факты дня».")
+            elif draft.edit_field is not None:
+                await _send(message, service.render(draft), draft=draft)
+            elif draft.event:
+                await message.answer(
+                    "✏️ Что хочешь исправить? Выбери кнопкой:",
+                    reply_markup=edit_sections_markup(draft),
+                )
+            else:
+                await message.answer(
+                    "Сначала расскажи, какое событие произошло."
+                )
+            return
+        await _correction(message, split=False)
 
     @router.message(Command("facts_split"))
     async def on_split(message: Message) -> None:
-        if allowed(message):
-            await _correction(message, split=True)
+        if not allowed(message):
+            return
+        if not _argument(message.text or ""):
+            draft = service.store.draft(message.from_user.id)
+            if draft is not None and draft.event and draft.edit_field is None:
+                await message.answer(
+                    "Выбери раздел для исправления:",
+                    reply_markup=edit_sections_markup(draft),
+                )
+            else:
+                await message.answer(
+                    "Открой текущую запись кнопкой «📘 Факты дня»."
+                )
+            return
+        await _correction(message, split=True)
 
     @router.message(Command("facts_replace"))
     async def on_replace(message: Message) -> None:
