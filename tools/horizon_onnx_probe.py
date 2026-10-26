@@ -19,7 +19,6 @@ MODEL_FILES = ("model_quantized.onnx", "tokenizer.json", "config.json")
 ALLOWED_MARKS = frozenset({"0", ".", ",", "?", ":", "-"})
 MAX_TOKENS = 256
 MAX_WORDS = 110
-WORD = re.compile(r"\S+")
 LEXICAL = re.compile(r"[^\W_]+(?::[^\W_]+)*", re.UNICODE)
 
 CASES = (
@@ -38,26 +37,33 @@ CASES = (
 )
 
 
-def word_spans(text: str) -> list[tuple[int, int]]:
-    return [match.span() for match in WORD.finditer(text)]
+def last_token_indices(word_count: int, token_word_ids: list[int | None]) -> list[int]:
+    """Find the last subtoken of every pretokenized word, without offset guessing.
 
-
-def last_token_indices(text: str, offsets: list[tuple[int, int]]) -> list[int]:
-    """Use the last subtoken of each word; reject missing/truncated alignments."""
-    result: list[int] = []
-    for first, end in word_spans(text):
-        candidates = [
-            index
-            for index, (start, stop) in enumerate(offsets)
-            if first <= start < stop == end
-        ]
-        if not candidates:
-            raise ValueError(f"Tokenizer cannot align word at {first}:{end}")
-        result.append(candidates[-1])
-    if result != sorted(set(result)):
-        raise ValueError("Token indices not increasing and unique")
-    return result
-
+    mmBERT normalization can produce character offsets that do not end exactly
+    where the original Unicode word ends. Rust tokenizers provides stable
+    word_ids when invoked with is_pretokenized=True; use those instead.
+    Missing, reordered or truncated words fail closed.
+    """
+    if word_count < 1:
+        raise ValueError("No input words")
+    positions = [-1] * word_count
+    previous = -1
+    for position, word_id in enumerate(token_word_ids):
+        if word_id is None:
+            continue  # special tokens
+        if (
+            isinstance(word_id, bool)
+            or not isinstance(word_id, int)
+            or not 0 <= word_id < word_count
+            or word_id < previous
+        ):
+            raise ValueError("Tokenizer returned invalid or reordered word IDs")
+        positions[word_id] = position
+        previous = word_id
+    if any(position < 0 for position in positions):
+        raise ValueError("Tokenizer lost or truncated input words")
+    return positions
 
 def render_marks(text: str, marks: list[str]) -> str:
     """Append punctuation without ever replacing spoken words."""
@@ -128,10 +134,13 @@ class HorizonONNX:
     def punctuate(self, text: str) -> str:
         if not text.strip() or len(text.split()) > MAX_WORDS:
             raise ValueError("Empty/oversize input")
-        encoding = self.tokenizer.encode(text)
+        # Pretokenized input assigns an explicit word ID to every subtoken.
+        # Raw character offsets are not reliable around normalized Cyrillic.
+        words = text.split()
+        encoding = self.tokenizer.encode(words, is_pretokenized=True)
         if len(encoding.ids) > MAX_TOKENS:
             raise ValueError("Token budget exceeded; refusing truncation")
-        locations = last_token_indices(text, encoding.offsets)
+        locations = last_token_indices(len(words), encoding.word_ids)
         values = {
             "input_ids": encoding.ids,
             "attention_mask": encoding.attention_mask,
