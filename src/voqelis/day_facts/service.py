@@ -44,6 +44,11 @@ class DayFactsService:
 
     def render(self, draft: FactsDraft) -> str:
         heading = f"📘 Факты дня · {draft.day:%d.%m.%Y}"
+        if draft.edit_field == "select":
+            return (
+                f"{heading}\n\n✏️ Выбери, что исправить, кнопками ниже. "
+                "Пока пункт не выбран, голосовые и текст не добавляются."
+            )
         if draft.edit_field is not None:
             if draft.edit_field == "event":
                 current = draft.event

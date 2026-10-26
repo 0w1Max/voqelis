@@ -50,6 +50,8 @@ _OTHER_MENU_ACTIONS = frozenset({
 
 def facts_markup(draft: FactsDraft) -> InlineKeyboardMarkup:
     token = draft.token
+    if draft.edit_field == "select":
+        return edit_sections_markup(draft)
     if draft.edit_field is not None:
         return InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(
@@ -298,13 +300,20 @@ def create_day_facts_router(
             draft = service.store.draft(message.from_user.id)
             if draft is None:
                 await message.answer("Нет черновика. Нажми «📘 Факты дня».")
+            elif draft.edit_field == "select":
+                await message.answer(
+                    "✏️ Выбери раздел:",
+                    reply_markup=edit_sections_markup(draft),
+                )
             elif draft.edit_field is not None:
                 await _send(message, service.render(draft), draft=draft)
             elif draft.event:
-                await message.answer(
-                    "✏️ Что хочешь исправить? Выбери кнопкой:",
-                    reply_markup=edit_sections_markup(draft),
-                )
+                selected = service.store.open_edit_menu(message.from_user.id, draft.token)
+                if selected is not None:
+                    await message.answer(
+                        "✏️ Что хочешь исправить? Выбери кнопкой:",
+                        reply_markup=edit_sections_markup(selected),
+                    )
             else:
                 await message.answer(
                     "Сначала расскажи, какое событие произошло."
@@ -319,10 +328,12 @@ def create_day_facts_router(
         if not _argument(message.text or ""):
             draft = service.store.draft(message.from_user.id)
             if draft is not None and draft.event and draft.edit_field is None:
-                await message.answer(
-                    "Выбери раздел для исправления:",
-                    reply_markup=edit_sections_markup(draft),
-                )
+                selected = service.store.open_edit_menu(message.from_user.id, draft.token)
+                if selected is not None:
+                    await message.answer(
+                        "Выбери раздел для исправления:",
+                        reply_markup=edit_sections_markup(selected),
+                    )
             else:
                 await message.answer(
                     "Открой текущую запись кнопкой «📘 Факты дня»."
@@ -514,18 +525,29 @@ def create_day_facts_router(
                 await _send(callback.message, service.render(changed), draft=changed)
             return
         if action in {"edit", "help"}:
-            if draft.edit_field is not None:
+            if draft.edit_field == "select":
+                selected_draft = draft
+            elif draft.edit_field is None:
+                try:
+                    selected_draft = service.store.open_edit_menu(
+                        callback.from_user.id, token,
+                    )
+                except ValueError:
+                    await callback.answer("Сначала заверши текущий шаг.", show_alert=True)
+                    return
+            else:
                 await callback.answer("Сначала закончи исправление.", show_alert=True)
                 return
             await callback.answer()
-            await callback.message.answer(
-                "✏️ Что нужно исправить? Выбери раздел кнопкой ниже.",
-                reply_markup=edit_sections_markup(draft),
-            )
+            if selected_draft is not None:
+                await callback.message.answer(
+                    "✏️ Что нужно исправить? Выбери раздел кнопкой ниже.",
+                    reply_markup=edit_sections_markup(selected_draft),
+                )
             return
         if action == "items":
-            if draft.edit_field is not None:
-                await callback.answer("Сначала закончи исправление.", show_alert=True)
+            if draft.edit_field != "select":
+                await callback.answer("Сначала выбери «Исправить».", show_alert=True)
                 return
             try:
                 keyboard = edit_items_markup(draft, field, selected)
@@ -562,8 +584,13 @@ def create_day_facts_router(
                 await _send(callback.message, service.render(updated), draft=updated)
             return
         if action == "back":
+            if draft.edit_field == "select":
+                updated = service.store.cancel_edit(callback.from_user.id, token)
+            else:
+                updated = draft
             await callback.answer()
-            await _send(callback.message, service.render(draft), draft=draft)
+            if updated is not None:
+                await _send(callback.message, service.render(updated), draft=updated)
             return
         if action == "cancel":
             service.store.cancel(callback.from_user.id)
@@ -620,6 +647,13 @@ def create_day_facts_router(
             return
         draft = service.store.draft(message.from_user.id)
         if not draft:
+            return
+        if draft.edit_field == "select":
+            await message.answer(
+                "Сначала выбери раздел и конкретный пункт кнопками. "
+                "Текст пока не записан.",
+                reply_markup=edit_sections_markup(draft),
+            )
             return
         try:
             updated = service.accept(message.from_user.id, draft.token, message.text)

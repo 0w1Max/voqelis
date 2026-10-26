@@ -170,7 +170,11 @@ class DayFactsStore:
                 "SELECT * FROM day_facts_drafts WHERE user_id=? AND token=?",
                 (user_id, token),
             ).fetchone()
-            if not row or (row["stage"] == "review" and row["edit_field"] is None):
+            if (
+                not row
+                or row["edit_field"] == "select"
+                or (row["stage"] == "review" and row["edit_field"] is None)
+            ):
                 return None
             field = row["stage"]
             event = row["event"]
@@ -246,6 +250,27 @@ class DayFactsStore:
             )
         return self.draft(user_id)
 
+    def open_edit_menu(self, user_id: int, token: str) -> FactsDraft | None:
+        """Block ordinary dictation while the user chooses a specific item."""
+        with self.db:
+            self.db.execute("BEGIN IMMEDIATE")
+            row = self.db.execute(
+                "SELECT event, edit_field FROM day_facts_drafts "
+                "WHERE user_id=? AND token=?",
+                (user_id, token),
+            ).fetchone()
+            if row is None:
+                return None
+            if row["edit_field"] is not None or not row["event"]:
+                raise ValueError("Cannot choose an item now")
+            self.db.execute(
+                "UPDATE day_facts_drafts SET edit_field='select', "
+                "edit_index=NULL, token=?, updated_at=? "
+                "WHERE user_id=? AND token=?",
+                (_token(), _now(), user_id, token),
+            )
+        return self.draft(user_id)
+
     def select_edit(
         self, user_id: int, token: str, field: str, index: int
     ) -> FactsDraft | None:
@@ -260,7 +285,7 @@ class DayFactsStore:
             ).fetchone()
             if row is None:
                 return None
-            if row["edit_field"] is not None:
+            if row["edit_field"] not in {None, "select"}:
                 raise ValueError("Finish current edit first")
             if field == "event":
                 if index != 1 or not row["event"]:
