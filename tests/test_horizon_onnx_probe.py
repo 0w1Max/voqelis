@@ -4,24 +4,40 @@ from __future__ import annotations
 
 import pytest
 
-from tools.horizon_onnx_probe import last_token_indices, render_marks, word_spans
+from tools.horizon_onnx_probe import last_token_indices, render_marks
 
 
-def test_last_subtoken_is_selected_for_each_word() -> None:
-    text = "друг общался раздраженно"
-    assert word_spans(text) == [(0, 4), (5, 12), (13, 24)]
-    offsets = [
-        (0, 0), (0, 4), (5, 7), (7, 12),
-        (13, 16), (16, 20), (20, 24), (0, 0),
-    ]
-    assert last_token_indices(text, offsets) == [1, 3, 6]
+def test_last_subtoken_is_selected_by_word_id() -> None:
+    # Original text has Cyrillic and normalization-sensitive words. A
+    # tokenizer can have offset end positions that differ from input spans;
+    # word_ids from pretokenized input reliably select the last subtoken.
+    ids = [None, 0, 1, 1, 2, 2, 2, 3, 4, 5, None]
+    assert last_token_indices(6, ids) == [1, 3, 6, 7, 8, 9]
+
+
+def test_aligns_user_failure_case_byl_and_clock() -> None:
+    # 13:00 may be several subtokens, but is still one input word.
+    # Same principle fixes failure at 25:28 ("был") in the live probe.
+    ids = [None, 0, 0, 1, 1, 2, 2, 3, 4, 5, 5, 5, 6, None]
+    assert last_token_indices(7, ids) == [2, 4, 6, 7, 8, 11, 12]
 
 
 def test_fails_closed_on_truncated_or_missing_word() -> None:
-    with pytest.raises(ValueError, match="cannot align"):
-        last_token_indices("друг общался", [(0, 4), (5, 8)])
-    with pytest.raises(ValueError, match="cannot align"):
-        last_token_indices("друг", [(0, 0)])
+    with pytest.raises(ValueError, match="lost or truncated"):
+        last_token_indices(2, [None, 0, 0, None])
+    with pytest.raises(ValueError, match="lost or truncated"):
+        last_token_indices(1, [None, None])
+    with pytest.raises(ValueError, match="No input words"):
+        last_token_indices(0, [None])
+
+
+def test_rejects_reordered_or_invalid_word_ids() -> None:
+    with pytest.raises(ValueError, match="invalid or reordered"):
+        last_token_indices(2, [None, 1, 0, None])
+    with pytest.raises(ValueError, match="invalid or reordered"):
+        last_token_indices(2, [None, 0, 2])
+    with pytest.raises(ValueError, match="invalid or reordered"):
+        last_token_indices(1, [None, True, None])
 
 
 def test_renders_only_punctuation_and_preserves_original_words() -> None:
