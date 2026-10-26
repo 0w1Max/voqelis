@@ -37,8 +37,8 @@ from .store import FactsDraft
 
 logger = logging.getLogger(__name__)
 
-# Planner's permanent reply keyboard stays visible during Day Facts.
-# Never mistake a tap on an unrelated menu action for dictated clinical text.
+# Old Planner keyboard taps can still arrive from previously sent messages.
+# Never mistake those controls for dictated journal text.
 _OTHER_MENU_ACTIONS = frozenset({
     "📅 Планирование дня", "📋 Текущий план", "🗓 История планов",
     "🔎 Анализ активного дня", "🧹 Очистить план", "🗑 Удалить строку",
@@ -143,7 +143,7 @@ def create_day_facts_router(
         user_id = message.from_user.id
         if planner.store.session(user_id) is not None:
             await message.answer(
-                "Сначала заверши активный Planner кнопкой «⏹️ Выйти из режима»."
+                "Сначала заверши активный Planner командой /plan_exit."
             )
             return
         if notes.pending_voice(user_id):

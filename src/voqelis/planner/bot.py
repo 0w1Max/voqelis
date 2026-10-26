@@ -339,6 +339,7 @@ def create_planner_router(
     async def on_pdf(message: Message) -> None:
         await _send_export(message, "pdf")
 
+    @router.message(Command("plan_exit"))
     @router.message(F.text == "⏹️ Выйти из режима")
     async def on_stop(message: Message) -> None:
         if allowed(message):
