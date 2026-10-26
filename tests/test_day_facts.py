@@ -414,9 +414,12 @@ def test_day_facts_router_has_command_and_keyboard_handlers(store, tmp_path):
 
 @pytest.mark.asyncio
 async def test_export_command_executes_real_threaded_docx_without_sqlite_error(
-    store, tmp_path
+    store, tmp_path, monkeypatch
 ):
     service = DayFactsService(store)
+    # Exporting without a date means "today" in Moscow; make this
+    # clock-independent while retaining the real default-date path.
+    monkeypatch.setattr(service, "today", lambda: date(2026, 10, 26))
     draft = fill_record(store, 1, date(2026, 10, 26))
     store.save(1, draft.token)
 
@@ -596,8 +599,9 @@ def test_day_facts_db_permissions_and_symlink_rejection(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_export_document_is_never_world_readable(store, tmp_path):
+async def test_export_document_is_never_world_readable(store, tmp_path, monkeypatch):
     service = DayFactsService(store)
+    monkeypatch.setattr(service, "today", lambda: date(2026, 10, 26))
     draft = fill_record(store, 1, date(2026, 10, 26))
     store.save(1, draft.token)
 
