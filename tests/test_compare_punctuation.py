@@ -13,7 +13,6 @@ from tools.compare_punctuation import (
     main,
 )
 
-
 CASES = [
     {
         "id": "synthetic_1",
