@@ -91,6 +91,34 @@ def test_voice_split_preserves_internal_periods_and_respects_spoken_markers() ->
         split_voice_items("Событие. Следующий факт")
 
 
+def test_voice_markers_are_section_specific_and_resist_stray_punctuation(store) -> None:
+    assert split_voice_items(
+        "Друг ушёл. Следующий. факт: Я пошёл домой.", field="facts"
+    ) == ("Друг ушёл.", "Я пошёл домой.")
+    assert split_voice_items(
+        "Следующее суждение меня напугало.", field="facts"
+    ) == ("Следующее суждение меня напугало.",)
+    assert split_voice_items(
+        "Следующий факт меня удивил.", field="judgments"
+    ) == ("Следующий факт меня удивил.",)
+    with pytest.raises(ValueError, match="Unknown Day Facts section"):
+        split_voice_items("Любой текст", field="event")
+
+    draft = store.begin(92, date(2026, 10, 26))
+    draft = store.accept(92, draft.token, "Встреча")
+    draft = store.accept(
+        92, draft.token, "Следующее суждение меня удивило.",
+        voice_dictation=True,
+    )
+    assert draft.facts == ("Следующее суждение меня удивило.",)
+    draft = store.next(92, draft.token)
+    draft = store.accept(
+        92, draft.token, "Следующий факт меня расстроил.",
+        voice_dictation=True,
+    )
+    assert draft.judgments == ("Следующий факт меня расстроил.",)
+
+
 def test_voice_accept_adds_exactly_one_fact_and_one_judgment(store) -> None:
     draft = store.begin(88, date(2026, 10, 26))
     draft = store.accept(88, draft.token, "Встреча с другом")
@@ -484,6 +512,24 @@ async def test_stale_voice_queued_before_step_change_cannot_mutate_facts(
     result = await _worker_case(tmp_path, monkeypatch, service, stale)
     assert "не сохранено" in result[0][0]
     assert store.draft(1) == changed
+
+
+@pytest.mark.asyncio
+async def test_invalid_spoken_marker_worker_feedback_is_not_overlong(
+    store, tmp_path, monkeypatch
+):
+    service = DayFactsService(store)
+    draft = store.begin(1, date(2026, 10, 26))
+    draft = store.accept(1, draft.token, "Событие.")
+
+    def reject_empty_item(*_args, **_kwargs):
+        raise ValueError("Each spoken item must contain text")
+
+    monkeypatch.setattr(service, "accept", reject_empty_item)
+    replies = await _worker_case(tmp_path, monkeypatch, service, draft.token)
+    assert "разделители" in replies[0][0]
+    assert "слишком длинный" not in replies[0][0]
+    assert store.draft(1) == draft
 
 
 def test_day_facts_router_has_command_and_keyboard_handlers(store, tmp_path):
