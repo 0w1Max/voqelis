@@ -15,6 +15,7 @@ from .spec import WorkflowSpec
 Stage = Literal["collect", "review", "completed"]
 _MAX_ITEM_CHARS = 12_000
 _MAX_ITEMS_PER_FIELD = 250
+_MAX_DRAFT_CHARS = 120_000
 
 
 def _token() -> str:
@@ -84,7 +85,10 @@ def _ensure(draft: WorkflowDraft, spec: WorkflowSpec, user_id: int, token: str) 
 def _changed(
     draft: WorkflowDraft, key: str, items: tuple[str, ...]
 ) -> tuple[tuple[str, tuple[str, ...]], ...]:
-    return tuple((k, items if k == key else value) for k, value in draft.values)
+    updated = tuple((k, items if k == key else value) for k, value in draft.values)
+    if sum(len(text) for _, values in updated for text in values) > _MAX_DRAFT_CHARS:
+        raise ValueError("Workflow draft text exceeds size limit")
+    return updated
 
 
 def submit(
@@ -157,7 +161,10 @@ def begin_edit(
     _ensure(draft, spec, user_id, token)
     if draft.stage != "review" or draft.edit is not None:
         raise ValueError("Edits are only allowed during review")
-    current = draft.field_values(field_key)
+    try:
+        current = draft.field_values(field_key)
+    except KeyError as exc:
+        raise ValueError("Unknown field") from exc
     if type(item_index) is not int or not 1 <= item_index <= len(current):
         raise ValueError("Invalid item number")
     return replace(draft, edit=(field_key, item_index), token=_token())

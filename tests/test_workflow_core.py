@@ -228,3 +228,45 @@ def test_json_template_size_cap_and_unsafe_ids():
         WorkflowSpec.from_json(json.dumps(data))
     with pytest.raises(ValueError):
         FieldSpec(key="../evil", label="Поле", prompt="Вопрос", kind="text")
+
+
+
+def test_malformed_unhashable_field_kind_is_validation_error():
+    data = _facts().to_mapping()
+    data["fields"][0]["kind"] = ["python"]
+    with pytest.raises(ValueError, match="text and list"):
+        WorkflowSpec.from_mapping(data)
+
+
+def test_malformed_unhashable_export_is_validation_error():
+    data = _facts().to_mapping()
+    data["exports"] = [["run-code"]]
+    with pytest.raises(ValueError, match="export"):
+        WorkflowSpec.from_mapping(data)
+
+
+def test_unknown_field_edit_uses_safe_validation_error():
+    spec = _shopping()
+    d = start_workflow(spec, 17)
+    d = submit(d, spec, 17, d.token, ("Магазин",))
+    d = submit(d, spec, 17, d.token, ("Книга",))
+    d = advance(d, spec, 17, d.token)
+    with pytest.raises(ValueError, match="Unknown field"):
+        begin_edit(d, spec, 17, d.token, "system_command", 1)
+
+
+def test_excessive_total_transcript_is_not_accepted():
+    spec = WorkflowSpec.from_mapping({
+        "id": "long_lists", "version": 1, "title": "Длинные списки",
+        "fields": [
+            {"key": "a", "label": "A", "prompt": "A?", "kind": "list"},
+            {"key": "b", "label": "B", "prompt": "B?", "kind": "list"},
+        ],
+        "exports": [],
+    })
+    d = start_workflow(spec, 17)
+    for _ in range(10):
+        d = submit(d, spec, 17, d.token, ("a" * 10_000,))
+    with pytest.raises(ValueError, match="size limit"):
+        submit(d, spec, 17, d.token, ("b" * 10_000, "c" * 10_000, "d" * 10_000))
+    assert sum(len(s) for s in d.field_values("a")) == 100_000

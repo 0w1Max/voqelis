@@ -46,7 +46,7 @@ class FieldSpec:
         _key(self.key, name="field.key")
         _nonempty(self.label, name="field.label", max_chars=80)
         _nonempty(self.prompt, name="field.prompt", max_chars=240)
-        if self.kind not in {"text", "list"}:
+        if not isinstance(self.kind, str) or self.kind not in {"text", "list"}:
             raise ValueError("Only text and list fields are supported in V0")
 
     @classmethod
@@ -87,7 +87,10 @@ class WorkflowSpec:
         if (
             not isinstance(self.exports, tuple)
             or len(self.exports) > 3
-            or any(e not in _ALLOWED_EXPORTS for e in self.exports)
+            or any(
+                not isinstance(e, str) or e not in _ALLOWED_EXPORTS
+                for e in self.exports
+            )
             or len(set(self.exports)) != len(self.exports)
         ):
             raise ValueError("Invalid or duplicate export")
