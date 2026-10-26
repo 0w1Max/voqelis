@@ -6,7 +6,10 @@ import stat
 import pytest
 
 from tools.compare_punctuation import (
-    _counts, _words_and_marks, compare, load_predictions,
+    _counts,
+    _words_and_marks,
+    compare,
+    load_predictions,
     main,
 )
 
