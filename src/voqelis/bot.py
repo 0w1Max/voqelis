@@ -335,7 +335,10 @@ async def run_worker(
                     )
                 except ValueError:
                     await bot.send_message(
-                        job.chat_id, "Текст слишком длинный. Раздели запись на части.",
+                        job.chat_id,
+                        "Не удалось добавить запись. Проверь длину текста и "
+                        "произнесённые разделители: между пунктами должен быть "
+                        "текст с обеих сторон. Черновик не изменён.",
                         reply_to_message_id=job.reply_to_message_id,
                     )
                     continue
