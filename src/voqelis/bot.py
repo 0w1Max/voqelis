@@ -331,7 +331,7 @@ async def run_worker(
                 try:
                     updated = day_facts.accept(
                         job.user_id, job.day_facts_token,
-                        display_text, raw=result.text,
+                        display_text, raw=result.text, voice_dictation=True,
                     )
                 except ValueError:
                     await bot.send_message(
