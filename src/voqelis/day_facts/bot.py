@@ -50,6 +50,8 @@ _OTHER_MENU_ACTIONS = frozenset({
 
 def facts_markup(draft: FactsDraft) -> InlineKeyboardMarkup:
     token = draft.token
+    if draft.edit_field == "select":
+        return edit_sections_markup(draft)
     if draft.edit_field is not None:
         return InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(
