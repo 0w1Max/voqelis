@@ -60,3 +60,28 @@ production databases:
 PYTHONPATH=src /opt/voqelis/.venv/bin/python \
   -m tools.day_facts_smoke --work-dir /var/lib/voqelis
 ```
+
+## Day Facts menu / re-dictation (UI update)
+
+The Telegram home keyboard displays only Day Facts, today's saved entries,
+history and three exports (Word, PDF A4, phone PDF). Old Planner buttons are
+hidden, but Planner and Notes handlers, data and commands remain installed.
+Open /start or /facts once to replace an existing old Telegram keyboard.
+If Planner is already active, `/plan_exit` exits it.
+
+At the **facts** step, "🔄 Повторить факты" discards the complete current
+numbered facts list and asks for another voice/text dictation. At the
+**judgments** step, "🔄 Повторить суждения" does the same only for judgments.
+Both actions also work from the final **review** step. They preserve the
+event and the unrelated list, leave finalized entries untouched, and rotate
+the draft token so delayed ASR messages cannot re-add discarded material.
+Ordinary additional voices **append**; they do not replace by default.
+
+"✏️ Исправить текст" provides commands for line-level editing and full-list
+replacement. For example:
+- `/facts_edit facts 1 | Друг общался раздражённо, был в своих мыслях.`
+- `/facts_replace facts | Первый факт. Второй факт.`
+- `/facts_replace judgments | Первое суждение. Второе суждение.`
+
+The punctuation is proposed by RUPunct, not guaranteed grammatically
+correct; the interface must not silently repair clinical journal content.
