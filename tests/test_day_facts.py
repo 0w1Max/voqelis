@@ -894,3 +894,303 @@ def test_existing_doubled_facts_draft_survives_upgrade_and_can_be_redone(tmp_pat
         assert len(corrected.facts) == 2
     finally:
         upgraded.close()
+
+
+
+def test_existing_live_sqlite_draft_is_migrated_without_loss(tmp_path):
+    """A pre-update draft with four duplicate facts must survive schema upgrade."""
+    from voqelis.day_facts.store import SCHEMA
+
+    db_file = tmp_path / "day_facts.sqlite3"
+    legacy_schema = SCHEMA.replace(
+        "    updated_at TEXT NOT NULL,\n    edit_field TEXT,\n    edit_index INTEGER",
+        "    updated_at TEXT NOT NULL",
+    )
+    assert legacy_schema != SCHEMA
+    with sqlite3.connect(db_file) as connection:
+        connection.executescript(legacy_schema)
+        connection.execute(
+            "INSERT INTO day_facts_drafts "
+            "(user_id,day,stage,token,event,facts_json,judgments_json,updated_at) "
+            "VALUES(?,?,?,?,?,?,?,?)",
+            (
+                71, "2026-10-26", "facts", "old-token",
+                "Прогулка с другом",
+                ('["Друг общался, раздраженно был в своих мыслях.",'
+                 ' "Мы разошлись по домам.",'
+                 ' "Друг общался, раздраженно был в своих мыслях.",'
+                 ' "Мы разошлись по домам."]'),
+                "[]", "2026-10-26T00:00:00Z",
+            ),
+        )
+    reopened = DayFactsStore(db_file)
+    try:
+        draft = reopened.draft(71)
+        assert draft is not None
+        assert draft.edit_field is None
+        assert len(draft.facts) == 4
+        selected = reopened.select_edit(71, draft.token, "facts", 1)
+        assert selected.edit_index == 1
+        assert selected.edit_field == "facts"
+        corrected = reopened.accept(
+            71, selected.token, "Друг общался раздражённо, был в своих мыслях."
+        )
+        assert len(corrected.facts) == 4
+        assert corrected.facts[0] == "Друг общался раздражённо, был в своих мыслях."
+        assert corrected.facts[1:] == draft.facts[1:]
+    finally:
+        reopened.close()
+    restarted = DayFactsStore(db_file)
+    try:
+        assert restarted.draft(71).facts[0] == (
+            "Друг общался раздражённо, был в своих мыслях."
+        )
+    finally:
+        restarted.close()
+
+
+def test_single_item_edit_does_not_append_or_modify_other_items(store):
+    original = fill_record(store, 71, date(2026, 10, 26))
+    selection = store.select_edit(71, original.token, "facts", 1)
+    assert selection.edit_field == "facts"
+    assert selection.edit_index == 1
+    assert selection.token != original.token
+    assert store.accept(71, original.token, "очередь: устаревшее голосовое") is None
+    replacement = store.accept(
+        71, selection.token,
+        "Друг общался раздражённо, был в своих мыслях.",
+        raw_text="друг общался раздраженно был в своих мыслях",
+    )
+    assert replacement.stage == "review"
+    assert replacement.edit_field is None
+    assert replacement.facts == (
+        "Друг общался раздражённо, был в своих мыслях.",
+        "Мы разошлись по домам.",
+    )
+    assert replacement.judgments == original.judgments
+    assert store.save(71, original.token) is None
+    saved = store.save(71, replacement.token)
+    assert saved.facts == replacement.facts
+
+
+def test_one_edit_never_splits_into_more_items(store):
+    d = fill_record(store, 71, date(2026, 10, 26))
+    selected = store.select_edit(71, d.token, "judgments", 1)
+    result = store.accept(
+        71, selected.token, "Первая мысль. Вторая мысль."
+    )
+    assert len(result.judgments) == 2
+    assert result.judgments[0] == "Первая мысль. Вторая мысль."
+    assert result.judgments[1] == d.judgments[1]
+
+
+def test_edit_cancellation_preserves_original_and_rejects_stale_voice(store):
+    d = fill_record(store, 71, date(2026, 10, 26))
+    pending = store.select_edit(71, d.token, "facts", 2)
+    with pytest.raises(ValueError):
+        store.next(71, pending.token)
+    assert store.save(71, pending.token) is None
+    with pytest.raises(ValueError):
+        store.reset_section(71, pending.token, "facts")
+    restored = store.cancel_edit(71, pending.token)
+    assert restored.edit_field is None
+    assert restored.facts == d.facts
+    assert restored.stage == "review"
+    assert store.accept(71, pending.token, "запоздавшее голосовое") is None
+    assert store.save(71, restored.token) is not None
+
+
+def test_select_event_and_judgment_and_invalid_indices(store):
+    d = fill_record(store, 71, date(2026, 10, 26))
+    e = store.select_edit(71, d.token, "event", 1)
+    assert e.edit_field == "event"
+    new = store.accept(71, e.token, "Другое событие.")
+    assert new.event == "Другое событие."
+    assert new.facts == d.facts
+    j = store.select_edit(71, new.token, "judgments", 2)
+    again = store.accept(71, j.token, "Я подумал, что я плохой друг.")
+    assert again.judgments[1] == "Я подумал, что я плохой друг."
+    with pytest.raises(ValueError):
+        store.select_edit(71, again.token, "facts", 99)
+    with pytest.raises(ValueError):
+        store.select_edit(71, again.token, "event", 2)
+    assert store.select_edit(72, again.token, "facts", 1) is None
+
+
+def test_edit_buttons_are_intuitive_and_paginated_without_private_callback_text(store):
+    from voqelis.day_facts.bot import (
+        edit_items_markup,
+        edit_sections_markup,
+        facts_markup,
+    )
+
+    d = fill_record(store, 71, date(2026, 10, 26))
+    buttons = [x.text for row in facts_markup(d).inline_keyboard for x in row]
+    assert "✏️ Исправить" in buttons
+    assert not any("/facts_" in label for label in buttons)
+    fields = [
+        x.text for row in edit_sections_markup(d).inline_keyboard for x in row
+    ]
+    assert "📝 Событие" in fields
+    assert any("Факты" in name for name in fields)
+    assert any("Суждения" in name for name in fields)
+    many = store.replace_section(
+        71, d.token, "facts",
+        " ".join(f"Дополнительный факт номер {i}." for i in range(12)),
+    )
+    first = edit_items_markup(many, "facts", 0)
+    all_buttons = [x for row in first.inline_keyboard for x in row]
+    assert any(x.text == "➡️" for x in all_buttons)
+    for button in all_buttons:
+        assert "Дополнительный факт" not in button.callback_data
+        assert len(button.callback_data) <= 64
+    second = edit_items_markup(many, "facts", 1)
+    assert any(
+        x.text.startswith("9.") for row in second.inline_keyboard for x in row
+    )
+    with pytest.raises(ValueError):
+        edit_items_markup(many, "facts", 42)
+    selected = store.select_edit(71, many.token, "facts", 9)
+    controls = [x.text for row in facts_markup(selected).inline_keyboard for x in row]
+    assert controls == ["↩️ Отмена исправления"]
+
+
+@pytest.mark.asyncio
+async def test_edit_callback_button_replaces_only_selected_fact(store, tmp_path):
+    from voqelis.day_facts.bot import create_day_facts_router
+
+    d = fill_record(store, 71, date(2026, 10, 26))
+    service = DayFactsService(store)
+    planner = SimpleNamespace(store=SimpleNamespace(session=lambda _id: None))
+    notes = SimpleNamespace(pending_voice=lambda _id: False)
+    router = create_day_facts_router(
+        service=service, allowed_user_ids=frozenset({71}),
+        planner=planner, notes=notes, export_dir=tmp_path,
+    )
+    on_callback = router.callback_query.handlers[0].callback
+    on_field = next(
+        x.callback for x in router.message.handlers
+        if x.callback.__name__ == "on_field_text"
+    )
+
+    class FakeMessage:
+        from_user = SimpleNamespace(id=71)
+        chat = SimpleNamespace(type="private")
+        text = "Друг общался раздражённо, был в своих мыслях."
+
+        def __init__(self):
+            self.answers = []
+
+        async def answer(self, body, **kw):
+            self.answers.append((body, kw))
+
+    class FakeCallback:
+        from_user = SimpleNamespace(id=71)
+
+        def __init__(self, data, message):
+            self.message = message
+            self.data = data
+            self.acks = []
+
+        async def answer(self, *args, **kwargs):
+            self.acks.append((args, kwargs))
+
+    msg = FakeMessage()
+    for data in (
+        f"df:edit:{d.token}",
+        f"df:items:facts:0:{d.token}",
+        f"df:pick:facts:1:{d.token}",
+    ):
+        cb = FakeCallback(data, msg)
+        await on_callback(cb)
+        assert cb.acks
+    pending = store.draft(71)
+    assert pending.edit_field == "facts"
+    assert "Отправь новый текст или голосовое" in msg.answers[-1][0]
+    await on_field(msg)
+    final = store.draft(71)
+    assert final.edit_field is None
+    assert final.facts == (
+        "Друг общался раздражённо, был в своих мыслях.",
+        "Мы разошлись по домам.",
+    )
+    assert final.judgments == d.judgments
+    assert len(final.facts) == 2
+
+
+@pytest.mark.asyncio
+async def test_voice_edit_uses_queued_token_and_returns_review(store, tmp_path, monkeypatch):
+    service = DayFactsService(store)
+    d = fill_record(store, 71, date(2026, 10, 26))
+    pending = store.select_edit(71, d.token, "facts", 1)
+    original = pending.token
+    from voqelis import bot as bot_module
+
+    monkeypatch.setattr(bot_module, "probe_duration_seconds", lambda _: 3)
+    file = tmp_path / "edit.ogg"
+    file.write_bytes(b"sample")
+    bot = _FakeBot()
+    job = AudioJob(
+        chat_id=71, reply_to_message_id=1, user_id=71,
+        file_path=file, day_facts_token=original,
+    )
+    with pytest.raises(asyncio.CancelledError):
+        await run_worker(
+            bot=bot, queue=_FakeQueue(job), transcriber=_FakeASR(),
+            settings=SimpleNamespace(max_audio_seconds=90),
+            day_facts=service, punctuation_processor=_FakePunctuation(),
+        )
+    now = store.draft(71)
+    assert now.edit_field is None
+    assert now.stage == "review"
+    assert now.facts[0] == (
+        "Друг общался раздражённо, был в своих мыслях. Мы разошлись по домам."
+    )
+    assert len(now.facts) == 2
+    assert store.accept(71, original, "повтор") is None
+
+
+
+@pytest.mark.asyncio
+async def test_old_edit_command_without_arguments_opens_button_picker(store, tmp_path):
+    """Telegram users should not see programming-like argument instructions."""
+    from voqelis.day_facts.bot import create_day_facts_router
+
+    d = fill_record(store, 71, date(2026, 10, 26))
+    service = DayFactsService(store)
+    planner = SimpleNamespace(store=SimpleNamespace(session=lambda _id: None))
+    notes = SimpleNamespace(pending_voice=lambda _id: False)
+    router = create_day_facts_router(
+        service=service, allowed_user_ids=frozenset({71}),
+        planner=planner, notes=notes, export_dir=tmp_path,
+    )
+    edit_handler = next(
+        h.callback for h in router.message.handlers
+        if h.callback.__name__ == "on_edit"
+    )
+
+    class FakeMessage:
+        from_user = SimpleNamespace(id=71)
+        chat = SimpleNamespace(type="private")
+        text = "/facts_edit"
+
+        def __init__(self):
+            self.answers = []
+
+        async def answer(self, body, **kwargs):
+            self.answers.append((body, kwargs))
+
+    message = FakeMessage()
+    await edit_handler(message)
+    assert len(message.answers) == 1
+    prompt, kwargs = message.answers[0]
+    assert "Выбери кнопкой" in prompt
+    assert "/facts_edit facts" not in prompt
+    controls = [
+        btn.text
+        for row in kwargs["reply_markup"].inline_keyboard
+        for btn in row
+    ]
+    assert "📝 Событие" in controls
+    assert any("Факты" in name for name in controls)
+    assert store.draft(71) == d

@@ -43,7 +43,9 @@ CREATE TABLE IF NOT EXISTS day_facts_drafts (
     facts_json TEXT NOT NULL DEFAULT '[]',
     judgments_json TEXT NOT NULL DEFAULT '[]',
     raw_inputs_json TEXT NOT NULL DEFAULT '[]',
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    edit_field TEXT,
+    edit_index INTEGER
 );
 """
 
@@ -68,6 +70,8 @@ class FactsDraft:
     event: str
     facts: tuple[str, ...]
     judgments: tuple[str, ...]
+    edit_field: str | None = None
+    edit_index: int | None = None
 
 
 def _token() -> str:
@@ -103,6 +107,16 @@ class DayFactsStore:
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
+        # Existing SQLite databases may contain unfinished production drafts.
+        # Only add nullable columns; never delete or recreate existing tables.
+        columns = {
+            row["name"]
+            for row in self.db.execute("PRAGMA table_info(day_facts_drafts)")
+        }
+        for name, kind in (("edit_field", "TEXT"), ("edit_index", "INTEGER")):
+            if name not in columns:
+                self.db.execute(f"ALTER TABLE day_facts_drafts ADD COLUMN {name} {kind}")
+        self.db.commit()
 
     def close(self) -> None:
         self.db.close()
@@ -114,6 +128,7 @@ class DayFactsStore:
             stage=row["stage"], token=row["token"], event=row["event"],
             facts=tuple(json.loads(row["facts_json"])),
             judgments=tuple(json.loads(row["judgments_json"])),
+            edit_field=row["edit_field"], edit_index=row["edit_index"],
         )
 
     def draft(self, user_id: int) -> FactsDraft | None:
@@ -155,26 +170,47 @@ class DayFactsStore:
                 "SELECT * FROM day_facts_drafts WHERE user_id=? AND token=?",
                 (user_id, token),
             ).fetchone()
-            if not row or row["stage"] == "review":
+            if not row or (row["stage"] == "review" and row["edit_field"] is None):
                 return None
             field = row["stage"]
             event = row["event"]
             facts = json.loads(row["facts_json"])
             judgments = json.loads(row["judgments_json"])
             originals = json.loads(row["raw_inputs_json"])
-            if field == "event":
-                event = clean
-                new_stage = "facts"
-            elif field == "facts":
-                facts.extend(split_sentences(clean))
-                new_stage = "facts"
+            edit_field = row["edit_field"]
+            if edit_field is not None:
+                index = row["edit_index"]
+                if edit_field == "event":
+                    if index != 1:
+                        raise ValueError("Invalid event selection")
+                    event = clean
+                else:
+                    items = facts if edit_field == "facts" else judgments
+                    if index is None or not 1 <= index <= len(items):
+                        raise ValueError("Selected item no longer exists")
+                    # One edit replaces precisely one item, even when the
+                    # punctuation model emits several sentences.
+                    items[index - 1] = clean
+                new_stage = field
+                originals.append({
+                    "field": edit_field, "action": "edit",
+                    "index": index, "raw": raw, "visible": clean,
+                })
             else:
-                judgments.extend(split_sentences(clean))
-                new_stage = "judgments"
-            originals.append({"field": field, "raw": raw, "visible": clean})
+                if field == "event":
+                    event = clean
+                    new_stage = "facts"
+                elif field == "facts":
+                    facts.extend(split_sentences(clean))
+                    new_stage = "facts"
+                else:
+                    judgments.extend(split_sentences(clean))
+                    new_stage = "judgments"
+                originals.append({"field": field, "raw": raw, "visible": clean})
             self.db.execute(
                 "UPDATE day_facts_drafts SET stage=?, token=?, event=?, "
-                "facts_json=?, judgments_json=?, raw_inputs_json=?, updated_at=? "
+                "facts_json=?, judgments_json=?, raw_inputs_json=?, updated_at=?, "
+                "edit_field=NULL, edit_index=NULL "
                 "WHERE user_id=? AND token=?",
                 (
                     new_stage, _token(), event,
@@ -195,6 +231,8 @@ class DayFactsStore:
             ).fetchone()
             if row is None:
                 return None
+            if row["edit_field"] is not None:
+                raise ValueError("Finish or cancel the selected edit")
             if row["stage"] == "facts" and json.loads(row["facts_json"]):
                 stage = "judgments"
             elif row["stage"] == "judgments" and json.loads(row["judgments_json"]):
@@ -205,6 +243,58 @@ class DayFactsStore:
                 "UPDATE day_facts_drafts SET stage=?, token=?, updated_at=? "
                 "WHERE user_id=? AND token=?",
                 (stage, _token(), _now(), user_id, token),
+            )
+        return self.draft(user_id)
+
+    def select_edit(
+        self, user_id: int, token: str, field: str, index: int
+    ) -> FactsDraft | None:
+        """Select a single item for the next voice/text replacement."""
+        if field not in {"event", "facts", "judgments"}:
+            raise ValueError("Unknown section")
+        with self.db:
+            self.db.execute("BEGIN IMMEDIATE")
+            row = self.db.execute(
+                "SELECT * FROM day_facts_drafts WHERE user_id=? AND token=?",
+                (user_id, token),
+            ).fetchone()
+            if row is None:
+                return None
+            if row["edit_field"] is not None:
+                raise ValueError("Finish current edit first")
+            if field == "event":
+                if index != 1 or not row["event"]:
+                    raise ValueError("Event not available for editing")
+            else:
+                if field == "facts" and row["stage"] == "event":
+                    raise ValueError("Facts have not been dictated yet")
+                if field == "judgments" and row["stage"] not in {"judgments", "review"}:
+                    raise ValueError("Judgments have not been dictated yet")
+                items = json.loads(row[f"{field}_json"])
+                if not 1 <= index <= len(items):
+                    raise ValueError("Item number not found")
+            self.db.execute(
+                "UPDATE day_facts_drafts SET edit_field=?, edit_index=?, "
+                "token=?, updated_at=? WHERE user_id=? AND token=?",
+                (field, index, _token(), _now(), user_id, token),
+            )
+        return self.draft(user_id)
+
+    def cancel_edit(self, user_id: int, token: str) -> FactsDraft | None:
+        with self.db:
+            self.db.execute("BEGIN IMMEDIATE")
+            row = self.db.execute(
+                "SELECT edit_field FROM day_facts_drafts WHERE user_id=? AND token=?",
+                (user_id, token),
+            ).fetchone()
+            if row is None:
+                return None
+            if row["edit_field"] is None:
+                raise ValueError("Nothing is being edited")
+            self.db.execute(
+                "UPDATE day_facts_drafts SET edit_field=NULL, edit_index=NULL, "
+                "token=?, updated_at=? WHERE user_id=? AND token=?",
+                (_token(), _now(), user_id, token),
             )
         return self.draft(user_id)
 
@@ -223,6 +313,8 @@ class DayFactsStore:
             ).fetchone()
             if not row:
                 return None
+            if row["edit_field"] is not None:
+                raise ValueError("Finish or cancel the selected edit")
             if field == "event":
                 if index != 1 or split:
                     raise ValueError("Event is one text field")
@@ -258,12 +350,14 @@ class DayFactsStore:
         with self.db:
             self.db.execute("BEGIN IMMEDIATE")
             row = self.db.execute(
-                "SELECT stage, raw_inputs_json FROM day_facts_drafts "
+                "SELECT stage, raw_inputs_json, edit_field FROM day_facts_drafts "
                 "WHERE user_id=? AND token=?",
                 (user_id, token),
             ).fetchone()
             if row is None:
                 return None
+            if row["edit_field"] is not None:
+                raise ValueError("Finish or cancel the selected edit")
             if field == "facts" and row["stage"] not in {"facts", "review"}:
                 raise ValueError("Facts cannot be reset in this stage")
             if field == "judgments" and row["stage"] not in {"judgments", "review"}:
@@ -293,12 +387,14 @@ class DayFactsStore:
         with self.db:
             self.db.execute("BEGIN IMMEDIATE")
             row = self.db.execute(
-                "SELECT stage, raw_inputs_json FROM day_facts_drafts "
+                "SELECT stage, raw_inputs_json, edit_field FROM day_facts_drafts "
                 "WHERE user_id=? AND token=?",
                 (user_id, token),
             ).fetchone()
             if row is None:
                 return None
+            if row["edit_field"] is not None:
+                raise ValueError("Finish or cancel the selected edit")
             if field == "facts" and row["stage"] not in {"facts", "review"}:
                 raise ValueError("Facts cannot be replaced in this stage")
             if field == "judgments" and row["stage"] not in {"judgments", "review"}:
@@ -322,7 +418,8 @@ class DayFactsStore:
         with self.db:
             self.db.execute("BEGIN IMMEDIATE")
             row = self.db.execute(
-                "SELECT * FROM day_facts_drafts WHERE user_id=? AND token=? AND stage='review'",
+                "SELECT * FROM day_facts_drafts WHERE user_id=? AND token=? "
+                "AND stage='review' AND edit_field IS NULL",
                 (user_id, token),
             ).fetchone()
             if row is None:
