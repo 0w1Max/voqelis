@@ -8,12 +8,16 @@ tables**. Authorized Telegram users can create multiple situations per date.
 
 1. `/facts` — begins or resumes a draft for the current Moscow date.
 2. Say/write the **event**. One event is stored per situation.
-3. Say/write **facts**. Each sentence ending in `.`, `?`, `!`, or `…`
-   is proposed as a separate numbered item. Commas alone do not split.
-   For a missed boundary, say "следующий факт" or "следующее суждение"
-   between items; the marker itself is not saved.
+3. Each **voice message** adds one numbered fact, regardless of how many
+   sentences RUPunct inserts. In a single voice message, say
+   "следующий факт" **between nonempty items** to add multiple facts.
+   Written text still splits on sentence-ending punctuation (`.`, `?`,
+   `!`, `…`); commas alone do not split.
 4. Tap **Далее** (or `/facts_next`) to begin **ошибочные суждения**.
-5. Say/write self-reported judgments; they are likewise numbered.
+5. Each voice message adds one self-reported judgment; saying
+   "следующее суждение" between items splits that voice message.
+   A marker for a different section is not a voice delimiter.
+   Written judgments retain punctuation-based splitting.
 6. Tap **Далее**, check all three fields, correct where needed, then
    tap **Сохранить**. No automatic diagnosis or interpretation occurs.
 
@@ -41,8 +45,9 @@ Documents are sent only to the requesting authorized Telegram account.
 Users must forward them to anyone else themselves.
 
 The source transcript is preserved separately in `raw_inputs_json`. Voice
-recognition and RUPunct's sentence breaks are **proposals only**: a confirmed
-draft is required before inserting the final entry. The bot neither evaluates
+recognition and RUPunct's sentence breaks are **presentation hints**, not
+automatic boundaries for spoken items. A confirmed draft is required before
+inserting the final entry. The bot neither evaluates
 whether a judgment is medically 'erroneous' nor changes user statements.
 
 ## Safety and validation
