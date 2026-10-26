@@ -14,6 +14,20 @@ _SPOKEN_MARKER = re.compile(
 )
 
 
+# Voice-only separators are specific to the active section. Allow a stray
+# punctuation mark inserted by ASR formatting between the two spoken words.
+_VOICE_MARKERS = {
+    "facts": re.compile(
+        r"\s*\bследующий[.!?,;:…]?\s+факт\b[.!?,;:…]?\s*",
+        flags=re.IGNORECASE,
+    ),
+    "judgments": re.compile(
+        r"\s*\bследующее[.!?,;:…]?\s+суждение\b[.!?,;:…]?\s*",
+        flags=re.IGNORECASE,
+    ),
+}
+
+
 def split_sentences(text: str) -> tuple[str, ...]:
     source = text.strip()
     if not source or len(source) > MAX_INPUT_CHARS:
@@ -28,7 +42,7 @@ def split_sentences(text: str) -> tuple[str, ...]:
     )
 
 
-def split_voice_items(text: str) -> tuple[str, ...]:
+def split_voice_items(text: str, *, field: str | None = None) -> tuple[str, ...]:
     """Treat a voice message as one item unless the speaker explicitly separates it.
 
     Automatic punctuation is only a *presentation hint*, not an instruction to
@@ -38,9 +52,12 @@ def split_voice_items(text: str) -> tuple[str, ...]:
     source = text.strip()
     if not source or len(source) > MAX_INPUT_CHARS:
         raise ValueError("Text must contain 1–12000 characters")
-    if not _SPOKEN_MARKER.search(source):
+    if field is not None and field not in _VOICE_MARKERS:
+        raise ValueError("Unknown Day Facts section")
+    marker = _SPOKEN_MARKER if field is None else _VOICE_MARKERS[field]
+    if not marker.search(source):
         return (source,)
-    parts = tuple(part.strip() for part in _SPOKEN_MARKER.split(source))
+    parts = tuple(part.strip() for part in marker.split(source))
     if any(not part for part in parts):
         raise ValueError("Each spoken item must contain text")
     return parts
