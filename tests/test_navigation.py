@@ -262,3 +262,101 @@ async def test_existing_transcription_contract_still_available_in_transcribe_mod
     )
     assert result.text == "исходный текст"
     assert NOTES_START in _labels(main_keyboard())
+
+
+@pytest.mark.asyncio
+async def test_facts_menu_does_not_arm_existing_parked_draft(nav, tmp_path):
+    store = DayFactsStore(tmp_path / "facts.sqlite3")
+    try:
+        from datetime import date
+
+        draft = store.begin(1, date(2026, 10, 28))
+        nav.activate(1, "facts")
+        settings = SimpleNamespace(
+            allowed_user_ids=frozenset({1}), temp_dir=tmp_path,
+            max_file_size_bytes=20_000, max_audio_seconds=1200,
+            download_timeout_seconds=10,
+        )
+        queue = JobQueue(max_pending_jobs=2, max_pending_per_user=2)
+        router = bot_module.create_router(
+            settings=settings, queue=queue, navigation=nav,
+            day_facts=DayFactsService(store),
+        )
+        audio = FakeAudioMessage()
+        await _handler(router, "on_audio")(audio, FakeAudioTelegramBot())
+        assert "Продолжить черновик" in audio.replies[-1]
+        assert queue.snapshot().reserved == 0
+        assert store.draft(1) == draft
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_facts_dictation_uses_only_explicit_capture_mode(nav, tmp_path):
+    from datetime import date
+
+    store = DayFactsStore(tmp_path / "facts.sqlite3")
+    try:
+        draft = store.begin(1, date(2026, 10, 28))
+        nav.activate(1, "facts_capture")
+        settings = SimpleNamespace(
+            allowed_user_ids=frozenset({1}), temp_dir=tmp_path,
+            max_file_size_bytes=20_000, max_audio_seconds=1200,
+            download_timeout_seconds=10,
+        )
+        queue = JobQueue(max_pending_jobs=2, max_pending_per_user=2)
+        router = bot_module.create_router(
+            settings=settings, queue=queue, navigation=nav,
+            day_facts=DayFactsService(store),
+        )
+        audio = FakeAudioMessage()
+        await _handler(router, "on_audio")(audio, FakeAudioTelegramBot())
+        job = await queue.get()
+        try:
+            assert job.day_facts_token == draft.token
+            assert job.capture_token is None
+            assert job.navigation_section == "facts_capture"
+            assert job.navigation_revision == nav.current(1)[1]
+        finally:
+            job.file_path.unlink(missing_ok=True)
+            await queue.release(1)
+            queue.task_done()
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_note_recording_does_not_intercept_parked_facts_draft(nav, tmp_path):
+    from datetime import date
+
+    store = DayFactsStore(tmp_path / "facts.sqlite3")
+    try:
+        draft = store.begin(1, date(2026, 10, 28))
+        nav.activate(1, "notes")
+        notes = SimpleNamespace(
+            pending_voice=lambda _user_id: True,
+            claim_voice=lambda _user_id: "note-token",
+        )
+        settings = SimpleNamespace(
+            allowed_user_ids=frozenset({1}), temp_dir=tmp_path,
+            max_file_size_bytes=20_000, max_audio_seconds=1200,
+            download_timeout_seconds=10,
+        )
+        queue = JobQueue(max_pending_jobs=2, max_pending_per_user=2)
+        router = bot_module.create_router(
+            settings=settings, queue=queue, navigation=nav,
+            notes=notes, day_facts=DayFactsService(store),
+        )
+        audio = FakeAudioMessage()
+        await _handler(router, "on_audio")(audio, FakeAudioTelegramBot())
+        job = await queue.get()
+        try:
+            assert job.capture_token == "note-token"
+            assert job.day_facts_token is None
+            assert store.draft(1) == draft
+        finally:
+            job.file_path.unlink(missing_ok=True)
+            await queue.release(1)
+            queue.task_done()
+    finally:
+        store.close()
