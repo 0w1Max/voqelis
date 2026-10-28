@@ -309,16 +309,18 @@ async def run_worker(
     planner_tz = ZoneInfo(planner.config.timezone) if planner else None
     allowed_users = getattr(settings, "allowed_user_ids", None)
 
+    def route_current(job: AudioJob) -> bool:
+        return (
+            navigation is None
+            or job.navigation_revision is None
+            or navigation.current(job.user_id)
+            == (job.navigation_section, job.navigation_revision)
+        )
+
     while True:
         job = await queue.get()
         try:
-            if (
-                navigation is not None
-                and job.navigation_revision is not None
-                and navigation.current(job.user_id) != (
-                    job.navigation_section, job.navigation_revision
-                )
-            ):
+            if not route_current(job):
                 await bot.send_message(
                     job.chat_id,
                     "Режим изменился. Голосовое не записано в модуль. Повтори его в нужном разделе.",
@@ -350,13 +352,7 @@ async def run_worker(
 
             if allowed_users is not None and job.user_id not in allowed_users:
                 continue
-            if (
-                navigation is not None
-                and job.navigation_revision is not None
-                and navigation.current(job.user_id) != (
-                    job.navigation_section, job.navigation_revision
-                )
-            ):
+            if not route_current(job):
                 await bot.send_message(
                     job.chat_id,
                     "Режим изменился во время распознавания. Сообщение не сохранено.",
@@ -415,6 +411,13 @@ async def run_worker(
                     )
                 if allowed_users is not None and job.user_id not in allowed_users:
                     continue
+                if not route_current(job):
+                    await bot.send_message(
+                        job.chat_id,
+                        "Режим изменился во время обработки. Факты дня не обновлены.",
+                        reply_to_message_id=job.reply_to_message_id,
+                    )
+                    continue
                 try:
                     updated = day_facts.accept(
                         job.user_id, job.day_facts_token,
@@ -458,6 +461,13 @@ async def run_worker(
                     )
                 delivery = display_text
                 if allowed_users is not None and job.user_id not in allowed_users:
+                    continue
+                if not route_current(job):
+                    await bot.send_message(
+                        job.chat_id,
+                        "Режим изменился во время обработки. Заметка не сохранена.",
+                        reply_to_message_id=job.reply_to_message_id,
+                    )
                     continue
                 if job.capture_token is not None and notes is not None:
                     try:
