@@ -31,13 +31,13 @@ def _keyboard(rows: list[list[str]]) -> ReplyKeyboardMarkup:
 
 
 def main_keyboard(*, admin: bool = False) -> ReplyKeyboardMarkup:
-    rows = [
-        [FACTS_START, TODO_START],
-        [NOTES_START, PLANNER_START],
-        [TRANSCRIBE_START],
-    ]
+    rows = [[FACTS_START, TODO_START]]
     if admin:
-        rows.append([ADMIN_PANEL])
+        rows.extend([
+            [NOTES_START, PLANNER_START],
+            [TRANSCRIBE_START],
+            [ADMIN_PANEL],
+        ])
     return _keyboard(rows)
 
 
