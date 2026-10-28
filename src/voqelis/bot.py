@@ -72,12 +72,10 @@ def create_router(
             return
 
         await message.answer(
-            "🎙️ Пришли голосовое сообщение или аудиофайл.\n"
-            "Я расшифрую его локально и верну текст.\n\n"
-            "Главный раздел: 📘 Факты дня.\n"
-            "История и экспорт доступны кнопками в меню.\n"
-            "Планировщик по-прежнему доступен через команды.",
-            reply_markup=main_keyboard(),
+            "🏠 Главное меню Voqelis.\n"
+            "Пришли голосовое или аудиофайл для обычной расшифровки "
+            "либо выбери модуль. Ничего не сохраню в другие модули.",
+            reply_markup=main_keyboard(admin=message.from_user.id == owner_user_id),
         )
 
     @router.message(Command("status"))
@@ -111,11 +109,8 @@ def create_router(
             navigation.current(user_id) if navigation is not None else (None, None)
         )
         if navigation is not None:
-            if section in {"notes", "planner", "transcribe"} and user_id != owner_user_id:
+            if section in {"notes", "planner"} and user_id != owner_user_id:
                 await message.reply("Этот модуль доступен только владельцу.")
-                return
-            if section == "home":
-                await message.reply("Сначала выбери модуль в главном меню.")
                 return
             if section == "facts":
                 await message.reply(
@@ -179,7 +174,7 @@ def create_router(
             return
 
         user_id = message.from_user.id
-        if day_facts is not None:
+        if day_facts is not None and (navigation is None or section == "facts_capture"):
             current_facts = day_facts.store.draft(user_id)
             if current_facts is not None and current_facts.edit_field == "select":
                 await message.reply(
@@ -327,7 +322,7 @@ async def run_worker(
         try:
             if (
                 navigation is not None
-                and job.navigation_section in {"notes", "planner", "transcribe"}
+                and job.navigation_section in {"notes", "planner"}
                 and job.user_id != owner_user_id
             ):
                 continue
