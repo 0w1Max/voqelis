@@ -261,11 +261,12 @@ async def run_worker(
     day_facts: DayFactsService | None = None,
 ) -> None:
     planner_tz = ZoneInfo(planner.config.timezone) if planner else None
+    allowed_users = getattr(settings, "allowed_user_ids", None)
 
     while True:
         job = await queue.get()
         try:
-            if job.user_id not in settings.allowed_user_ids:
+            if allowed_users is not None and job.user_id not in allowed_users:
                 # Revocation applies to recordings queued before the decision.
                 continue
             await bot.send_chat_action(job.chat_id, ChatAction.TYPING)
@@ -288,7 +289,7 @@ async def run_worker(
                 )
                 continue
 
-            if job.user_id not in settings.allowed_user_ids:
+            if allowed_users is not None and job.user_id not in allowed_users:
                 continue
             session = planner.store.session(job.user_id) if planner else None
             if planner and session and (
@@ -314,7 +315,7 @@ async def run_worker(
                         session["state"],
                         session["target_day"],
                     )
-                if job.user_id not in settings.allowed_user_ids:
+                if allowed_users is not None and job.user_id not in allowed_users:
                     continue
                 replies = await planner.handle_text(job.user_id, result.pause_aware_text or result.text, today)
                 if log_content:
@@ -335,7 +336,7 @@ async def run_worker(
                     display_text = await punctuation_processor.format(
                         result.text, fallback_text=display_text
                     )
-                if job.user_id not in settings.allowed_user_ids:
+                if allowed_users is not None and job.user_id not in allowed_users:
                     continue
                 try:
                     updated = day_facts.accept(
@@ -379,7 +380,7 @@ async def run_worker(
                         result.text, fallback_text=display_text
                     )
                 delivery = display_text
-                if job.user_id not in settings.allowed_user_ids:
+                if allowed_users is not None and job.user_id not in allowed_users:
                     continue
                 if job.capture_token is not None and notes is not None:
                     try:
