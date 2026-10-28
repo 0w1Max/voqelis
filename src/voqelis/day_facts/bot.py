@@ -21,19 +21,19 @@ from aiogram.types import (
 
 from ..menu import (
     FACTS_HISTORY,
-    FACTS_NEW,
-    FACTS_RESUME,
     FACTS_MOBILE,
+    FACTS_NEW,
     FACTS_PDF,
+    FACTS_RESUME,
     FACTS_TODAY,
     FACTS_WORD,
     FACTS_WORD_MOBILE,
     facts_keyboard,
 )
+from ..navigation import NavigationStore
 from ..notes.service import NotesService
 from ..planner.service import PlannerService
 from ..text import chunk_text
-from ..navigation import NavigationStore
 from .export import export_docx, export_mobile_docx, export_pdf
 from .service import EDIT_ALIASES, DayFactsService
 from .store import FactsDraft
@@ -242,10 +242,13 @@ def create_day_facts_router(
         user_id = message.from_user.id
         # Legacy /facts opens the module; a tap from an old keyboard must
         # not unexpectedly start a journal entry.
-        if navigation is not None and message.text in {FACTS_NEW, FACTS_RESUME}:
-            if navigation.current(user_id)[0] != "facts":
-                await message.answer("Сначала открой модуль «📘 Факты дня».")
-                return
+        if (
+            navigation is not None
+            and message.text in {FACTS_NEW, FACTS_RESUME}
+            and navigation.current(user_id)[0] != "facts"
+        ):
+            await message.answer("Сначала открой модуль «📘 Факты дня».")
+            return
         if navigation is None and planner.store.session(user_id) is not None:
             await message.answer(
                 "Сначала заверши активный Planner командой /plan_exit."
