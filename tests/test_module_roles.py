@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import date
+from threading import get_ident
 from types import SimpleNamespace
 
 import pytest
 
+from voqelis.day_facts.bot import create_day_facts_router
+from voqelis.day_facts.service import DayFactsService
+from voqelis.day_facts.store import DayFactsStore
 from voqelis.menu import (
     ADMIN_PANEL,
     FACTS_START,
@@ -20,6 +25,7 @@ from voqelis.navigation import NavigationStore, create_navigation_router
 from voqelis.notes.bot import create_notes_router
 from voqelis.notes.service import NotesService
 from voqelis.notes.store import NotesStore
+from voqelis.planner.bot import create_planner_router
 
 
 def labels(keyboard):
@@ -100,3 +106,83 @@ async def test_owner_notes_button_arms_capture_without_network(tmp_path):
     finally:
         nav.close()
         note_store.close()
+
+
+
+@pytest.mark.asyncio
+async def test_async_facts_filter_never_uses_worker_thread_and_skips_parked_draft(
+    tmp_path,
+):
+    nav = NavigationStore(tmp_path / "navigation.sqlite3")
+    store = DayFactsStore(tmp_path / "day_facts.sqlite3")
+    owner_thread = get_ident()
+    try:
+        draft = store.begin(1, date(2026, 10, 28))
+        assert draft
+        planner = SimpleNamespace(store=SimpleNamespace(session=lambda _id: None))
+        notes = SimpleNamespace(pending_voice=lambda _id: False)
+        router = create_day_facts_router(
+            service=DayFactsService(store),
+            allowed_user_ids=frozenset({1, 2}),
+            planner=planner, notes=notes,
+            export_dir=tmp_path, navigation=nav,
+        )
+        text_handler = next(
+            h for h in router.message.handlers if h.callback.__name__ == "on_field_text"
+        )
+
+        # An ordinary Notes button must bypass the parked Facts draft.
+        nav.activate(1, "notes")
+        matched, _ = await text_handler.check(FakeMessage(1, NOTES_NEW))
+        assert matched is False
+
+        nav.activate(1, "facts_capture")
+        matched, _ = await text_handler.check(FakeMessage(1, "Проверка записи"))
+        assert matched is True
+        assert get_ident() == owner_thread
+        assert store.draft(1) == draft
+
+        matched, _ = await text_handler.check(FakeMessage(2, "Чужой текст"))
+        assert matched is False
+    finally:
+        store.close()
+        nav.close()
+
+
+@pytest.mark.asyncio
+async def test_planner_session_filter_runs_on_event_loop_not_pool(tmp_path):
+    nav = NavigationStore(tmp_path / "navigation.sqlite3")
+    owner_thread = get_ident()
+    calls = []
+
+    def session(user_id):
+        assert get_ident() == owner_thread, "SQLite must not run in another thread"
+        calls.append(user_id)
+        return {"state": "planning"}
+
+    planner = SimpleNamespace(
+        config=SimpleNamespace(timezone="Europe/Moscow"),
+        store=SimpleNamespace(session=session),
+    )
+    router = create_planner_router(
+        service=planner, allowed_user_ids=frozenset({1}), navigation=nav,
+    )
+    text_handler = next(
+        h for h in router.message.handlers if h.callback.__name__ == "on_planner_text"
+    )
+    try:
+        nav.activate(1, "notes")
+        matched, _ = await text_handler.check(FakeMessage(1, "Текст заметки"))
+        assert matched is False
+        assert calls == []
+
+        nav.activate(1, "planner")
+        matched, _ = await text_handler.check(FakeMessage(1, "На завтра встреча"))
+        assert matched is True
+        assert calls == [1]
+
+        matched, _ = await text_handler.check(FakeMessage(2, "Чужой текст"))
+        assert matched is False
+        assert calls == [1]
+    finally:
+        nav.close()
