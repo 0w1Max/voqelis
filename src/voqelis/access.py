@@ -6,7 +6,7 @@ import logging
 import os
 import sqlite3
 import time
-from collections.abc import Iterator, Set
+from collections.abc import Iterator, Set as AbstractSet
 from pathlib import Path
 
 from aiogram import F, Router
@@ -45,7 +45,7 @@ def _safe_name(value: str, limit: int = 80) -> str:
     return "".join(char for char in value if char.isprintable()).strip()[:limit]
 
 
-class AllowedUsers(Set[int]):
+class AllowedUsers(AbstractSet[int]):
     """Live allowlist: legacy IDs plus persisted owner approvals."""
 
     def __init__(self, store: AccessStore) -> None:
@@ -113,9 +113,11 @@ class AccessStore:
         if existing is not None:
             if existing["status"] == "pending":
                 return "pending"
-            if existing["status"] in {"rejected", "revoked"}:
-                if now - int(existing["updated_at"]) < 24 * 3600:
-                    return "denied"
+            if (
+                existing["status"] in {"rejected", "revoked"}
+                and now - int(existing["updated_at"]) < 24 * 3600
+            ):
+                return "denied"
         with self.db:
             self.db.execute(
                 "INSERT INTO access_requests "
