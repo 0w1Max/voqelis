@@ -109,6 +109,67 @@ def export_docx(entries: list[FactsEntry], day: date, output: Path) -> Path:
     return output
 
 
+
+def export_mobile_docx(entries: list[FactsEntry], day: date, output: Path) -> Path:
+    """Portrait A5 editable Word with one column for comfortable phone reading."""
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import Cm, Pt, RGBColor
+
+    _prepare(entries, day, output)
+    doc = Document()
+    section = doc.sections[0]
+    section.page_width = Cm(14.8)
+    section.page_height = Cm(21)
+    section.left_margin = Cm(1.25)
+    section.right_margin = Cm(1.25)
+    section.top_margin = Cm(1.4)
+    section.bottom_margin = Cm(1.4)
+
+    style = doc.styles["Normal"]
+    style.font.name = "Arial"
+    style.font.size = Pt(11)
+    style.font.color.rgb = RGBColor(37, 50, 67)
+    style.paragraph_format.space_after = Pt(6)
+    style.paragraph_format.line_spacing = 1.2
+
+    title = doc.add_paragraph()
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    title.paragraph_format.space_after = Pt(8)
+    run = title.add_run(TITLE)
+    run.bold = True
+    run.font.size = Pt(14)
+    run.font.color.rgb = RGBColor(28, 56, 81)
+
+    date_line = doc.add_paragraph(day.strftime("%d.%m.%Y"))
+    date_line.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    date_line.paragraph_format.space_after = Pt(14)
+
+    def heading(label: str, *, before: int = 9) -> None:
+        paragraph = doc.add_paragraph()
+        paragraph.paragraph_format.space_before = Pt(before)
+        paragraph.paragraph_format.space_after = Pt(4)
+        paragraph.paragraph_format.keep_with_next = True
+        run = paragraph.add_run(label)
+        run.bold = True
+        run.font.size = Pt(12)
+        run.font.color.rgb = RGBColor(28, 56, 81)
+
+    for index, entry in enumerate(entries, 1):
+        heading(f"Ситуация {index}", before=14 if index > 1 else 2)
+        heading("Событие")
+        doc.add_paragraph(entry.event)
+        heading("Факты дня")
+        for number, fact in enumerate(entry.facts, 1):
+            doc.add_paragraph(f"{number}. {fact}")
+        heading("Ошибочные суждения")
+        for number, judgment in enumerate(entry.judgments, 1):
+            doc.add_paragraph(f"{number}. {judgment}")
+
+    doc.save(output)
+    return output
+
+
 def _pdf_styles():
     from reportlab.lib import colors
     from reportlab.lib.enums import TA_CENTER, TA_LEFT
