@@ -343,10 +343,12 @@ def create_planner_router(
             if output is not None:
                 output.unlink(missing_ok=True)
 
+    @router.message(F.text == "📄 DOCX плана")
     @router.message(F.text == "📄 DOCX")
     async def on_docx(message: Message) -> None:
         await _send_export(message, "docx")
 
+    @router.message(F.text == "📕 PDF плана")
     @router.message(F.text == "📕 PDF")
     async def on_pdf(message: Message) -> None:
         await _send_export(message, "pdf")
