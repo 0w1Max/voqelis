@@ -25,7 +25,6 @@ from ..menu import (
     FACTS_RESUME,
     FACTS_MOBILE,
     FACTS_PDF,
-    FACTS_START,
     FACTS_TODAY,
     FACTS_WORD,
     FACTS_WORD_MOBILE,
