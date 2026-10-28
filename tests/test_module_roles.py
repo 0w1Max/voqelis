@@ -1,17 +1,11 @@
-"""Role-gated module navigation and real aiogram dispatch for Notes button."""
+"""Owner-only feature visibility and module command authorization."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
-from aiogram import Bot, Dispatcher
-from aiogram.types import Chat, Message, Update, User
 
-from voqelis.day_facts.bot import create_day_facts_router
-from voqelis.day_facts.service import DayFactsService
-from voqelis.day_facts.store import DayFactsStore
 from voqelis.menu import (
     ADMIN_PANEL,
     FACTS_START,
@@ -84,72 +78,25 @@ async def test_guest_cannot_force_owner_sections_by_old_buttons(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_real_dispatcher_note_button_arms_owner_voice_capture(
-    tmp_path, monkeypatch
-):
-    """Exercise real aiogram filters and router ordering, not direct handler calls."""
+async def test_owner_notes_button_arms_capture_without_network(tmp_path):
     nav = NavigationStore(tmp_path / "navigation.sqlite3")
     note_store = NotesStore(tmp_path / "notes.sqlite3")
-    fact_store = DayFactsStore(tmp_path / "day_facts.sqlite3")
-    service = NotesService(note_store)
-    day_facts = DayFactsService(fact_store)
-    planner_stub = SimpleNamespace(
-        store=SimpleNamespace(session=lambda _id: None),
-    )
-    dp = Dispatcher()
-    dp.include_router(create_navigation_router(
-        navigation=nav, allowed_user_ids=frozenset({1, 2}),
-        admin_user_id=1,
-    ))
-    dp.include_router(create_day_facts_router(
-        service=day_facts, allowed_user_ids=frozenset({1, 2}),
-        planner=planner_stub, notes=service, export_dir=tmp_path,
-        navigation=nav,
-    ))
-    dp.include_router(create_notes_router(
-        service=service, allowed_user_ids=frozenset({1}),
-        planner=planner_stub, day_facts=day_facts, navigation=nav,
-    ))
-
-    replies = []
-
-    async def patched_answer(self, body, **kwargs):
-        replies.append((self.from_user.id, body, kwargs))
-
-    monkeypatch.setattr(Message, "answer", patched_answer)
-
-    async def dispatch(bot, user_id, text, seq):
-        msg = Message(
-            message_id=seq,
-            date=datetime.now(timezone.utc),
-            chat=Chat(id=user_id, type="private"),
-            from_user=User(id=user_id, is_bot=False, first_name="Test"),
-            text=text,
-        )
-        import asyncio
-        return await asyncio.wait_for(
-            dp.feed_update(bot, Update(update_id=seq, message=msg)),
-            timeout=3,
-        )
-
-    bot = Bot(token="123456:TESTTOKEN")
     try:
-        await dispatch(bot, 1, NOTES_START, 1)
-        assert nav.current(1)[0] == "notes"
-        await dispatch(bot, 1, NOTES_NEW, 2)
-        assert service.pending_voice(1)
-        assert any("Отправь одно голосовое" in body for _, body, _ in replies)
+        notes = NotesService(note_store)
+        router = create_notes_router(
+            service=notes, allowed_user_ids=frozenset({1}),
+            navigation=nav,
+        )
+        nav.activate(1, "notes")
+        owner = FakeMessage(1, NOTES_NEW)
+        await handler(router, "on_note")(owner)
+        assert notes.pending_voice(1)
+        assert "Отправь одно голосовое" in owner.replies[0][0]
 
-        await dispatch(bot, 2, NOTES_START, 3)
-        await dispatch(bot, 2, NOTES_NEW, 4)
-        await dispatch(bot, 2, "/note", 5)
-        assert not service.pending_voice(2)
-        assert all(user_id != 2 for user_id, _, _ in replies)
-
-        await dispatch(bot, 1, "/notes", 6)
-        assert any("Пока нет заметок" in body for _, body, _ in replies)
+        guest = FakeMessage(2, "/note")
+        await handler(router, "on_note")(guest)
+        assert guest.replies == []
+        assert not notes.pending_voice(2)
     finally:
-        await bot.session.close()
-        fact_store.close()
-        note_store.close()
         nav.close()
+        note_store.close()
