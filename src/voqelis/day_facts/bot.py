@@ -245,7 +245,7 @@ def create_day_facts_router(
         if (
             navigation is not None
             and message.text in {FACTS_NEW, FACTS_RESUME}
-            and navigation.current(user_id)[0] != "facts"
+            and navigation.current(user_id)[0] not in {"facts", "facts_capture"}
         ):
             await message.answer("Сначала открой модуль «📘 Факты дня».")
             return
@@ -267,7 +267,7 @@ def create_day_facts_router(
         else:
             draft = service.start(user_id)
         if navigation is not None:
-            navigation.activate(user_id, "facts")
+            navigation.activate(user_id, "facts_capture")
         await message.answer(
             "📘 Факты дня",
             reply_markup=facts_keyboard(),
@@ -278,8 +278,11 @@ def create_day_facts_router(
     async def on_cancel(message: Message) -> None:
         if allowed(message):
             changed = service.store.cancel(message.from_user.id)
+            if navigation is not None and navigation.current(message.from_user.id)[0] == "facts_capture":
+                navigation.activate(message.from_user.id, "facts")
             await message.answer(
-                "Черновик «Факты дня» отменён." if changed else "Активного черновика нет."
+                "Черновик «Факты дня» отменён." if changed else "Активного черновика нет.",
+                reply_markup=facts_keyboard() if navigation is not None else None,
             )
 
     async def advance(message: Message) -> None:
@@ -560,7 +563,7 @@ def create_day_facts_router(
             )
             return
 
-        if navigation is not None and navigation.current(callback.from_user.id)[0] != "facts":
+        if navigation is not None and navigation.current(callback.from_user.id)[0] != "facts_capture":
             await callback.answer("Открой модуль «Факты дня».", show_alert=True)
             return
         action, _, payload = data[3:].partition(":")
@@ -719,14 +722,14 @@ def create_day_facts_router(
             and not message.text.startswith("/")
             and message.from_user is not None
             and service.store.draft(message.from_user.id) is not None
-            and (navigation is None or navigation.current(message.from_user.id)[0] == "facts")
+            and (navigation is None or navigation.current(message.from_user.id)[0] == "facts_capture")
             and (navigation is not None or planner.store.session(message.from_user.id) is None)
         )
     )
     async def on_field_text(message: Message) -> None:
         if not allowed(message):
             return
-        if navigation is not None and navigation.current(message.from_user.id)[0] != "facts":
+        if navigation is not None and navigation.current(message.from_user.id)[0] != "facts_capture":
             return
         if message.text in _OTHER_MENU_ACTIONS:
             await message.answer(
