@@ -6,7 +6,7 @@ from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from .export import export_docx, export_pdf
+from .export import export_docx, export_mobile_docx, export_pdf
 from .store import DayFactsStore, FactsDraft
 
 FIELD_NAMES = {
@@ -138,6 +138,8 @@ class DayFactsService:
         entries = self.store.for_day(user_id, day)
         if kind == "word":
             return export_docx(entries, day, output)
+        if kind == "word_mobile":
+            return export_mobile_docx(entries, day, output)
         if kind in {"pdf", "mobile"}:
             return export_pdf(entries, day, output, mobile=(kind == "mobile"))
         raise ValueError("Unknown export kind")
