@@ -347,6 +347,8 @@ def create_access_router(
             or message.from_user.id != owner
         ):
             return
+        if navigation is not None:
+            navigation.activate(message.from_user.id, "home")
         await message.answer(
             _admin_summary(store),
             reply_markup=_admin_markup(store),
