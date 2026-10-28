@@ -6,7 +6,8 @@ import logging
 import os
 import sqlite3
 import time
-from collections.abc import Iterator, Set as AbstractSet
+from collections.abc import Iterator
+from collections.abc import Set as AbstractSet
 from pathlib import Path
 
 from aiogram import F, Router
