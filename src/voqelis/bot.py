@@ -113,10 +113,15 @@ def create_router(
             if section == "home":
                 await message.reply("Сначала выбери модуль в главном меню.")
                 return
-            if section == "facts" and (
+            if section == "facts":
+                await message.reply(
+                    "Сначала нажми «➕ Новая запись» или «✏️ Продолжить черновик»."
+                )
+                return
+            if section == "facts_capture" and (
                 day_facts is None or day_facts.store.draft(user_id) is None
             ):
-                await message.reply("Сначала нажми «➕ Новая запись» в «Фактах дня».")
+                await message.reply("Черновик не открыт. Нажми «➕ Новая запись».")
                 return
             if section == "notes" and (
                 notes is None or not notes.pending_voice(user_id)
@@ -222,7 +227,7 @@ def create_router(
             )
             facts_draft = (
                 day_facts.store.draft(user_id)
-                if day_facts is not None and (navigation is None or section == "facts")
+                if day_facts is not None and (navigation is None or section == "facts_capture")
                 else None
             )
             day_facts_token = (
