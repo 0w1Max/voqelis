@@ -24,6 +24,7 @@ from .day_facts.bot import facts_markup
 from .day_facts.service import DayFactsService
 from .domain import AudioJob
 from .menu import main_keyboard
+from .navigation import NavigationStore
 from .notes.service import NotesService
 from .planner.bot import planner_markup_for_state
 from .planner.service import PlannerService
@@ -39,6 +40,7 @@ def create_router(
     *, settings: Settings, queue: JobQueue, planner: PlannerService | None = None,
     notes: NotesService | None = None,
     day_facts: DayFactsService | None = None,
+    navigation: NavigationStore | None = None,
 ) -> Router:
     router = Router(name="audio")
 
@@ -103,6 +105,34 @@ def create_router(
                 await message.reply("Доступ закрыт. Нажми /start и запроси разрешение.")
             return
 
+        user_id = message.from_user.id
+        section, revision = (
+            navigation.current(user_id) if navigation is not None else (None, None)
+        )
+        if navigation is not None:
+            if section == "home":
+                await message.reply("Сначала выбери модуль в главном меню.")
+                return
+            if section == "facts":
+                await message.reply(
+                    "Сначала нажми «➕ Новая запись» или «✏️ Продолжить черновик»."
+                )
+                return
+            if section == "facts_capture" and (
+                day_facts is None or day_facts.store.draft(user_id) is None
+            ):
+                await message.reply("Черновик не открыт. Нажми «➕ Новая запись».")
+                return
+            if section == "notes" and (
+                notes is None or not notes.pending_voice(user_id)
+            ):
+                await message.reply("Сначала нажми «🎙 Новая заметка» в «Заметках».")
+                return
+            if section == "planner" and (
+                planner is None or planner.store.session(user_id) is None
+            ):
+                await message.reply("Сначала начни работу в «📅 Планировщике».")
+                return
         document = message.document
         if document is not None and not is_audio_document(
             mime_type=document.mime_type,
@@ -188,9 +218,17 @@ def create_router(
                     f"{settings.max_file_size_bytes // 1024 // 1024} МБ."
                 )
 
-            planner_session = planner.store.session(user_id) if planner else None
+            if navigation is not None and navigation.current(user_id) != (section, revision):
+                raise _UserInputError("Режим изменился. Отправь голосовое ещё раз.")
+            planner_session = (
+                planner.store.session(user_id)
+                if planner is not None and (navigation is None or section == "planner")
+                else None
+            )
             facts_draft = (
-                day_facts.store.draft(user_id) if day_facts is not None else None
+                day_facts.store.draft(user_id)
+                if day_facts is not None and (navigation is None or section == "facts_capture")
+                else None
             )
             day_facts_token = (
                 facts_draft.token
@@ -205,8 +243,13 @@ def create_router(
                 and planner_session is None
                 and facts_draft is None
                 and notes is not None
+                and (navigation is None or section == "notes")
                 else None
             )
+            if navigation is not None and section == "notes" and capture_token is None:
+                raise _UserInputError(
+                    "Ожидание заметки истекло. Нажми «🎙 Новая заметка» ещё раз."
+                )
             job = AudioJob(
                 chat_id=message.chat.id,
                 reply_to_message_id=message.message_id,
@@ -214,6 +257,8 @@ def create_router(
                 file_path=raw_path,
                 capture_token=capture_token,
                 day_facts_token=day_facts_token,
+                navigation_section=section,
+                navigation_revision=revision,
             )
             await queue.put(job)
             if day_facts_token is not None:
@@ -259,13 +304,29 @@ async def run_worker(
     punctuation_processor: TextPunctuationProcessor | None = None,
     notes: NotesService | None = None,
     day_facts: DayFactsService | None = None,
+    navigation: NavigationStore | None = None,
 ) -> None:
     planner_tz = ZoneInfo(planner.config.timezone) if planner else None
     allowed_users = getattr(settings, "allowed_user_ids", None)
 
+    def route_current(job: AudioJob) -> bool:
+        return (
+            navigation is None
+            or job.navigation_revision is None
+            or navigation.current(job.user_id)
+            == (job.navigation_section, job.navigation_revision)
+        )
+
     while True:
         job = await queue.get()
         try:
+            if not route_current(job):
+                await bot.send_message(
+                    job.chat_id,
+                    "Режим изменился. Голосовое не записано в модуль. Повтори его в нужном разделе.",
+                    reply_to_message_id=job.reply_to_message_id,
+                )
+                continue
             if allowed_users is not None and job.user_id not in allowed_users:
                 # Revocation applies to recordings queued before the decision.
                 continue
@@ -291,7 +352,19 @@ async def run_worker(
 
             if allowed_users is not None and job.user_id not in allowed_users:
                 continue
-            session = planner.store.session(job.user_id) if planner else None
+            if not route_current(job):
+                await bot.send_message(
+                    job.chat_id,
+                    "Режим изменился во время распознавания. Сообщение не сохранено.",
+                    reply_to_message_id=job.reply_to_message_id,
+                )
+                continue
+            session = (
+                planner.store.session(job.user_id)
+                if planner is not None
+                and (navigation is None or job.navigation_section == "planner")
+                else None
+            )
             if planner and session and (
                 job.day_facts_token is not None or job.capture_token is not None
             ):
@@ -338,6 +411,13 @@ async def run_worker(
                     )
                 if allowed_users is not None and job.user_id not in allowed_users:
                     continue
+                if not route_current(job):
+                    await bot.send_message(
+                        job.chat_id,
+                        "Режим изменился во время обработки. Факты дня не обновлены.",
+                        reply_to_message_id=job.reply_to_message_id,
+                    )
+                    continue
                 try:
                     updated = day_facts.accept(
                         job.user_id, job.day_facts_token,
@@ -381,6 +461,13 @@ async def run_worker(
                     )
                 delivery = display_text
                 if allowed_users is not None and job.user_id not in allowed_users:
+                    continue
+                if not route_current(job):
+                    await bot.send_message(
+                        job.chat_id,
+                        "Режим изменился во время обработки. Заметка не сохранена.",
+                        reply_to_message_id=job.reply_to_message_id,
+                    )
                     continue
                 if job.capture_token is not None and notes is not None:
                     try:

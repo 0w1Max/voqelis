@@ -17,6 +17,7 @@ from .config import load_settings
 from .day_facts.bot import create_day_facts_router
 from .day_facts.service import DayFactsService
 from .day_facts.store import DayFactsStore
+from .navigation import NavigationStore, create_navigation_router
 from .notes.bot import create_notes_router
 from .notes.service import NotesService
 from .notes.store import NotesStore
@@ -153,6 +154,7 @@ async def async_main() -> None:
         settings.planner_db_path.with_name("day_facts.sqlite3")
     )
     day_facts = DayFactsService(day_facts_store, timezone=planner_config.timezone)
+    navigation = NavigationStore(settings.planner_db_path.with_name("navigation.sqlite3"))
 
     queue = JobQueue(
         max_pending_jobs=settings.max_pending_jobs,
@@ -160,7 +162,11 @@ async def async_main() -> None:
     )
 
     dp = Dispatcher()
-    dp.include_router(create_access_router(access_store))
+    dp.include_router(create_access_router(access_store, navigation=navigation))
+    dp.include_router(create_navigation_router(
+        navigation=navigation, allowed_user_ids=settings.allowed_user_ids,
+        admin_user_id=access_store.admin_id,
+    ))
     dp.include_router(
         create_asr_test_router(
             manager=asr_test_manager,
@@ -179,16 +185,19 @@ async def async_main() -> None:
     dp.include_router(create_day_facts_router(
         service=day_facts, allowed_user_ids=settings.allowed_user_ids,
         planner=planner, notes=notes, export_dir=settings.temp_dir,
-        admin_user_id=access_store.admin_id,
+        admin_user_id=access_store.admin_id, navigation=navigation,
     ))
     dp.include_router(create_notes_router(
         service=notes, allowed_user_ids=settings.allowed_user_ids,
-        planner=planner, day_facts=day_facts,
+        planner=planner, day_facts=day_facts, navigation=navigation,
     ))
-    dp.include_router(create_planner_router(service=planner, allowed_user_ids=settings.allowed_user_ids))
+    dp.include_router(create_planner_router(
+        service=planner, allowed_user_ids=settings.allowed_user_ids,
+        navigation=navigation,
+    ))
     dp.include_router(create_router(
         settings=settings, queue=queue, planner=planner,
-        notes=notes, day_facts=day_facts,
+        notes=notes, day_facts=day_facts, navigation=navigation,
     ))
 
     async with Bot(
@@ -205,7 +214,7 @@ async def async_main() -> None:
                 log_content=settings.planner_log_content,
                 punctuation_processor=punctuation_processor,
                 notes=notes,
-                day_facts=day_facts,
+                day_facts=day_facts, navigation=navigation,
             ),
             name="transcription-worker",
         )
@@ -225,6 +234,7 @@ async def async_main() -> None:
             notes_store.close()
             day_facts_store.close()
             access_store.close()
+            navigation.close()
 
 
 def main() -> None:

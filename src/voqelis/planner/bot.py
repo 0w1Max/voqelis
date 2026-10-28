@@ -16,7 +16,8 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
 )
 
-from ..menu import main_keyboard
+from ..menu import main_keyboard, planner_section_keyboard
+from ..navigation import NavigationStore
 from .service import PlannerService
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 def planner_keyboard() -> ReplyKeyboardMarkup:
     """Backwards-compatible UI reference; keep Planner features on the server."""
-    return main_keyboard()
+    return planner_section_keyboard()
 
 
 def review_keyboard() -> InlineKeyboardMarkup:
@@ -190,7 +191,8 @@ async def active_planner_day(
 
 
 def create_planner_router(
-    *, service: PlannerService, allowed_user_ids: frozenset[int]
+    *, service: PlannerService, allowed_user_ids: frozenset[int],
+    navigation: NavigationStore | None = None,
 ) -> Router:
     planner_tz = ZoneInfo(service.config.timezone)
 
@@ -199,16 +201,24 @@ def create_planner_router(
 
     router = Router(name="planner")
 
-    def allowed(message: Message) -> bool:
+    def authorized(message: Message) -> bool:
         return (
             message.chat.type == ChatType.PRIVATE
             and message.from_user is not None
             and message.from_user.id in allowed_user_ids
         )
 
+    def allowed(message: Message) -> bool:
+        return (
+            authorized(message)
+            and (navigation is None or navigation.current(message.from_user.id)[0] == "planner")
+        )
+
     @router.message(Command("plan"))
     async def on_plan(message: Message) -> None:
-        if allowed(message):
+        if authorized(message):
+            if navigation is not None:
+                navigation.activate(message.from_user.id, "planner")
             response = await service.start_planning(
                 message.from_user.id, planner_today() + timedelta(days=1)
             )
@@ -217,7 +227,9 @@ def create_planner_router(
 
     @router.message(Command("review"))
     async def on_review_command(message: Message) -> None:
-        if allowed(message):
+        if authorized(message):
+            if navigation is not None:
+                navigation.activate(message.from_user.id, "planner")
             await message.answer(
                 await service.start_review(message.from_user.id, await active_planner_day(service, message.from_user.id, planner_today())),
                 reply_markup=planner_markup_for_state(service, message.from_user.id),
@@ -331,10 +343,12 @@ def create_planner_router(
             if output is not None:
                 output.unlink(missing_ok=True)
 
+    @router.message(F.text == "📄 DOCX плана")
     @router.message(F.text == "📄 DOCX")
     async def on_docx(message: Message) -> None:
         await _send_export(message, "docx")
 
+    @router.message(F.text == "📕 PDF плана")
     @router.message(F.text == "📕 PDF")
     async def on_pdf(message: Message) -> None:
         await _send_export(message, "pdf")
@@ -342,10 +356,13 @@ def create_planner_router(
     @router.message(Command("plan_exit"))
     @router.message(F.text == "⏹️ Выйти из режима")
     async def on_stop(message: Message) -> None:
-        if allowed(message):
+        if authorized(message):
             await service.stop(message.from_user.id)
+            if navigation is not None and navigation.current(message.from_user.id)[0] == "planner":
+                navigation.activate(message.from_user.id, "home")
             await message.answer(
-                "Режим планирования завершён.", reply_markup=planner_keyboard()
+                "Режим планирования завершён.",
+                reply_markup=main_keyboard() if navigation is not None else planner_keyboard(),
             )
 
     @router.callback_query(lambda callback: callback.data is not None and callback.data.startswith("pl:"))
@@ -354,6 +371,7 @@ def create_planner_router(
             callback.from_user.id not in allowed_user_ids
             or callback.message is None
             or callback.message.chat.type != ChatType.PRIVATE
+            or (navigation is not None and navigation.current(callback.from_user.id)[0] != "planner")
         ):
             await callback.answer()
             return

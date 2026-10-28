@@ -844,20 +844,28 @@ async def test_export_document_is_never_world_readable(store, tmp_path, monkeypa
 
 
 
-def test_home_keyboard_shows_only_day_facts_features() -> None:
-    from voqelis.menu import main_keyboard
+def test_home_keyboard_contains_modules_and_facts_has_own_menu() -> None:
+    from voqelis.menu import facts_keyboard, main_keyboard
     from voqelis.planner.bot import planner_keyboard
 
-    expected = [
-        "📘 Факты дня", "📋 Текущие факты дня", "🗓 История фактов",
-        "📄 Word", "📕 PDF", "📱 Word для телефона",
-        "📱 PDF для телефона",
-    ]
-    for keyboard in (main_keyboard(), planner_keyboard()):
-        buttons = [item.text for row in keyboard.keyboard for item in row]
-        assert buttons == expected
-        assert all("Планирован" not in label for label in buttons)
-        assert not any("DOCX" in label for label in buttons)
+    home = [item.text for row in main_keyboard().keyboard for item in row]
+    facts = [item.text for row in facts_keyboard().keyboard for item in row]
+    planner = [item.text for row in planner_keyboard().keyboard for item in row]
+
+    assert "📘 Факты дня" in home
+    assert "✅ Список дел (скоро)" in home
+    assert "📝 Заметки" in home
+    assert "📅 Планировщик" in home
+    assert "🎙 Расшифровка" in home
+    assert "📋 Текущие факты дня" not in home
+    assert "🗓 История фактов" not in home
+    assert "📄 Word" not in home
+    assert "📱 Word для телефона" not in home
+    assert "📋 Текущие факты дня" in facts
+    assert "🗓 История фактов" in facts
+    assert "⬅️ Главное меню" in facts
+    assert "📅 Планирование дня" in planner
+    assert "⬅️ Главное меню" in planner
 
 
 def test_redo_facts_discards_duplicates_without_touching_event_or_judgments(store):
