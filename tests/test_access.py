@@ -224,3 +224,38 @@ async def test_rejected_request_requires_new_approval(store):
     assert 2 not in store.allowed
     assert "отклонил" in bot.sent[-1][1]
     assert store.request(2, display_name="Имя", username="name") == "denied"
+
+
+@pytest.mark.asyncio
+async def test_admin_pagination_keeps_old_requests_actionable(store):
+    for user_id in range(2, 14):
+        assert store.request(
+            user_id, display_name=f"Заявитель {user_id}", username=""
+        ) == "created"
+
+    assert store.counts() == (12, 0)
+    assert len(store.pending(offset=0)) == 10
+    assert len(store.pending(offset=10)) == 2
+
+    bot = FakeBot()
+    router = create_access_router(store)
+    admin = FakeMessage(1, "/admin")
+    await _handler(router, "on_admin")(admin)
+    markup = admin.responses[-1][1]["reply_markup"]
+    callbacks = [
+        btn.callback_data
+        for row in markup.inline_keyboard
+        for btn in row
+    ]
+    assert "access:panel:1" in callbacks
+
+    next_page = FakeCallback(1, "access:panel:1", admin)
+    await _callback_handler(router)(next_page, bot)
+    second = admin.responses[-1][0]
+    assert "Страница 2" in second
+    assert len(store.pending(offset=10)) == 2
+
+    oldest_id = store.pending(offset=10)[-1]["user_id"]
+    approved = FakeCallback(1, f"access:approve:{oldest_id}", admin)
+    await _callback_handler(router)(approved, bot)
+    assert oldest_id in store.allowed
