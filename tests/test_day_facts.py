@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from voqelis.day_facts.export import TITLE, export_docx, export_pdf
+from voqelis.day_facts.export import TITLE, export_docx, export_mobile_docx, export_pdf
 from voqelis.day_facts.sentences import (
     split_explicit,
     split_sentences,
@@ -366,6 +366,64 @@ def test_docx_pdf_and_phone_pdf_include_cyrillic_and_three_fields(store, tmp_pat
     assert all(p.stat().st_size > 2000 for p in (word, pdf, phone))
 
 
+
+def test_phone_word_docx_is_portrait_editable_and_keeps_all_fields(store, tmp_path):
+    day = date(2026, 10, 26)
+    draft = fill_record(store, 1, day)
+    store.save(1, draft.token)
+    entries = store.for_day(1, day)
+
+    mobile = export_mobile_docx(entries, day, tmp_path / "phone.docx")
+
+    from docx import Document
+
+    doc = Document(mobile)
+    assert not doc.tables
+    section = doc.sections[0]
+    assert section.page_width < section.page_height
+    assert abs(section.page_width.cm - 14.8) < 0.1
+    assert doc.styles["Normal"].font.size.pt == 11
+
+    text = "\n".join(p.text for p in doc.paragraphs)
+    assert TITLE in text
+    assert "26.10.2026" in text
+    assert "Ситуация 1" in text
+    assert "Событие" in text
+    assert "Факты дня" in text
+    assert "Ошибочные суждения" in text
+    assert entries[0].event in text
+    assert all(f"{i}. {fact}" in text for i, fact in enumerate(entries[0].facts, 1))
+    assert all(
+        f"{i}. {judgment}" in text
+        for i, judgment in enumerate(entries[0].judgments, 1)
+    )
+    assert mobile.stat().st_size > 2000
+
+    with pytest.raises(ValueError):
+        export_mobile_docx(entries, date(2026, 10, 27), tmp_path / "wrong.docx")
+
+
+def test_phone_word_docx_handles_multiple_situations(store, tmp_path):
+    day = date(2026, 10, 26)
+    for number in range(2):
+        draft = store.begin(1, day)
+        draft = store.accept(1, draft.token, f"Событие номер {number + 1}")
+        draft = store.accept(1, draft.token, f"Факт номер {number + 1}")
+        draft = store.next(1, draft.token)
+        draft = store.accept(1, draft.token, f"Суждение номер {number + 1}")
+        draft = store.next(1, draft.token)
+        store.save(1, draft.token)
+
+    from docx import Document
+
+    output = export_mobile_docx(store.for_day(1, day), day, tmp_path / "multi.docx")
+    doc = Document(output)
+    content = "\n".join(p.text for p in doc.paragraphs)
+    assert "Ситуация 1" in content and "Ситуация 2" in content
+    assert "Событие номер 1" in content and "Событие номер 2" in content
+    assert not doc.tables
+
+
 def test_many_day_entries_export_more_than_one_page(store, tmp_path):
     day = date(2026, 10, 26)
     for i in range(25):
@@ -556,13 +614,15 @@ def test_day_facts_router_has_command_and_keyboard_handlers(store, tmp_path):
     assert export_buttons == [
         "df:export:word:2026-10-26",
         "df:export:pdf:2026-10-26",
+        "df:export:word_mobile:2026-10-26",
         "df:export:mobile:2026-10-26",
     ]
 
 
+@pytest.mark.parametrize("kind", ("word", "word_mobile"))
 @pytest.mark.asyncio
 async def test_export_command_executes_real_threaded_docx_without_sqlite_error(
-    store, tmp_path, monkeypatch
+    store, tmp_path, monkeypatch, kind
 ):
     service = DayFactsService(store)
     monkeypatch.setattr(service, "today", lambda: date(2026, 10, 26))
@@ -570,7 +630,7 @@ async def test_export_command_executes_real_threaded_docx_without_sqlite_error(
     store.save(1, draft.token)
 
     class FakeMessage:
-        text = "/facts_export word"
+        text = f"/facts_export {kind}"
         from_user = SimpleNamespace(id=1)
         chat = SimpleNamespace(type="private")
 
@@ -790,7 +850,8 @@ def test_home_keyboard_shows_only_day_facts_features() -> None:
 
     expected = [
         "📘 Факты дня", "📋 Текущие факты дня", "🗓 История фактов",
-        "📄 Word", "📕 PDF", "📱 PDF для телефона",
+        "📄 Word", "📕 PDF", "📱 Word для телефона",
+        "📱 PDF для телефона",
     ]
     for keyboard in (main_keyboard(), planner_keyboard()):
         buttons = [item.text for row in keyboard.keyboard for item in row]
