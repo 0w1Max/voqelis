@@ -26,12 +26,13 @@ from ..menu import (
     FACTS_START,
     FACTS_TODAY,
     FACTS_WORD,
+    FACTS_WORD_MOBILE,
     main_keyboard,
 )
 from ..notes.service import NotesService
 from ..planner.service import PlannerService
 from ..text import chunk_text
-from .export import export_docx, export_pdf
+from .export import export_docx, export_mobile_docx, export_pdf
 from .service import EDIT_ALIASES, DayFactsService
 from .store import FactsDraft
 
@@ -161,6 +162,12 @@ def export_markup(day: date) -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(text="📄 Word", callback_data=f"df:export:word:{iso}"),
             InlineKeyboardButton(text="📕 PDF", callback_data=f"df:export:pdf:{iso}"),
+        ],
+        [
+            InlineKeyboardButton(
+                text="📱 Word для телефона",
+                callback_data=f"df:export:word_mobile:{iso}",
+            ),
         ],
         [
             InlineKeyboardButton(
@@ -401,7 +408,7 @@ def create_day_facts_router(
             await message.answer("Нет сохранённых ситуаций за указанную дату.")
             return
 
-        extension = "docx" if kind == "word" else "pdf"
+        extension = "docx" if kind in {"word", "word_mobile"} else "pdf"
         output = export_dir / f"facts-{uuid4().hex}.{extension}"
         try:
             # Prevent sensitive reports from ever being written as world-
@@ -409,6 +416,8 @@ def create_day_facts_router(
             output.touch(mode=0o600, exist_ok=False)
             if kind == "word":
                 await asyncio.to_thread(export_docx, entries, day, output)
+            elif kind == "word_mobile":
+                await asyncio.to_thread(export_mobile_docx, entries, day, output)
             else:
                 await asyncio.to_thread(
                     export_pdf, entries, day, output, mobile=(kind == "mobile"),
@@ -429,18 +438,23 @@ def create_day_facts_router(
 
     @router.message(Command("facts_export"))
     @router.message(F.text == FACTS_WORD)
+    @router.message(F.text == FACTS_WORD_MOBILE)
     @router.message(F.text == FACTS_PDF)
     @router.message(F.text == FACTS_MOBILE)
     async def on_export(message: Message) -> None:
         if not allowed(message):
             return
-        shortcuts = {FACTS_WORD: "word", FACTS_PDF: "pdf", FACTS_MOBILE: "mobile"}
+        shortcuts = {
+            FACTS_WORD: "word", FACTS_WORD_MOBILE: "word_mobile",
+            FACTS_PDF: "pdf", FACTS_MOBILE: "mobile",
+        }
         text = message.text or ""
         args = [shortcuts[text]] if text in shortcuts else _argument(text).split()
-        if not args or len(args) > 2 or args[0] not in {"word", "pdf", "mobile"}:
+        if not args or len(args) > 2 or args[0] not in {"word", "word_mobile", "pdf", "mobile"}:
             await message.answer(
-                "Экспорт: /facts_export word, /facts_export pdf, "
-                "/facts_export mobile\nДата необязательна: /facts_export pdf 2026-10-26"
+                "Экспорт: /facts_export word, /facts_export word_mobile, "
+                "/facts_export pdf, /facts_export mobile\n"
+                "Дата необязательна: /facts_export pdf 2026-10-26"
             )
             return
         try:
@@ -462,7 +476,7 @@ def create_day_facts_router(
         data = callback.data or ""
         if data.startswith("df:export:"):
             parts = data.split(":")
-            if len(parts) != 4 or parts[2] not in {"word", "pdf", "mobile"}:
+            if len(parts) != 4 or parts[2] not in {"word", "word_mobile", "pdf", "mobile"}:
                 await callback.answer("Неизвестный формат.", show_alert=True)
                 return
             try:
