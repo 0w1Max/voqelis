@@ -36,7 +36,7 @@ def test_owner_sees_all_modules_guest_only_two():
     assert labels(main_keyboard()) == [FACTS_START, TODO_START]
     assert labels(main_keyboard(admin=True)) == [
         FACTS_START, TODO_START, NOTES_START, PLANNER_START,
-        TRANSCRIBE_START, ADMIN_PANEL,
+        ADMIN_PANEL,
     ]
 
 
@@ -67,7 +67,6 @@ async def test_guest_cannot_force_owner_sections_by_old_buttons(tmp_path):
         for text, name in (
             (NOTES_START, "on_notes"),
             (PLANNER_START, "on_planner"),
-            (TRANSCRIBE_START, "on_transcribe"),
         ):
             guest = FakeMessage(2, text)
             await handler(router, name)(guest)
@@ -184,5 +183,27 @@ async def test_planner_session_filter_runs_on_event_loop_not_pool(tmp_path):
         matched, _ = await text_handler.check(FakeMessage(2, "Чужой текст"))
         assert matched is False
         assert calls == [1]
+    finally:
+        nav.close()
+
+
+
+@pytest.mark.asyncio
+async def test_old_transcription_button_returns_any_approved_user_home(tmp_path):
+    nav = NavigationStore(tmp_path / "navigation.sqlite3")
+    try:
+        router = create_navigation_router(
+            navigation=nav, allowed_user_ids=frozenset({1, 2}),
+            admin_user_id=1,
+        )
+        for user_id in (1, 2):
+            nav.activate(user_id, "facts")
+            stale_button = FakeMessage(user_id, TRANSCRIBE_START)
+            await handler(router, "on_transcribe")(stale_button)
+            assert nav.current(user_id)[0] == "home"
+            assert "главного меню" in stale_button.replies[-1][0]
+            buttons = labels(stale_button.replies[-1][1]["reply_markup"])
+            assert TRANSCRIBE_START not in buttons
+            assert (ADMIN_PANEL in buttons) is (user_id == 1)
     finally:
         nav.close()
