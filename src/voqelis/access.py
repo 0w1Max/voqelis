@@ -321,7 +321,8 @@ def create_access_router(
                 navigation.activate(message.from_user.id, "home")
             await message.answer(
                 "🏠 Добро пожаловать в Voqelis!\n"
-                "Выбери нужный модуль в главном меню.",
+                "Отправь голосовое или аудиофайл — верну расшифровку текста.\n"
+                "Для других действий выбери модуль.",
                 reply_markup=main_keyboard(admin=message.from_user.id == owner),
             )
         else:
