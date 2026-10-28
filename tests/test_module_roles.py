@@ -26,7 +26,6 @@ from voqelis.navigation import NavigationStore, create_navigation_router
 from voqelis.notes.bot import create_notes_router
 from voqelis.notes.service import NotesService
 from voqelis.notes.store import NotesStore
-from voqelis.planner.bot import create_planner_router
 
 
 def labels(keyboard):
