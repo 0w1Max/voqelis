@@ -362,7 +362,7 @@ def create_planner_router(
                 navigation.activate(message.from_user.id, "home")
             await message.answer(
                 "Режим планирования завершён.",
-                reply_markup=main_keyboard() if navigation is not None else planner_keyboard(),
+                reply_markup=main_keyboard(admin=True) if navigation is not None else planner_keyboard(),
             )
 
     @router.callback_query(lambda callback: callback.data is not None and callback.data.startswith("pl:"))
