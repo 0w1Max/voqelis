@@ -177,18 +177,33 @@ def export_markup(day: date) -> InlineKeyboardMarkup:
     ])
 
 
+def history_markup(days: list[tuple[str, int]]) -> InlineKeyboardMarkup:
+    """Select a historical day without exposing another user's records."""
+    rows = [
+        [InlineKeyboardButton(
+            text=f"📘 {date.fromisoformat(day):%d.%m.%Y} · {count} ситуаций",
+            callback_data=f"df:day:{day}",
+        )]
+        for day, count in days
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def _argument(text: str) -> str:
     parts = text.split(maxsplit=1)
     return parts[1].strip() if len(parts) > 1 else ""
 
 
-async def _send(message: Message, text: str, *, draft: FactsDraft | None = None) -> None:
+async def _send(
+    message: Message, text: str, *, draft: FactsDraft | None = None,
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> None:
     parts = chunk_text(text)
     for i, part in enumerate(parts):
-        await message.answer(
-            part, parse_mode=None,
-            reply_markup=facts_markup(draft) if i == len(parts) - 1 and draft else None,
-        )
+        markup = (
+            facts_markup(draft) if draft is not None else reply_markup
+        ) if i == len(parts) - 1 else None
+        await message.answer(part, parse_mode=None, reply_markup=markup)
 
 
 def _day_arg(value: str, default: date) -> date:
@@ -386,8 +401,23 @@ def create_day_facts_router(
     @router.message(Command("facts_history"))
     @router.message(F.text == FACTS_HISTORY)
     async def on_history(message: Message) -> None:
-        if allowed(message):
-            await _send(message, service.history_message(message.from_user.id))
+        if not allowed(message):
+            return
+        user_id = message.from_user.id
+        days = service.store.history(user_id)
+        await _send(
+            message, service.history_message(user_id),
+            reply_markup=history_markup(days) if days else None,
+        )
+
+    async def show_saved_day(message: Message, user_id: int, day: date) -> None:
+        # The date comes from a button, but user_id MUST come from Telegram.
+        entries = service.store.for_day(user_id, day)
+        await _send(
+            message,
+            service.day_message(user_id, day),
+            reply_markup=export_markup(day) if entries else None,
+        )
 
     @router.message(Command("facts_day"))
     @router.message(F.text == FACTS_TODAY)
@@ -399,7 +429,7 @@ def create_day_facts_router(
         except ValueError:
             await message.answer("Дата: /facts_day 2026-10-26")
             return
-        await _send(message, service.day_message(message.from_user.id, day))
+        await show_saved_day(message, message.from_user.id, day)
         draft = service.store.draft(message.from_user.id)
         if draft is not None and draft.day == day:
             await _send(message, service.render(draft), draft=draft)
@@ -478,6 +508,19 @@ def create_day_facts_router(
             await callback.answer()
             return
         data = callback.data or ""
+        if data.startswith("df:day:"):
+            parts = data.split(":")
+            if len(parts) != 3:
+                await callback.answer("Некорректная дата.", show_alert=True)
+                return
+            try:
+                target_day = date.fromisoformat(parts[2])
+            except ValueError:
+                await callback.answer("Некорректная дата.", show_alert=True)
+                return
+            await callback.answer()
+            await show_saved_day(callback.message, callback.from_user.id, target_day)
+            return
         if data.startswith("df:export:"):
             parts = data.split(":")
             if len(parts) != 4 or parts[2] not in {"word", "word_mobile", "pdf", "mobile"}:
