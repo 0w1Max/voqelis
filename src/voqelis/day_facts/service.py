@@ -129,7 +129,7 @@ class DayFactsService:
         lines = ["📆 История «Факты дня»"]
         for day, count in days:
             lines.append(f"• {date.fromisoformat(day):%d.%m.%Y}: ситуаций {count}")
-        lines.append("\nОткрыть: /facts_day 2026-10-26")
+        lines.append("\nВыбери дату кнопкой ниже или введи /facts_day ГГГГ-ММ-ДД.")
         return "\n".join(lines)
 
     def export(
