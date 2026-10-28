@@ -8,7 +8,7 @@ from aiogram.filters import Command
 from aiogram.types import Message
 
 from ..day_facts.service import DayFactsService
-from ..menu import NOTES_LIST, NOTES_NEW, notes_keyboard
+from ..menu import NOTES_LIST, NOTES_NEW
 from ..navigation import NavigationStore
 from ..planner.service import PlannerService
 from ..text import chunk_text
