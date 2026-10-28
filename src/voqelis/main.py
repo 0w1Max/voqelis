@@ -3,11 +3,13 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import suppress
+from dataclasses import replace
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 
+from .access import AccessStore, create_access_router
 from .asr_gguf_test_bot import GgufTestManager, create_asr_gguf_test_router
 from .asr_test_bot import AsrBenchmarkManager, create_asr_test_router
 from .bot import cleanup_temp_dir, create_router, run_worker
@@ -37,6 +39,17 @@ logger = logging.getLogger(__name__)
 
 async def async_main() -> None:
     settings = load_settings()
+    # Environment IDs bootstrap the owner; approvals remain isolated in access.sqlite3.
+    # All existing routers use the *same live* membership policy.
+    access_store = AccessStore(
+        settings.planner_db_path.with_name("access.sqlite3"),
+        bootstrap_ids=settings.allowed_user_ids,
+    )
+    settings = replace(settings, allowed_user_ids=access_store.allowed)
+    if access_store.admin_id is None:
+        logger.warning(
+            "Owner approval disabled: ALLOWED_USER_IDS must contain exactly one ID"
+        )
 
     removed = cleanup_temp_dir(settings.temp_dir)
     if removed:
@@ -136,6 +149,7 @@ async def async_main() -> None:
     )
 
     dp = Dispatcher()
+    dp.include_router(create_access_router(access_store))
     dp.include_router(
         create_asr_test_router(
             manager=asr_test_manager,
@@ -154,6 +168,7 @@ async def async_main() -> None:
     dp.include_router(create_day_facts_router(
         service=day_facts, allowed_user_ids=settings.allowed_user_ids,
         planner=planner, notes=notes, export_dir=settings.temp_dir,
+        admin_user_id=access_store.admin_id,
     ))
     dp.include_router(create_notes_router(
         service=notes, allowed_user_ids=settings.allowed_user_ids,
@@ -198,6 +213,7 @@ async def async_main() -> None:
             planner_store.close()
             notes_store.close()
             day_facts_store.close()
+            access_store.close()
 
 
 def main() -> None:

@@ -56,7 +56,7 @@ def create_router(
         await message.answer(
             "Твой Telegram ID:\n"
             f"{message.from_user.id}\n\n"
-            "Добавь его в ALLOWED_USER_IDS в .env, затем перезапусти сервис."
+            "Для доступа используй /start и запроси разрешение администратора."
         )
 
     @router.message(CommandStart())
@@ -64,7 +64,7 @@ def create_router(
         if not is_allowed(message):
             await message.answer(
                 "Доступ к транскрибации закрыт.\n"
-                "Сначала используй /id и добавь свой Telegram ID в ALLOWED_USER_IDS."
+                "Нажми /start, чтобы запросить доступ у администратора."
             )
             return
 
@@ -100,7 +100,7 @@ def create_router(
     async def on_audio(message: Message, bot: Bot) -> None:
         if not is_allowed(message):
             if message.chat.type == ChatType.PRIVATE:
-                await message.reply("Доступ к транскрибации закрыт. Используй /id для настройки.")
+                await message.reply("Доступ закрыт. Нажми /start и запроси разрешение.")
             return
 
         document = message.document
@@ -261,10 +261,14 @@ async def run_worker(
     day_facts: DayFactsService | None = None,
 ) -> None:
     planner_tz = ZoneInfo(planner.config.timezone) if planner else None
+    allowed_users = getattr(settings, "allowed_user_ids", None)
 
     while True:
         job = await queue.get()
         try:
+            if allowed_users is not None and job.user_id not in allowed_users:
+                # Revocation applies to recordings queued before the decision.
+                continue
             await bot.send_chat_action(job.chat_id, ChatAction.TYPING)
 
             duration = await asyncio.to_thread(probe_duration_seconds, job.file_path)
@@ -285,6 +289,8 @@ async def run_worker(
                 )
                 continue
 
+            if allowed_users is not None and job.user_id not in allowed_users:
+                continue
             session = planner.store.session(job.user_id) if planner else None
             if planner and session and (
                 job.day_facts_token is not None or job.capture_token is not None
@@ -309,6 +315,8 @@ async def run_worker(
                         session["state"],
                         session["target_day"],
                     )
+                if allowed_users is not None and job.user_id not in allowed_users:
+                    continue
                 replies = await planner.handle_text(job.user_id, result.pause_aware_text or result.text, today)
                 if log_content:
                     logger.info("PLANNER_OUTPUT user=%s replies=%r", job.user_id, replies)
@@ -328,6 +336,8 @@ async def run_worker(
                     display_text = await punctuation_processor.format(
                         result.text, fallback_text=display_text
                     )
+                if allowed_users is not None and job.user_id not in allowed_users:
+                    continue
                 try:
                     updated = day_facts.accept(
                         job.user_id, job.day_facts_token,
@@ -370,6 +380,8 @@ async def run_worker(
                         result.text, fallback_text=display_text
                     )
                 delivery = display_text
+                if allowed_users is not None and job.user_id not in allowed_users:
+                    continue
                 if job.capture_token is not None and notes is not None:
                     try:
                         note = notes.capture_voice(
