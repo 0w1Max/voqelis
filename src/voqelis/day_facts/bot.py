@@ -21,17 +21,20 @@ from aiogram.types import (
 
 from ..menu import (
     FACTS_HISTORY,
+    FACTS_NEW,
+    FACTS_RESUME,
     FACTS_MOBILE,
     FACTS_PDF,
     FACTS_START,
     FACTS_TODAY,
     FACTS_WORD,
     FACTS_WORD_MOBILE,
-    main_keyboard,
+    facts_keyboard,
 )
 from ..notes.service import NotesService
 from ..planner.service import PlannerService
 from ..text import chunk_text
+from ..navigation import NavigationStore
 from .export import export_docx, export_mobile_docx, export_pdf
 from .service import EDIT_ALIASES, DayFactsService
 from .store import FactsDraft
@@ -216,6 +219,7 @@ def create_day_facts_router(
     *, service: DayFactsService, allowed_user_ids: frozenset[int],
     planner: PlannerService, notes: NotesService, export_dir: Path,
     admin_user_id: int | None = None,
+    navigation: NavigationStore | None = None,
 ) -> Router:
     router = Router(name="day_facts")
 
@@ -227,27 +231,40 @@ def create_day_facts_router(
         )
 
     @router.message(Command("facts"))
-    @router.message(F.text == FACTS_START)
+    @router.message(F.text == FACTS_NEW)
+    @router.message(F.text == FACTS_RESUME)
     async def on_start(message: Message) -> None:
         if not allowed(message):
             return
         user_id = message.from_user.id
-        if planner.store.session(user_id) is not None:
+        # Legacy /facts opens the module; a tap from an old keyboard must
+        # not unexpectedly start a journal entry.
+        if navigation is not None and message.text in {FACTS_NEW, FACTS_RESUME}:
+            if navigation.current(user_id)[0] != "facts":
+                await message.answer("Сначала открой модуль «📘 Факты дня».")
+                return
+        if navigation is None and planner.store.session(user_id) is not None:
             await message.answer(
                 "Сначала заверши активный Planner командой /plan_exit."
             )
             return
-        if notes.pending_voice(user_id):
+        if navigation is None and notes.pending_voice(user_id):
             await message.answer(
                 "Сначала заверши или отмени ожидание голосовой заметки: /note_cancel."
             )
             return
-        draft = service.start(user_id)
-        # Update the persistent Telegram reply keyboard, even if the user
-        # still sees the older Planner menu from a previous bot release.
+        if message.text == FACTS_RESUME:
+            draft = service.store.draft(user_id)
+            if draft is None:
+                await message.answer("Сохранённого черновика нет. Нажми «➕ Новая запись».")
+                return
+        else:
+            draft = service.start(user_id)
+        if navigation is not None:
+            navigation.activate(user_id, "facts")
         await message.answer(
-            "📘 Меню «Факты дня»",
-            reply_markup=main_keyboard(admin=message.from_user.id == admin_user_id),
+            "📘 Факты дня",
+            reply_markup=facts_keyboard(),
         )
         await _send(message, service.render(draft), draft=draft)
 
@@ -537,6 +554,9 @@ def create_day_facts_router(
             )
             return
 
+        if navigation is not None and navigation.current(callback.from_user.id)[0] != "facts":
+            await callback.answer("Открой модуль «Факты дня».", show_alert=True)
+            return
         action, _, payload = data[3:].partition(":")
         if action in {"redo", "items", "pick"}:
             parts = payload.split(":")
@@ -693,11 +713,14 @@ def create_day_facts_router(
             and not message.text.startswith("/")
             and message.from_user is not None
             and service.store.draft(message.from_user.id) is not None
-            and planner.store.session(message.from_user.id) is None
+            and (navigation is None or navigation.current(message.from_user.id)[0] == "facts")
+            and (navigation is not None or planner.store.session(message.from_user.id) is None)
         )
     )
     async def on_field_text(message: Message) -> None:
         if not allowed(message):
+            return
+        if navigation is not None and navigation.current(message.from_user.id)[0] != "facts":
             return
         if message.text in _OTHER_MENU_ACTIONS:
             await message.answer(
