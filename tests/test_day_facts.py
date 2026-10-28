@@ -848,7 +848,9 @@ def test_home_keyboard_contains_modules_and_facts_has_own_menu() -> None:
     from voqelis.menu import facts_keyboard, main_keyboard
     from voqelis.planner.bot import planner_keyboard
 
-    home = [item.text for row in main_keyboard().keyboard for item in row]
+    home = [item.text for row in main_keyboard(admin=True).keyboard for item in row]
+    guest_home = [item.text for row in main_keyboard().keyboard for item in row]
+    assert guest_home == ["📘 Факты дня", "✅ Список дел (скоро)"]
     facts = [item.text for row in facts_keyboard().keyboard for item in row]
     planner = [item.text for row in planner_keyboard().keyboard for item in row]
 
