@@ -360,3 +360,27 @@ async def test_note_recording_does_not_intercept_parked_facts_draft(nav, tmp_pat
             queue.task_done()
     finally:
         store.close()
+
+
+@pytest.mark.asyncio
+async def test_admin_panel_parks_active_dictation(nav, tmp_path):
+    from voqelis.access import AccessStore, create_access_router
+
+    access = AccessStore(
+        tmp_path / "access.sqlite3", bootstrap_ids=frozenset({1})
+    )
+    try:
+        nav.activate(1, "facts_capture")
+        router = create_access_router(access, navigation=nav)
+        owner = FakeMessage(1, "/admin")
+        await _handler(router, "on_admin")(owner)
+        assert nav.current(1)[0] == "home"
+        assert "Админ-панель" in owner.responses[-1][0]
+
+        nav.activate(2, "facts_capture")
+        guest = FakeMessage(2, "/admin")
+        await _handler(router, "on_admin")(guest)
+        assert nav.current(2)[0] == "facts_capture"
+        assert guest.responses == []
+    finally:
+        access.close()
