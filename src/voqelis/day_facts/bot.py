@@ -71,7 +71,10 @@ def facts_markup(draft: FactsDraft) -> InlineKeyboardMarkup:
         rows.append([
             InlineKeyboardButton(text="✅ Сохранить", callback_data=f"df:save:{token}")
         ])
-    elif draft.stage in {"facts", "judgments"}:
+    elif (
+        (draft.stage == "facts" and draft.facts)
+        or (draft.stage == "judgments" and draft.judgments)
+    ):
         rows.append([
             InlineKeyboardButton(text="➡️ Далее", callback_data=f"df:next:{token}")
         ])
@@ -298,7 +301,15 @@ def create_day_facts_router(
         try:
             updated = service.store.next(message.from_user.id, draft.token)
         except ValueError:
-            await message.answer("Сначала добавь хотя бы один пункт текущего раздела.")
+            if draft.edit_field is not None:
+                advice = "Сначала заверши или отмени исправление."
+            elif draft.stage == "facts":
+                advice = "Сначала продиктуй хотя бы один факт."
+            elif draft.stage == "judgments":
+                advice = "Сначала продиктуй хотя бы одно суждение."
+            else:
+                advice = "Заверши текущий этап перед переходом."
+            await message.answer(advice)
             return
         if updated is None:
             await message.answer("Черновик изменился. Введи /facts для продолжения.")
@@ -450,15 +461,29 @@ def create_day_facts_router(
     async def on_day(message: Message) -> None:
         if not allowed(message):
             return
-        try:
-            day = _day_arg(_argument(message.text or ""), service.today())
-        except ValueError:
-            await message.answer("Дата: /facts_day 2026-10-26")
-            return
-        await show_saved_day(message, message.from_user.id, day)
-        draft = service.store.draft(message.from_user.id)
+        if message.text == FACTS_TODAY:
+            day = service.today()
+        else:
+            try:
+                day = _day_arg(_argument(message.text or ""), service.today())
+            except ValueError:
+                await message.answer(
+                    "Укажи дату в формате ГГГГ-ММ-ДД: "
+                    f"/facts_day {service.today().isoformat()}"
+                )
+                return
+        user_id = message.from_user.id
+        draft = service.store.draft(user_id)
+        entries = service.store.for_day(user_id, day)
+        if entries or draft is None or draft.day != day:
+            await show_saved_day(message, user_id, day)
         if draft is not None and draft.day == day:
-            await _send(message, service.render(draft), draft=draft)
+            await _send(
+                message,
+                "📝 Незавершённый черновик (не сохранён)\n\n"
+                + service.render(draft),
+                draft=draft,
+            )
 
     async def send_export(message: Message, user_id: int, kind: str, day: date) -> None:
         # sqlite3 connections belong to the event-loop thread. The actual
@@ -708,9 +733,15 @@ def create_day_facts_router(
             try:
                 updated = service.store.next(callback.from_user.id, token)
             except ValueError:
-                await callback.answer(
-                    "Сначала добавь хотя бы один пункт.", show_alert=True
-                )
+                if draft.edit_field is not None:
+                    advice = "Сначала заверши или отмени исправление."
+                elif draft.stage == "facts":
+                    advice = "Сначала продиктуй хотя бы один факт."
+                elif draft.stage == "judgments":
+                    advice = "Сначала продиктуй хотя бы одно суждение."
+                else:
+                    advice = "Заверши текущий этап."
+                await callback.answer(advice, show_alert=True)
                 return
             await callback.answer()
             if updated:

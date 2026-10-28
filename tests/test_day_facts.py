@@ -1698,3 +1698,142 @@ async def test_history_and_forged_export_cannot_read_another_users_facts(store, 
     await callback_handler(bad_date)
     assert bad_date.answers[-1][1].get("show_alert") is True
 
+
+
+
+@pytest.mark.asyncio
+async def test_current_facts_button_uses_today_and_shows_unsaved_draft(
+    store, tmp_path
+):
+    service = DayFactsService(store)
+    service.today = lambda: date(2026, 10, 29)
+    planner = SimpleNamespace(store=SimpleNamespace(session=lambda _id: None))
+    notes = SimpleNamespace(pending_voice=lambda _id: False)
+    router = create_day_facts_router(
+        service=service, allowed_user_ids=frozenset({17}),
+        planner=planner, notes=notes, export_dir=tmp_path,
+    )
+    on_day = next(h.callback for h in router.message.handlers
+                  if h.callback.__name__ == "on_day")
+
+    class Msg:
+        chat = SimpleNamespace(type="private")
+        from_user = SimpleNamespace(id=17)
+
+        def __init__(self, text):
+            self.text = text
+            self.answers = []
+
+        async def answer(self, text, **kwargs):
+            self.answers.append((text, kwargs))
+
+    # The text button is not a command argument or an October 26 date.
+    current = Msg("📋 Текущие факты дня")
+    await on_day(current)
+    assert len(current.answers) == 1
+    assert "За 29.10.2026 сохранённых ситуаций нет" in current.answers[0][0]
+    assert "Дата:" not in current.answers[0][0]
+
+    # A running draft is shown even if no saved entries exist yet.
+    draft = store.begin(17, date(2026, 10, 29))
+    draft = store.accept(17, draft.token, "Проверка события.")
+    current = Msg("📋 Текущие факты дня")
+    await on_day(current)
+    assert len(current.answers) == 1
+    assert "Незавершённый черновик (не сохранён)" in current.answers[0][0]
+    assert "29.10.2026" in current.answers[0][0]
+    assert "Проверка события." in current.answers[0][0]
+    assert store.draft(17) == draft
+
+    # Exact commands (including date-free) are still supported.
+    default_command = Msg("/facts_day")
+    await on_day(default_command)
+    assert "29.10.2026" in default_command.answers[0][0]
+    explicit = Msg("/facts_day 2026-10-26")
+    await on_day(explicit)
+    assert "26.10.2026" in explicit.answers[0][0]
+    assert "Незавершённый" not in explicit.answers[0][0]
+    invalid = Msg("/facts_day yesterday")
+    await on_day(invalid)
+    assert "/facts_day 2026-10-29" in invalid.answers[0][0]
+
+    # Viewing history or another day never changes a live draft.
+    assert store.draft(17) == draft
+
+
+@pytest.mark.asyncio
+async def test_editing_event_keeps_fact_stage_and_never_auto_advances(
+    store, tmp_path
+):
+    service = DayFactsService(store)
+    planner = SimpleNamespace(store=SimpleNamespace(session=lambda _id: None))
+    notes = SimpleNamespace(pending_voice=lambda _id: False)
+    router = create_day_facts_router(
+        service=service, allowed_user_ids=frozenset({17}),
+        planner=planner, notes=notes, export_dir=tmp_path,
+    )
+    on_callback = router.callback_query.handlers[0].callback
+    on_next = next(h.callback for h in router.message.handlers
+                   if h.callback.__name__ == "on_next")
+
+    class Msg:
+        chat = SimpleNamespace(type="private")
+        from_user = SimpleNamespace(id=17)
+        text = "/facts_next"
+
+        def __init__(self):
+            self.responses = []
+
+        async def answer(self, text, **kwargs):
+            self.responses.append((text, kwargs))
+
+    class Click:
+        from_user = SimpleNamespace(id=17)
+
+        def __init__(self, data, message):
+            self.data = data
+            self.message = message
+            self.responses = []
+
+        async def answer(self, text=None, **kwargs):
+            self.responses.append((text, kwargs))
+
+    draft = store.begin(17, date(2026, 10, 29))
+    draft = store.accept(17, draft.token, "Первоначальное событие")
+    assert draft.stage == "facts" and not draft.facts
+
+    msg = Msg()
+    await on_callback(Click(f"df:edit:{draft.token}", msg))
+    selection = store.draft(17)
+    assert selection.edit_field == "select"
+    await on_callback(Click(f"df:pick:event:1:{selection.token}", msg))
+    editing = store.draft(17)
+    assert editing.edit_field == "event"
+
+    changed = store.accept(
+        17, editing.token, "Исправленное событие", voice_dictation=True,
+    )
+    assert changed.stage == "facts"
+    assert changed.edit_field is None
+    assert changed.event == "Исправленное событие"
+    assert changed.facts == ()
+    assert changed.judgments == ()
+    assert not any(
+        b.text == "➡️ Далее"
+        for row in facts_markup(changed).inline_keyboard for b in row
+    )
+    assert not any("хотя бы" in text for text, _ in msg.responses)
+
+    # The state remains unchanged until the user adds a fact.
+    await on_next(msg)
+    assert "хотя бы один факт" in msg.responses[-1][0]
+    assert store.draft(17) == changed
+
+    filled = store.accept(
+        17, changed.token, "Я провёл встречу.", voice_dictation=True,
+    )
+    assert filled.stage == "facts" and filled.facts == ("Я провёл встречу.",)
+    assert any(
+        b.text == "➡️ Далее"
+        for row in facts_markup(filled).inline_keyboard for b in row
+    )
