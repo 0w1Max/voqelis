@@ -46,6 +46,17 @@ async def async_main() -> None:
         bootstrap_ids=settings.allowed_user_ids,
     )
     settings = replace(settings, allowed_user_ids=access_store.allowed)
+    # Experimental ASR commands may download models and consume substantial
+    # CPU/disk. Approved users must never inherit those owner-only capabilities.
+    # Fail closed if no unambiguous owner was configured.
+    owner_only_settings = replace(
+        settings,
+        allowed_user_ids=(
+            frozenset({access_store.admin_id})
+            if access_store.admin_id is not None
+            else frozenset()
+        ),
+    )
     if access_store.admin_id is None:
         logger.warning(
             "Owner approval disabled: ALLOWED_USER_IDS must contain exactly one ID"
@@ -153,14 +164,14 @@ async def async_main() -> None:
     dp.include_router(
         create_asr_test_router(
             manager=asr_test_manager,
-            settings=settings,
+            settings=owner_only_settings,
             other_session_active=gguf_test_manager.has_any_session,
         )
     )
     dp.include_router(
         create_asr_gguf_test_router(
             manager=gguf_test_manager,
-            settings=settings,
+            settings=owner_only_settings,
             other_session_active=asr_test_manager.has_any_session,
         )
     )
