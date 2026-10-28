@@ -126,7 +126,11 @@ async def test_real_dispatcher_note_button_arms_owner_voice_capture(
             from_user=User(id=user_id, is_bot=False, first_name="Test"),
             text=text,
         )
-        return await dp.feed_update(bot, Update(update_id=seq, message=msg))
+        import asyncio
+        return await asyncio.wait_for(
+            dp.feed_update(bot, Update(update_id=seq, message=msg)),
+            timeout=3,
+        )
 
     bot = Bot(token="123456:TESTTOKEN")
     try:
