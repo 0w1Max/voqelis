@@ -261,7 +261,8 @@ async def test_existing_transcription_contract_still_available_in_transcribe_mod
         processing_seconds=0.1,
     )
     assert result.text == "исходный текст"
-    assert NOTES_START in _labels(main_keyboard())
+    assert NOTES_START in _labels(main_keyboard(admin=True))
+    assert NOTES_START not in _labels(main_keyboard())
 
 
 @pytest.mark.asyncio
