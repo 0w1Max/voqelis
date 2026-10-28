@@ -362,7 +362,7 @@ def create_planner_router(
                 navigation.activate(message.from_user.id, "home")
             await message.answer(
                 "Режим планирования завершён.",
-                reply_markup=main_keyboard() if navigation is not None else planner_keyboard(),
+                reply_markup=main_keyboard(admin=True) if navigation is not None else planner_keyboard(),
             )
 
     @router.callback_query(lambda callback: callback.data is not None and callback.data.startswith("pl:"))
@@ -390,13 +390,20 @@ def create_planner_router(
                     ),
                 )
 
-    @router.message(
-        lambda message: (
-            message.text is not None
-            and message.from_user is not None
-            and service.store.session(message.from_user.id) is not None
-        )
-    )
+    async def active_planner_text(message: Message) -> bool:
+        """Async filter: a Planner SQLite session is not thread-transferable."""
+        if (
+            not authorized(message)
+            or message.text is None
+            or message.text.startswith("/")
+        ):
+            return False
+        user_id = message.from_user.id
+        if navigation is not None and navigation.current(user_id)[0] != "planner":
+            return False
+        return service.store.session(user_id) is not None
+
+    @router.message(active_planner_text)
     async def on_planner_text(message: Message) -> None:
         if not allowed(message) or not message.text or message.text.startswith("/"):
             return

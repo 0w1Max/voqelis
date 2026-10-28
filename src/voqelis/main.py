@@ -188,16 +188,17 @@ async def async_main() -> None:
         admin_user_id=access_store.admin_id, navigation=navigation,
     ))
     dp.include_router(create_notes_router(
-        service=notes, allowed_user_ids=settings.allowed_user_ids,
+        service=notes, allowed_user_ids=owner_only_settings.allowed_user_ids,
         planner=planner, day_facts=day_facts, navigation=navigation,
     ))
     dp.include_router(create_planner_router(
-        service=planner, allowed_user_ids=settings.allowed_user_ids,
+        service=planner, allowed_user_ids=owner_only_settings.allowed_user_ids,
         navigation=navigation,
     ))
     dp.include_router(create_router(
         settings=settings, queue=queue, planner=planner,
         notes=notes, day_facts=day_facts, navigation=navigation,
+        owner_user_id=access_store.admin_id,
     ))
 
     async with Bot(
@@ -215,6 +216,7 @@ async def async_main() -> None:
                 punctuation_processor=punctuation_processor,
                 notes=notes,
                 day_facts=day_facts, navigation=navigation,
+                owner_user_id=access_store.admin_id,
             ),
             name="transcription-worker",
         )

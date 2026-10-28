@@ -96,6 +96,13 @@ def create_navigation_router(
             and message.from_user.id in allowed_user_ids
         )
 
+    def owner_permitted(message: Message) -> bool:
+        return (
+            permitted(message)
+            and admin_user_id is not None
+            and message.from_user.id == admin_user_id
+        )
+
     @router.message(Command("menu"))
     @router.message(F.text == HOME)
     async def on_home(message: Message) -> None:
@@ -120,7 +127,7 @@ def create_navigation_router(
 
     @router.message(F.text == NOTES_START)
     async def on_notes(message: Message) -> None:
-        if not permitted(message):
+        if not owner_permitted(message):
             return
         navigation.activate(message.from_user.id, "notes")
         await message.answer(
@@ -130,7 +137,7 @@ def create_navigation_router(
 
     @router.message(F.text == PLANNER_START)
     async def on_planner(message: Message) -> None:
-        if not permitted(message):
+        if not owner_permitted(message):
             return
         navigation.activate(message.from_user.id, "planner")
         await message.answer(
@@ -140,7 +147,7 @@ def create_navigation_router(
 
     @router.message(F.text == TRANSCRIBE_START)
     async def on_transcribe(message: Message) -> None:
-        if not permitted(message):
+        if not owner_permitted(message):
             return
         navigation.activate(message.from_user.id, "transcribe")
         await message.answer(

@@ -41,6 +41,7 @@ def create_router(
     notes: NotesService | None = None,
     day_facts: DayFactsService | None = None,
     navigation: NavigationStore | None = None,
+    owner_user_id: int | None = None,
 ) -> Router:
     router = Router(name="audio")
 
@@ -110,6 +111,9 @@ def create_router(
             navigation.current(user_id) if navigation is not None else (None, None)
         )
         if navigation is not None:
+            if section in {"notes", "planner", "transcribe"} and user_id != owner_user_id:
+                await message.reply("Этот модуль доступен только владельцу.")
+                return
             if section == "home":
                 await message.reply("Сначала выбери модуль в главном меню.")
                 return
@@ -305,6 +309,7 @@ async def run_worker(
     notes: NotesService | None = None,
     day_facts: DayFactsService | None = None,
     navigation: NavigationStore | None = None,
+    owner_user_id: int | None = None,
 ) -> None:
     planner_tz = ZoneInfo(planner.config.timezone) if planner else None
     allowed_users = getattr(settings, "allowed_user_ids", None)
@@ -320,6 +325,12 @@ async def run_worker(
     while True:
         job = await queue.get()
         try:
+            if (
+                navigation is not None
+                and job.navigation_section in {"notes", "planner", "transcribe"}
+                and job.user_id != owner_user_id
+            ):
+                continue
             if not route_current(job):
                 await bot.send_message(
                     job.chat_id,

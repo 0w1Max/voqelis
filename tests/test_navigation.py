@@ -261,7 +261,8 @@ async def test_existing_transcription_contract_still_available_in_transcribe_mod
         processing_seconds=0.1,
     )
     assert result.text == "исходный текст"
-    assert NOTES_START in _labels(main_keyboard())
+    assert NOTES_START in _labels(main_keyboard(admin=True))
+    assert NOTES_START not in _labels(main_keyboard())
 
 
 @pytest.mark.asyncio
@@ -346,6 +347,7 @@ async def test_note_recording_does_not_intercept_parked_facts_draft(nav, tmp_pat
         router = bot_module.create_router(
             settings=settings, queue=queue, navigation=nav,
             notes=notes, day_facts=DayFactsService(store),
+            owner_user_id=1,
         )
         audio = FakeAudioMessage()
         await _handler(router, "on_audio")(audio, FakeAudioTelegramBot())

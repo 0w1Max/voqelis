@@ -720,16 +720,24 @@ def create_day_facts_router(
             return
         await callback.answer()
 
-    @router.message(
-        lambda message: (
-            message.text is not None
-            and not message.text.startswith("/")
-            and message.from_user is not None
-            and service.store.draft(message.from_user.id) is not None
-            and (navigation is None or navigation.current(message.from_user.id)[0] == "facts_capture")
-            and (navigation is not None or planner.store.session(message.from_user.id) is None)
-        )
-    )
+    async def active_facts_text(message: Message) -> bool:
+        """Async filter: SQLite must stay on the event-loop thread."""
+        if (
+            not allowed(message)
+            or message.text is None
+            or message.text.startswith("/")
+        ):
+            return False
+        user_id = message.from_user.id
+        if navigation is not None:
+            # Do not inspect a parked draft while another module is active.
+            if navigation.current(user_id)[0] != "facts_capture":
+                return False
+        elif planner.store.session(user_id) is not None:
+            return False
+        return service.store.draft(user_id) is not None
+
+    @router.message(active_facts_text)
     async def on_field_text(message: Message) -> None:
         if not allowed(message):
             return
