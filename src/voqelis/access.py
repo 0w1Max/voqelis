@@ -21,6 +21,7 @@ from aiogram.types import (
 )
 
 from .menu import ADMIN_PANEL, main_keyboard
+from .navigation import NavigationStore
 
 logger = logging.getLogger(__name__)
 
@@ -261,7 +262,9 @@ def _admin_summary(store: AccessStore, page: int = 0) -> str:
     return "\n".join(lines)
 
 
-def create_access_router(store: AccessStore) -> Router:
+def create_access_router(
+    store: AccessStore, *, navigation: NavigationStore | None = None
+) -> Router:
     router = Router(name="access")
     owner = store.admin_id
 
@@ -314,9 +317,11 @@ def create_access_router(store: AccessStore) -> Router:
         if message.chat.type != ChatType.PRIVATE or message.from_user is None:
             return
         if message.from_user.id in store.allowed:
+            if navigation is not None:
+                navigation.activate(message.from_user.id, "home")
             await message.answer(
-                "🎙️ Добро пожаловать в Voqelis!\n"
-                "Отправь голосовое для расшифровки или используй «Факты дня».",
+                "🏠 Добро пожаловать в Voqelis!\n"
+                "Выбери нужный модуль в главном меню.",
                 reply_markup=main_keyboard(admin=message.from_user.id == owner),
             )
         else:
