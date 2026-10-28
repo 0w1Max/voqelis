@@ -162,9 +162,9 @@ async def test_draft_is_parked_not_modified_when_leaving_facts(nav, tmp_path):
 
 
 class FakeAudioMessage:
-    def __init__(self):
-        self.from_user = SimpleNamespace(id=1)
-        self.chat = SimpleNamespace(type="private", id=1)
+    def __init__(self, user_id=1):
+        self.from_user = SimpleNamespace(id=user_id)
+        self.chat = SimpleNamespace(type="private", id=user_id)
         self.voice = SimpleNamespace(file_id="voice123", duration=2, file_size=4)
         self.audio = None
         self.document = None
@@ -195,9 +195,10 @@ class FakeAudioTelegramBot:
 
 
 @pytest.mark.asyncio
-async def test_home_rejects_audio_before_downloading(nav, tmp_path):
+@pytest.mark.parametrize("user_id", [1, 2])
+async def test_home_accepts_voice_for_owner_and_guest(nav, tmp_path, user_id):
     settings = SimpleNamespace(
-        allowed_user_ids=frozenset({1}),
+        allowed_user_ids=frozenset({1, 2}),
         max_file_size_bytes=20_000,
         max_audio_seconds=1200,
         temp_dir=tmp_path,
@@ -205,12 +206,22 @@ async def test_home_rejects_audio_before_downloading(nav, tmp_path):
     )
     queue = JobQueue(max_pending_jobs=2, max_pending_per_user=2)
     router = bot_module.create_router(
-        settings=settings, queue=queue, navigation=nav
+        settings=settings, queue=queue, navigation=nav, owner_user_id=1,
     )
-    message = FakeAudioMessage()
-    await _handler(router, "on_audio")(message, FakeAudioTelegramBot())
-    assert "Сначала выбери модуль" in message.replies[-1]
-    assert queue.snapshot().reserved == 0
+    audio = FakeAudioMessage(user_id=user_id)
+    await _handler(router, "on_audio")(audio, FakeAudioTelegramBot())
+    job = await queue.get()
+    try:
+        assert "Принял" in audio.replies[-1]
+        assert job.user_id == user_id
+        assert job.navigation_section == "home"
+        assert job.navigation_revision == 0
+        assert job.day_facts_token is None
+        assert job.capture_token is None
+    finally:
+        job.file_path.unlink(missing_ok=True)
+        await queue.release(user_id)
+        queue.task_done()
 
 
 @pytest.mark.asyncio
@@ -248,21 +259,31 @@ async def test_switch_after_queued_audio_does_not_write_to_other_module(nav, tmp
             await worker
 
 
-@pytest.mark.asyncio
-async def test_existing_transcription_contract_still_available_in_transcribe_module(nav, tmp_path):
-    nav.activate(1, "transcribe")
-    assert nav.current(1) == ("transcribe", 1)
-    result = TranscriptionResult(
-        text="исходный текст",
-        language="ru",
-        language_probability=1.0,
-        duration_seconds=1.0,
-        duration_after_vad_seconds=1.0,
-        processing_seconds=0.1,
-    )
-    assert result.text == "исходный текст"
-    assert NOTES_START in _labels(main_keyboard(admin=True))
-    assert NOTES_START not in _labels(main_keyboard())
+def test_legacy_transcription_state_migrates_to_home_without_resetting_others(tmp_path):
+    path = tmp_path / "navigation.sqlite3"
+    original = NavigationStore(path)
+    try:
+        original.activate(1, "facts_capture")
+        original.activate(2, "planner")
+        with original.db:
+            original.db.execute(
+                "UPDATE navigation_state SET section='transcribe' WHERE user_id=2"
+            )
+        assert original.current(2) == ("transcribe", 1)
+    finally:
+        original.close()
+
+    migrated = NavigationStore(path)
+    try:
+        assert migrated.current(1) == ("facts_capture", 1)
+        assert migrated.current(2) == ("home", 2)
+        assert migrated.activate(2, "home") == ("home", 2)
+        with pytest.raises(ValueError):
+            migrated.activate(2, "transcribe")
+        assert NOTES_START in _labels(main_keyboard(admin=True))
+        assert NOTES_START not in _labels(main_keyboard())
+    finally:
+        migrated.close()
 
 
 @pytest.mark.asyncio
