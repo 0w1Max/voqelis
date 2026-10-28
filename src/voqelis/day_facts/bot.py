@@ -200,6 +200,7 @@ def _day_arg(value: str, default: date) -> date:
 def create_day_facts_router(
     *, service: DayFactsService, allowed_user_ids: frozenset[int],
     planner: PlannerService, notes: NotesService, export_dir: Path,
+    admin_user_id: int | None = None,
 ) -> Router:
     router = Router(name="day_facts")
 
@@ -229,7 +230,10 @@ def create_day_facts_router(
         draft = service.start(user_id)
         # Update the persistent Telegram reply keyboard, even if the user
         # still sees the older Planner menu from a previous bot release.
-        await message.answer("📘 Меню «Факты дня»", reply_markup=main_keyboard())
+        await message.answer(
+            "📘 Меню «Факты дня»",
+            reply_markup=main_keyboard(admin=message.from_user.id == admin_user_id),
+        )
         await _send(message, service.render(draft), draft=draft)
 
     @router.message(Command("facts_cancel"))
