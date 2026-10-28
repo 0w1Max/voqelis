@@ -166,20 +166,30 @@ class AccessStore:
             )
         return True
 
-    def pending(self, limit: int = 10) -> list[sqlite3.Row]:
+    def pending(self, limit: int = 10, offset: int = 0) -> list[sqlite3.Row]:
         return self.db.execute(
             "SELECT user_id, display_name, username FROM access_requests "
-            "WHERE status = 'pending' ORDER BY updated_at DESC LIMIT ?",
-            (limit,),
+            "WHERE status = 'pending' ORDER BY updated_at DESC, user_id DESC "
+            "LIMIT ? OFFSET ?",
+            (limit, offset),
         ).fetchall()
 
-    def granted(self, limit: int = 10) -> list[sqlite3.Row]:
+    def granted(self, limit: int = 10, offset: int = 0) -> list[sqlite3.Row]:
         return self.db.execute(
             "SELECT g.user_id, COALESCE(r.display_name, '') AS display_name "
             "FROM access_grants g LEFT JOIN access_requests r USING(user_id) "
-            "ORDER BY g.approved_at DESC LIMIT ?",
-            (limit,),
+            "ORDER BY g.approved_at DESC, g.user_id DESC LIMIT ? OFFSET ?",
+            (limit, offset),
         ).fetchall()
+
+    def counts(self) -> tuple[int, int]:
+        pending = self.db.execute(
+            "SELECT COUNT(*) FROM access_requests WHERE status = 'pending'"
+        ).fetchone()[0]
+        approved = self.db.execute(
+            "SELECT COUNT(*) FROM access_grants"
+        ).fetchone()[0]
+        return int(pending), int(approved)
 
 
 def _request_markup() -> InlineKeyboardMarkup:
@@ -188,9 +198,9 @@ def _request_markup() -> InlineKeyboardMarkup:
     ]])
 
 
-def _admin_markup(store: AccessStore) -> InlineKeyboardMarkup:
+def _admin_markup(store: AccessStore, page: int = 0) -> InlineKeyboardMarkup:
     rows = []
-    for row in store.pending():
+    for row in store.pending(offset=page * 10):
         user_id = row["user_id"]
         rows.append([
             InlineKeyboardButton(
@@ -200,21 +210,35 @@ def _admin_markup(store: AccessStore) -> InlineKeyboardMarkup:
                 text=f"❌ {user_id}", callback_data=f"access:reject:{user_id}"
             ),
         ])
-    for row in store.granted():
+    for row in store.granted(offset=page * 10):
         user_id = row["user_id"]
         rows.append([InlineKeyboardButton(
             text=f"🚫 Отозвать {user_id}", callback_data=f"access:revoke:{user_id}"
         )])
+    pending_count, granted_count = store.counts()
+    if page > 0:
+        rows.append([InlineKeyboardButton(
+            text="⬅️ Назад", callback_data=f"access:panel:{page - 1}"
+        )])
+    if (page + 1) * 10 < max(pending_count, granted_count):
+        rows.append([InlineKeyboardButton(
+            text="➡️ Ещё", callback_data=f"access:panel:{page + 1}"
+        )])
     rows.append([InlineKeyboardButton(
-        text="🔄 Обновить", callback_data="access:panel"
+        text="🔄 Обновить", callback_data=f"access:panel:{page}"
     )])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _admin_summary(store: AccessStore) -> str:
-    pending = store.pending()
-    granted = store.granted()
-    lines = ["🛡 Админ-панель Voqelis", "Заявки:"]
+def _admin_summary(store: AccessStore, page: int = 0) -> str:
+    pending = store.pending(offset=page * 10)
+    granted = store.granted(offset=page * 10)
+    total_pending, total_granted = store.counts()
+    lines = [
+        "🛡 Админ-панель Voqelis",
+        f"Страница {page + 1} · Заявки: {total_pending} · Одобрено: {total_granted}",
+        "Заявки:",
+    ]
     if not pending:
         lines.append("Нет ожидающих заявок.")
     for row in pending:
@@ -230,7 +254,7 @@ def _admin_summary(store: AccessStore) -> str:
         lines.append(
             f"• {row['user_id']} · {_safe_name(row['display_name']) or 'Без имени'}"
         )
-    lines.append("Показаны последние 10 записей каждого раздела.")
+    lines.append("По 10 записей каждого раздела на страницу.")
     return "\n".join(lines)
 
 
@@ -336,10 +360,20 @@ def create_access_router(store: AccessStore) -> Router:
         if callback.from_user.id != owner:
             await callback.answer("Недостаточно прав.", show_alert=True)
             return
-        if data == "access:panel":
+        if data == "access:panel" or data.startswith("access:panel:"):
+            try:
+                page = int(data.split(":")[2]) if data.count(":") == 2 else 0
+            except ValueError:
+                page = -1
+            pending_count, granted_count = store.counts()
+            if page < 0 or page > 100000 or page * 10 >= max(
+                1, pending_count, granted_count
+            ):
+                await callback.answer("Страница недоступна.", show_alert=True)
+                return
             await callback.answer()
             await callback.message.answer(
-                _admin_summary(store), reply_markup=_admin_markup(store)
+                _admin_summary(store, page), reply_markup=_admin_markup(store, page)
             )
             return
         parts = data.split(":")
