@@ -241,6 +241,10 @@ def create_router(
                 and (navigation is None or section == "notes")
                 else None
             )
+            if navigation is not None and section == "notes" and capture_token is None:
+                raise _UserInputError(
+                    "Ожидание заметки истекло. Нажми «🎙 Новая заметка» ещё раз."
+                )
             job = AudioJob(
                 chat_id=message.chat.id,
                 reply_to_message_id=message.message_id,
