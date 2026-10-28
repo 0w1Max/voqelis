@@ -684,6 +684,8 @@ def create_day_facts_router(
             return
         if action == "cancel":
             service.store.cancel(callback.from_user.id)
+            if navigation is not None:
+                navigation.activate(callback.from_user.id, "facts")
             await callback.answer()
             await callback.message.answer("Черновик отменён.")
             return
@@ -691,6 +693,8 @@ def create_day_facts_router(
             saved = service.store.save(callback.from_user.id, token)
             await callback.answer()
             if saved:
+                if navigation is not None:
+                    navigation.activate(callback.from_user.id, "facts")
                 await callback.message.answer(
                     f"✅ Ситуация #{saved.id} сохранена за {saved.day:%d.%m.%Y}.\n"
                     "Добавить ещё: /facts\n"
