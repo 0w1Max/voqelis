@@ -1837,3 +1837,70 @@ async def test_editing_event_keeps_fact_stage_and_never_auto_advances(
         b.text == "➡️ Далее"
         for row in facts_markup(filled).inline_keyboard for b in row
     )
+
+
+
+def test_facts_first_step_explicitly_requests_next_voice_as_first_fact(store):
+    """After the event, speech must be interpreted as a fact without extra tap."""
+    service = DayFactsService(store)
+    draft = store.begin(73, date(2026, 10, 29))
+    assert "Этап 1/4" in service.render(draft)
+    event = store.accept(73, draft.token, "Это проверка фактов дня. Первое событие.")
+    assert event is not None and event.stage == "facts"
+    assert event.facts == ()
+
+    prompt = service.render(event)
+    assert "Этап 2/4 — Факты дня" in prompt
+    assert "ПЕРВЫЙ ФАКТ, а не новое событие" in prompt
+    assert "после первого факта" in prompt
+    assert "Событие записано" in prompt
+    assert store.draft(73) == event
+
+    fact = store.accept(
+        73, event.token, "Я провёл собрание.", voice_dictation=True,
+    )
+    assert fact is not None and fact.stage == "facts"
+    assert fact.event == event.event
+    assert fact.facts == ("Я провёл собрание.",)
+    assert "Когда все факты добавлены, нажми «➡️ Далее»" in service.render(fact)
+
+
+def test_editing_event_without_facts_keeps_explicit_first_fact_guidance(store):
+    service = DayFactsService(store)
+    event = store.begin(73, date(2026, 10, 29))
+    event = store.accept(73, event.token, "Старое событие")
+    selector = store.open_edit_menu(73, event.token)
+    selected = store.select_edit(73, selector.token, "event", 1)
+    changed = store.accept(
+        73, selected.token, "Исправленное событие", voice_dictation=True,
+    )
+    assert changed.stage == "facts"
+    assert changed.facts == ()
+    assert changed.event == "Исправленное событие"
+    assert changed.edit_field is None
+    assert "ПЕРВЫЙ ФАКТ" in service.render(changed)
+    assert "➡️ Далее» появится после первого факта" in service.render(changed)
+
+
+def test_judgments_and_review_show_current_stage_and_next_action(store):
+    service = DayFactsService(store)
+    draft = store.begin(73, date(2026, 10, 29))
+    draft = store.accept(73, draft.token, "Встреча состоялась.")
+    draft = store.accept(
+        73, draft.token, "Присутствовали три человека.", voice_dictation=True,
+    )
+    judgments = store.next(73, draft.token)
+    assert judgments.stage == "judgments"
+    assert judgments.judgments == ()
+    assert "Этап 3/4 — Ошибочные суждения" in service.render(judgments)
+    assert "ПЕРВЫМ" in service.render(judgments)
+    assert "после первого суждения" in service.render(judgments)
+
+    stated = store.accept(
+        73, judgments.token, "Мне казалось, что я мешаю.", voice_dictation=True,
+    )
+    assert "Когда все суждения добавлены, нажми «➡️ Далее»" in service.render(stated)
+    reviewed = store.next(73, stated.token)
+    assert reviewed.stage == "review"
+    assert "Этап 4/4 — ПРОВЕРЬ ПЕРЕД СОХРАНЕНИЕМ" in service.render(reviewed)
+    assert "✅ Сохранить" in service.render(reviewed)
