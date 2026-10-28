@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 import time
@@ -19,6 +20,8 @@ from aiogram.types import (
 )
 
 from .menu import ADMIN_PANEL, main_keyboard
+
+logger = logging.getLogger(__name__)
 
 REQUEST_BUTTON = "🔐 Запросить доступ"
 
@@ -272,6 +275,7 @@ def create_access_router(store: AccessStore) -> Router:
                     ]]),
                 )
             except Exception:
+                logger.exception("ACCESS_REQUEST_NOTIFICATION_FAILED")
                 # Request was committed and stays visible in /admin.
                 await message.answer(
                     "Заявка сохранена. Уведомление администратору могло не дойти, "
@@ -368,6 +372,7 @@ def create_access_router(store: AccessStore) -> Router:
             await bot.send_message(target_id, notification)
             result = "Уведомление доставлено."
         except Exception:
+            logger.exception("ACCESS_DECISION_NOTIFICATION_FAILED")
             result = "Не удалось отправить уведомление, решение сохранено."
         await callback.message.answer(
             f"Пользователь {target_id}: {parts[1]}. {result}",
