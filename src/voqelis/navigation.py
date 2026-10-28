@@ -30,11 +30,11 @@ from .menu import (
     transcription_keyboard,
 )
 
-SECTIONS = frozenset({"home", "facts", "notes", "planner", "transcribe"})
+SECTIONS = frozenset({"home", "facts", "facts_capture", "notes", "planner", "transcribe"})
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS navigation_state (
     user_id INTEGER PRIMARY KEY,
-    section TEXT NOT NULL CHECK(section IN ('home','facts','notes','planner','transcribe')),
+    section TEXT NOT NULL CHECK(section IN ('home','facts','facts_capture','notes','planner','transcribe')),
     revision INTEGER NOT NULL DEFAULT 1 CHECK(revision > 0)
 );
 """
