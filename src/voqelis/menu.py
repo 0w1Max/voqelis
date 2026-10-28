@@ -19,7 +19,7 @@ NOTES_START = "📝 Заметки"
 NOTES_NEW = "🎙 Новая заметка"
 NOTES_LIST = "📋 Мои заметки"
 PLANNER_START = "📅 Планировщик"
-TRANSCRIBE_START = "🎙 Расшифровка"
+TRANSCRIBE_START = "🎙 Расшифровка"  # Legacy button: redirects to home, not a module
 TODO_START = "✅ Список дел (скоро)"
 
 
@@ -35,7 +35,6 @@ def main_keyboard(*, admin: bool = False) -> ReplyKeyboardMarkup:
     if admin:
         rows.extend([
             [NOTES_START, PLANNER_START],
-            [TRANSCRIBE_START],
             [ADMIN_PANEL],
         ])
     return _keyboard(rows)
@@ -63,6 +62,3 @@ def planner_section_keyboard() -> ReplyKeyboardMarkup:
         [HOME],
     ])
 
-
-def transcription_keyboard() -> ReplyKeyboardMarkup:
-    return _keyboard([[HOME]])

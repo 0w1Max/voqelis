@@ -858,7 +858,8 @@ def test_home_keyboard_contains_modules_and_facts_has_own_menu() -> None:
     assert "✅ Список дел (скоро)" in home
     assert "📝 Заметки" in home
     assert "📅 Планировщик" in home
-    assert "🎙 Расшифровка" in home
+    assert "🎙 Расшифровка" not in home
+    assert "🎙 Расшифровка" not in guest_home
     assert "📋 Текущие факты дня" not in home
     assert "🗓 История фактов" not in home
     assert "📄 Word" not in home

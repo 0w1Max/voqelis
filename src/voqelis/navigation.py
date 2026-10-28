@@ -27,10 +27,9 @@ from .menu import (
     main_keyboard,
     notes_keyboard,
     planner_section_keyboard,
-    transcription_keyboard,
 )
 
-SECTIONS = frozenset({"home", "facts", "facts_capture", "notes", "planner", "transcribe"})
+SECTIONS = frozenset({"home", "facts", "facts_capture", "notes", "planner"})
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS navigation_state (
     user_id INTEGER PRIMARY KEY,
@@ -56,7 +55,14 @@ class NavigationStore:
         self.db = sqlite3.connect(path, timeout=5)
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
-        self.db.commit()
+        # Legacy "transcribe" was a dedicated module. Bring persisted users
+        # home without touching any module draft or other state.
+        # Keep its old CHECK value in SCHEMA for existing SQLite databases.
+        with self.db:
+            self.db.execute(
+                "UPDATE navigation_state SET section='home', revision=revision+1 "
+                "WHERE section='transcribe'"
+            )
 
     def close(self) -> None:
         self.db.close()
@@ -111,7 +117,8 @@ def create_navigation_router(
         user_id = message.from_user.id
         navigation.activate(user_id, "home")
         await message.answer(
-            "🏠 Главное меню Voqelis. Выбери модуль.",
+            "🏠 Главное меню Voqelis. Отправь голосовое или аудиофайл "
+            "для обычной расшифровки либо выбери модуль.",
             reply_markup=main_keyboard(admin=user_id == admin_user_id),
         )
 
@@ -147,13 +154,15 @@ def create_navigation_router(
 
     @router.message(F.text == TRANSCRIBE_START)
     async def on_transcribe(message: Message) -> None:
-        if not owner_permitted(message):
+        """An old Telegram keyboard button returns to home transcription."""
+        if not permitted(message):
             return
-        navigation.activate(message.from_user.id, "transcribe")
+        user_id = message.from_user.id
+        navigation.activate(user_id, "home")
         await message.answer(
-            "🎙 Расшифровка\nОтправь голосовое или аудиофайл. "
-            "Текст вернётся в чат и не будет сохранён в другие модули.",
-            reply_markup=transcription_keyboard(),
+            "🎙 Отдельный режим расшифровки больше не нужен. "
+            "Пришли голосовое или аудиофайл прямо из главного меню.",
+            reply_markup=main_keyboard(admin=user_id == admin_user_id),
         )
 
     @router.message(F.text == TODO_START)
