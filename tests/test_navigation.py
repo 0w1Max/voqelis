@@ -346,6 +346,7 @@ async def test_note_recording_does_not_intercept_parked_facts_draft(nav, tmp_pat
         router = bot_module.create_router(
             settings=settings, queue=queue, navigation=nav,
             notes=notes, day_facts=DayFactsService(store),
+            owner_user_id=1,
         )
         audio = FakeAudioMessage()
         await _handler(router, "on_audio")(audio, FakeAudioTelegramBot())
