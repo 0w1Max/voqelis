@@ -384,3 +384,62 @@ async def test_admin_panel_parks_active_dictation(nav, tmp_path):
         assert guest.responses == []
     finally:
         access.close()
+
+
+@pytest.mark.asyncio
+async def test_navigation_change_during_punctuation_does_not_write_facts(
+    nav, tmp_path, monkeypatch
+):
+    from datetime import date
+
+    store = DayFactsStore(tmp_path / "facts.sqlite3")
+    try:
+        draft = store.begin(1, date(2026, 10, 28))
+        draft = store.accept(1, draft.token, "Встреча с другом")
+        service = DayFactsService(store)
+        nav.activate(1, "facts_capture")
+        section, revision = nav.current(1)
+
+        queue = JobQueue(max_pending_jobs=2, max_pending_per_user=2)
+        assert await queue.reserve(1)
+        path = tmp_path / "voice.ogg"
+        path.write_bytes(b"hello")
+        await queue.put(AudioJob(
+            chat_id=1, reply_to_message_id=6, user_id=1, file_path=path,
+            day_facts_token=draft.token,
+            navigation_section=section, navigation_revision=revision,
+        ))
+        monkeypatch.setattr(bot_module, "probe_duration_seconds", lambda _p: 1.0)
+
+        class Transcriber:
+            async def transcribe(self, _path):
+                return TranscriptionResult(
+                    text="Новый факт", language="ru", language_probability=1.0,
+                    duration_seconds=1.0, duration_after_vad_seconds=1.0,
+                    processing_seconds=0.2,
+                )
+
+        class Punctuation:
+            async def format(self, text, *, fallback_text):
+                nav.activate(1, "home")
+                return text
+
+        bot = FakeAudioTelegramBot()
+        worker = asyncio.create_task(bot_module.run_worker(
+            bot=bot, queue=queue, transcriber=Transcriber(),
+            settings=SimpleNamespace(
+                max_audio_seconds=1200, allowed_user_ids=frozenset({1})
+            ),
+            navigation=nav, day_facts=service,
+            punctuation_processor=Punctuation(),
+        ))
+        try:
+            await asyncio.wait_for(bot.sent.wait(), timeout=2)
+            assert "не обновлены" in bot.messages[-1]
+            assert store.draft(1) == draft
+        finally:
+            worker.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await worker
+    finally:
+        store.close()
