@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.enums import ChatType
 from aiogram.filters import Command
 from aiogram.types import Message
 
 from ..day_facts.service import DayFactsService
+from ..menu import NOTES_LIST, NOTES_NEW, notes_keyboard
+from ..navigation import NavigationStore
 from ..planner.service import PlannerService
 from ..text import chunk_text
 from .service import NotesService
@@ -29,6 +31,7 @@ def create_notes_router(
     allowed_user_ids: frozenset[int],
     planner: PlannerService | None = None,
     day_facts: DayFactsService | None = None,
+    navigation: NavigationStore | None = None,
 ) -> Router:
     router = Router(name="notes")
 
@@ -40,22 +43,28 @@ def create_notes_router(
         )
 
     @router.message(Command("note"))
+    @router.message(F.text == NOTES_NEW)
     async def on_note(message: Message) -> None:
         if not allowed(message):
             return
         user_id = message.from_user.id
-        if planner is not None and planner.store.session(user_id) is not None:
+        if navigation is None and planner is not None and planner.store.session(user_id) is not None:
             await message.answer(
                 "Сейчас открыт Planner. Заверши его через «⏹️ Выйти из режима» "
                 "перед созданием заметки."
             )
             return
-        if day_facts is not None and day_facts.store.draft(user_id) is not None:
+        if navigation is None and day_facts is not None and day_facts.store.draft(user_id) is not None:
             await message.answer(
                 "Сначала заверши или отмени черновик «Факты дня»: /facts_cancel."
             )
             return
-        text = _argument(message.text or "")
+        if navigation is not None:
+            if message.text == NOTES_NEW and navigation.current(user_id)[0] != "notes":
+                await message.answer("Сначала открой модуль «📝 Заметки».")
+                return
+            navigation.activate(user_id, "notes")
+        text = "" if message.text == NOTES_NEW else _argument(message.text or "")
         if not text:
             service.arm_voice(user_id)
             await message.answer(
@@ -82,10 +91,11 @@ def create_notes_router(
             )
 
     @router.message(Command("notes"))
+    @router.message(F.text == NOTES_LIST)
     async def on_list(message: Message) -> None:
         if not allowed(message):
             return
-        raw_page = _argument(message.text or "")
+        raw_page = "" if message.text == NOTES_LIST else _argument(message.text or "")
         try:
             page = int(raw_page) if raw_page else 1
             body = service.list_message(message.from_user.id, page=page)
