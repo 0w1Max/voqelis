@@ -34,7 +34,14 @@ Use `/facts_cancel` to discard an unfinished draft.
 
 ## Browse and export
 
-- `/facts_history` — recent dates with entry counts
+- `/facts_history` — recent dates with entry counts and clickable dates
+- `/facts_day YYYY-MM-DD` — show records for a chosen day, followed by four
+  export buttons (Word, phone Word, PDF, phone PDF) bound to that exact date.
+  Each export re-checks the actual Telegram sender's user ID, not a date
+  or owner supplied in callback data.
+- Home menu export shortcuts continue to target **today**, not a previously
+  viewed date. Exporting an older date uses the buttons under that day's
+  record or an explicit date on `/facts_export`.
 - `/facts_day` or `/facts_day 2026-10-26`
 - `/facts_export word` — editable landscape A4 DOCX with three columns
 - `/facts_export word_mobile` — editable portrait A5 DOCX with vertically
