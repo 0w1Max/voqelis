@@ -1542,3 +1542,148 @@ def test_resuming_selector_shows_category_buttons_instead_of_dead_end(store):
     assert "📝 Событие" in buttons
     assert any("Факты" in item for item in buttons)
     assert "↩️ Назад" in buttons
+
+
+@pytest.mark.asyncio
+async def test_history_date_buttons_export_chosen_day_and_not_today(store, tmp_path):
+    """Historical record PDF is selected by its callback date, never today's menu."""
+    service = DayFactsService(store)
+    service.today = lambda: date(2026, 10, 28)
+    day = date(2026, 10, 26)
+    draft = fill_record(store, 1, day)
+    store.save(1, draft.token)
+
+    planner = SimpleNamespace(store=SimpleNamespace(session=lambda _id: None))
+    notes = SimpleNamespace(pending_voice=lambda _id: False)
+    router = create_day_facts_router(
+        service=service, allowed_user_ids=frozenset({1, 2}),
+        planner=planner, notes=notes, export_dir=tmp_path,
+    )
+
+    class HistoryMessage:
+        def __init__(self, user_id, text=""):
+            self.text = text
+            self.from_user = SimpleNamespace(id=user_id)
+            self.chat = SimpleNamespace(type="private")
+            self.responses = []
+            self.documents = []
+
+        async def answer(self, value, **kwargs):
+            self.responses.append((value, kwargs))
+
+        async def answer_document(self, attachment, **kwargs):
+            self.documents.append((
+                attachment.filename, Path(attachment.path).read_bytes(),
+            ))
+
+    class Click:
+        def __init__(self, user_id, data, message):
+            self.from_user = SimpleNamespace(id=user_id)
+            self.data = data
+            self.message = message
+            self.acks = []
+
+        async def answer(self, text=None, **kwargs):
+            self.acks.append((text, kwargs))
+
+    handlers = {h.callback.__name__: h.callback for h in router.message.handlers}
+    handle_callback = router.callback_query.handlers[0].callback
+
+    history = HistoryMessage(1, "🗓 История фактов")
+    await handlers["on_history"](history)
+    assert "26.10.2026" in history.responses[-1][0]
+    picker = history.responses[-1][1]["reply_markup"]
+    assert picker.inline_keyboard[0][0].callback_data == "df:day:2026-10-26"
+
+    opened = Click(1, "df:day:2026-10-26", history)
+    await handle_callback(opened)
+    assert opened.acks
+    assert "Друг общался" in history.responses[-1][0]
+    markup = history.responses[-1][1]["reply_markup"]
+    assert [
+        button.callback_data
+        for row in markup.inline_keyboard for button in row
+    ] == [
+        "df:export:word:2026-10-26",
+        "df:export:pdf:2026-10-26",
+        "df:export:word_mobile:2026-10-26",
+        "df:export:mobile:2026-10-26",
+    ]
+
+    pdf_click = Click(1, "df:export:pdf:2026-10-26", history)
+    await handle_callback(pdf_click)
+    assert len(history.documents) == 1
+    assert history.documents[0][0] == "fakty-dnya-2026-10-26-pdf.pdf"
+    assert history.documents[0][1].startswith(b"%PDF")
+
+    direct = HistoryMessage(1, "/facts_day 2026-10-26")
+    await handlers["on_day"](direct)
+    assert direct.responses[-1][1]["reply_markup"] is not None
+
+    today = HistoryMessage(1, "/facts_day 2026-10-28")
+    await handlers["on_day"](today)
+    assert today.responses[-1][1]["reply_markup"] is None
+
+
+@pytest.mark.asyncio
+async def test_history_and_forged_export_cannot_read_another_users_facts(store, tmp_path):
+    """Button payloads are not authorization: sender ID scopes every lookup."""
+    service = DayFactsService(store)
+    day = date(2026, 10, 26)
+    draft = fill_record(store, 1, day)
+    store.save(1, draft.token)
+
+    planner = SimpleNamespace(store=SimpleNamespace(session=lambda _id: None))
+    notes = SimpleNamespace(pending_voice=lambda _id: False)
+    router = create_day_facts_router(
+        service=service, allowed_user_ids=frozenset({1, 2}),
+        planner=planner, notes=notes, export_dir=tmp_path,
+    )
+    handlers = {h.callback.__name__: h.callback for h in router.message.handlers}
+    callback_handler = router.callback_query.handlers[0].callback
+
+    class GuestMessage:
+        text = "/facts_history"
+        chat = SimpleNamespace(type="private")
+        from_user = SimpleNamespace(id=2)
+
+        def __init__(self):
+            self.responses = []
+            self.documents = []
+
+        async def answer(self, value, **kwargs):
+            self.responses.append((value, kwargs))
+
+        async def answer_document(self, attachment, **kwargs):
+            self.documents.append(attachment.filename)
+
+    class GuestClick:
+        message = GuestMessage()
+        from_user = SimpleNamespace(id=2)
+
+        def __init__(self, data):
+            self.data = data
+            self.answers = []
+
+        async def answer(self, value=None, **kwargs):
+            self.answers.append((value, kwargs))
+
+    guest = GuestMessage()
+    await handlers["on_history"](guest)
+    assert "Записей пока нет" in guest.responses[-1][0]
+    assert guest.responses[-1][1]["reply_markup"] is None
+
+    forged_day = GuestClick("df:day:2026-10-26")
+    await callback_handler(forged_day)
+    assert "сохранённых ситуаций нет" in forged_day.message.responses[-1][0]
+    assert forged_day.message.responses[-1][1]["reply_markup"] is None
+
+    forged_export = GuestClick("df:export:word_mobile:2026-10-26")
+    await callback_handler(forged_export)
+    assert "Нет сохранённых ситуаций" in forged_export.message.responses[-1][0]
+    assert forged_export.message.documents == []
+
+    bad_date = GuestClick("df:day:bad-date")
+    await callback_handler(bad_date)
+    assert bad_date.answers[-1][1].get("show_alert") is True
+
