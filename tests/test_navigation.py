@@ -196,7 +196,8 @@ class FakeAudioTelegramBot:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("user_id", [1, 2])
-async def test_home_accepts_voice_for_owner_and_guest(nav, tmp_path, user_id):
+@pytest.mark.parametrize("kind", ["voice", "audio", "document"])
+async def test_home_accepts_audio_for_owner_and_guest(nav, tmp_path, user_id, kind):
     settings = SimpleNamespace(
         allowed_user_ids=frozenset({1, 2}),
         max_file_size_bytes=20_000,
@@ -209,6 +210,14 @@ async def test_home_accepts_voice_for_owner_and_guest(nav, tmp_path, user_id):
         settings=settings, queue=queue, navigation=nav, owner_user_id=1,
     )
     audio = FakeAudioMessage(user_id=user_id)
+    if kind == "audio":
+        audio.audio, audio.voice = audio.voice, None
+    elif kind == "document":
+        audio.voice = None
+        audio.document = SimpleNamespace(
+            file_id="audio123", file_size=4,
+            mime_type="audio/ogg", file_name="record.ogg",
+        )
     await _handler(router, "on_audio")(audio, FakeAudioTelegramBot())
     job = await queue.get()
     try:
@@ -466,3 +475,85 @@ async def test_navigation_change_during_punctuation_does_not_write_facts(
                 await worker
     finally:
         store.close()
+
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("user_id", [1, 2])
+async def test_home_transcription_keeps_parked_facts_and_note_unchanged(
+    nav, tmp_path, monkeypatch, user_id
+):
+    from datetime import date
+
+    from voqelis.notes.service import NotesService
+    from voqelis.notes.store import NotesStore
+
+    fact_store = DayFactsStore(tmp_path / "facts.sqlite3")
+    note_store = NotesStore(tmp_path / "notes.sqlite3")
+    fact_service = DayFactsService(fact_store)
+    note_service = NotesService(note_store)
+    try:
+        parked = fact_store.begin(user_id, date(2026, 10, 28))
+        note_store.arm_voice(user_id)
+        nav.activate(user_id, "home")
+        calls = []
+
+        def parked_edit_guard(uid):
+            calls.append(uid)
+            return SimpleNamespace(edit_field="select")
+
+        # Any parked edit must NOT be consulted while accepting home audio.
+        monkeypatch.setattr(fact_store, "draft", parked_edit_guard)
+        settings = SimpleNamespace(
+            allowed_user_ids=frozenset({1, 2}),
+            temp_dir=tmp_path, max_file_size_bytes=20_000,
+            max_audio_seconds=1200, download_timeout_seconds=10,
+        )
+        queue = JobQueue(max_pending_jobs=2, max_pending_per_user=2)
+        intake = bot_module.create_router(
+            settings=settings, queue=queue, navigation=nav,
+            day_facts=fact_service, notes=note_service,
+            owner_user_id=1,
+        )
+        tg_bot = FakeAudioTelegramBot()
+        await _handler(intake, "on_audio")(
+            FakeAudioMessage(user_id=user_id), tg_bot
+        )
+        assert not calls
+
+        class FakeTranscriber:
+            async def transcribe(self, path):
+                return TranscriptionResult(
+                    text="сегодня тестовое сообщение", language="ru",
+                    language_probability=1.0, duration_seconds=2.0,
+                    duration_after_vad_seconds=2.0, processing_seconds=0.1,
+                )
+
+        class FakePunctuator:
+            async def format(self, text, *, fallback_text):
+                assert text == "сегодня тестовое сообщение"
+                return "Сегодня тестовое сообщение."
+
+        monkeypatch.setattr(bot_module, "probe_duration_seconds", lambda _: 2.0)
+        worker = asyncio.create_task(bot_module.run_worker(
+            bot=tg_bot, queue=queue, transcriber=FakeTranscriber(),
+            settings=settings, navigation=nav, owner_user_id=1,
+            day_facts=fact_service, notes=note_service,
+            punctuation_processor=FakePunctuator(),
+        ))
+        try:
+            await asyncio.wait_for(tg_bot.sent.wait(), timeout=3)
+            assert tg_bot.messages == ["Сегодня тестовое сообщение."]
+        finally:
+            worker.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await worker
+        assert not calls
+        # Inspect the actual store using its original method after unpatch.
+        monkeypatch.undo()
+        assert fact_store.draft(user_id) == parked
+        assert note_store.pending_voice(user_id)
+        assert note_store.recent(user_id) == []
+    finally:
+        fact_store.close()
+        note_store.close()
