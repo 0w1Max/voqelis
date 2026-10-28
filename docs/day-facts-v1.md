@@ -36,7 +36,9 @@ Use `/facts_cancel` to discard an unfinished draft.
 
 - `/facts_history` — recent dates with entry counts
 - `/facts_day` or `/facts_day 2026-10-26`
-- `/facts_export word` — editable landscape A4 DOCX
+- `/facts_export word` — editable landscape A4 DOCX with three columns
+- `/facts_export word_mobile` — editable portrait A5 DOCX with vertically
+  stacked sections and numbered items; also available as «Word для телефона»
 - `/facts_export pdf` — three-column landscape A4 PDF
 - `/facts_export mobile` — portrait A5 PDF with vertically stacked fields
 
