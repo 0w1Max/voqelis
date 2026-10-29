@@ -433,3 +433,36 @@ async def test_todo_queued_voice_cannot_write_after_navigation_switch(
                 await worker
     finally:
         nav.close()
+
+
+
+@pytest.mark.asyncio
+async def test_list_callback_uses_clicking_user_not_bot_message_author(store, tmp_path):
+    """Telegram callback.message.from_user is normally the bot, not the viewer."""
+    nav = NavigationStore(tmp_path / "nav-list.sqlite3")
+    try:
+        router = create_todo_router(
+            service=TodoService(store), navigation=nav,
+            allowed_user_ids=frozenset({1, 2}),
+        )
+        for user_id in (1, 2):
+            token = store.begin_capture(user_id).token
+            store.capture_text(user_id, token, f"Личное дело пользователя {user_id}")
+        nav.activate(1, "todo")
+        nav.activate(2, "todo")
+
+        bot_message = MessageStub(999, text="Список")
+        callback = Click(1, "td:list:a:1", bot_message)
+        await router.callback_query.handlers[0].callback(callback)
+        assert callback.acks
+        assert len(bot_message.responses) == 1
+        body = bot_message.responses[0][0]
+        assert "Личное дело пользователя 1" in body
+        assert "Личное дело пользователя 2" not in body
+
+        unauthorized = Click(3, "td:list:a:1", bot_message)
+        await router.callback_query.handlers[0].callback(unauthorized)
+        assert unauthorized.acks
+        assert len(bot_message.responses) == 1
+    finally:
+        nav.close()
