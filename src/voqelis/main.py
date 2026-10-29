@@ -95,10 +95,11 @@ async def async_main() -> None:
     )
     repo_root = Path(__file__).resolve().parents[2]
     try:
-        release_sha = subprocess.check_output(
+        release_sha = (await asyncio.to_thread(
+            subprocess.check_output,
             ["git", "-C", str(repo_root), "rev-parse", "--verify", "HEAD"],
             text=True, timeout=2,
-        ).strip()
+        )).strip()
     except (OSError, subprocess.SubprocessError):
         release_sha = "unknown"
     gguf_work_dir = settings.planner_db_path.parent / "asr-benchmark-transcribe-cpp"
