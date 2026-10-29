@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-import sqlite3
 import stat
 import time
 from pathlib import Path
@@ -133,8 +131,9 @@ def test_events_never_include_message_payloads_and_aggregate_by_user(data):
     row = store.db.execute("SELECT * FROM ops_events WHERE user_id=1 "
                            "AND occurred_at=?", (now - 4000,)).fetchone()
     assert row["section"] == "unknown"
-    assert "text" not in row.keys()
-    assert "token" not in row.keys()
+    keys = tuple(row.keys())
+    assert "text" not in keys
+    assert "token" not in keys
     with pytest.raises(ValueError):
         store.record(1, "todo", "voice_text", "handled")
     with pytest.raises(ValueError):
@@ -217,7 +216,7 @@ async def test_report_router_owner_and_friend_submit_and_admin_notification(data
     await cb_handler(sent, tg)
     assert len(store.reports()) == 1
     assert tg.notifications == [(
-        1, f"🐞 Новый отчёт VQ-1 от пользователя 2. Открой /ops для просмотра.",
+        1, "🐞 Новый отчёт VQ-1 от пользователя 2. Открой /ops для просмотра.",
     )]
     await cb_handler(sent, tg)
     assert len(store.reports()) == 1

@@ -196,10 +196,9 @@ def create_operations_router(
 
         if action in {"view", "resolve"} and len(parts) == 3 and parts[2].isdigit():
             report_id = int(parts[2])
-            if action == "resolve":
-                if not store.resolve(report_id):
-                    await callback.answer("Уже обработан или не найден.", show_alert=True)
-                    return
+            if action == "resolve" and not store.resolve(report_id):
+                await callback.answer("Уже обработан или не найден.", show_alert=True)
+                return
             report = store.get_report(report_id)
             if report is None:
                 await callback.answer("Отчёт не найден.", show_alert=True)

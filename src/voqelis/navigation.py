@@ -16,7 +16,6 @@ from aiogram.enums import ChatType
 from aiogram.filters import Command
 from aiogram.types import Message
 
-from .operations.store import OperationsStore
 from .menu import (
     FACTS_START,
     HOME,
@@ -31,6 +30,7 @@ from .menu import (
     planner_section_keyboard,
     todo_keyboard,
 )
+from .operations.store import OperationsStore
 
 SECTIONS = frozenset({"home", "facts", "facts_capture", "notes", "planner", "todo", "todo_capture"})
 SCHEMA = """
