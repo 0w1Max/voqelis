@@ -26,6 +26,7 @@ from .domain import AudioJob
 from .menu import main_keyboard, todo_keyboard
 from .navigation import NavigationStore
 from .notes.service import NotesService
+from .operations.store import OperationsStore
 from .planner.bot import planner_markup_for_state
 from .planner.service import PlannerService
 from .queue import JobQueue
@@ -44,6 +45,7 @@ def create_router(
     todo: TodoService | None = None,
     navigation: NavigationStore | None = None,
     owner_user_id: int | None = None,
+    operations: OperationsStore | None = None,
 ) -> Router:
     router = Router(name="audio")
 
@@ -77,7 +79,13 @@ def create_router(
             "🏠 Главное меню Voqelis.\n"
             "Пришли голосовое или аудиофайл для обычной расшифровки "
             "либо выбери модуль. Ничего не сохраню в другие модули.",
-            reply_markup=main_keyboard(admin=message.from_user.id == owner_user_id),
+            reply_markup=main_keyboard(
+                admin=message.from_user.id == owner_user_id,
+                reporter=operations is not None and operations.eligible(
+                    message.from_user.id,
+                    approved=message.from_user.id in settings.allowed_user_ids,
+                ),
+            ),
         )
 
     @router.message(Command("status"))
@@ -333,6 +341,7 @@ async def run_worker(
     todo: TodoService | None = None,
     navigation: NavigationStore | None = None,
     owner_user_id: int | None = None,
+    operations: OperationsStore | None = None,
 ) -> None:
     planner_tz = ZoneInfo(planner.config.timezone) if planner else None
     allowed_users = getattr(settings, "allowed_user_ids", None)
@@ -578,6 +587,14 @@ async def run_worker(
                     if index < len(parts) - 1:
                         await asyncio.sleep(1.05)
 
+            if operations is not None:
+                try:
+                    operations.record(
+                        job.user_id, job.navigation_section or "unknown",
+                        "audio", "completed", int(result.processing_seconds * 1000),
+                    )
+                except Exception:
+                    logger.exception("OPERATIONS_AUDIO_TELEMETRY_FAILED")
             logger.info(
                 "Transcribed user=%s duration=%.1fs processing=%.1fs language=%s prob=%.3f",
                 job.user_id,
@@ -601,6 +618,14 @@ async def run_worker(
             with suppress(Exception):
                 await asyncio.sleep(float(exc.retry_after))
         except Exception:
+            if operations is not None:
+                try:
+                    operations.record(
+                        job.user_id, job.navigation_section or "unknown",
+                        "audio", "failed",
+                    )
+                except Exception:
+                    logger.exception("OPERATIONS_AUDIO_TELEMETRY_FAILED")
             logger.exception("Unexpected worker failure for user=%s", job.user_id)
             await _safe_error_message(
                 bot,

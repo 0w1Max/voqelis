@@ -16,6 +16,7 @@ from aiogram.enums import ChatType
 from aiogram.filters import Command
 from aiogram.types import Message
 
+from .operations.store import OperationsStore
 from .menu import (
     FACTS_START,
     HOME,
@@ -118,6 +119,7 @@ class NavigationStore:
 def create_navigation_router(
     *, navigation: NavigationStore, allowed_user_ids: frozenset[int],
     admin_user_id: int | None,
+    operations: OperationsStore | None = None,
 ) -> Router:
     router = Router(name="navigation")
 
@@ -145,7 +147,12 @@ def create_navigation_router(
         await message.answer(
             "🏠 Главное меню Voqelis. Отправь голосовое или аудиофайл "
             "для обычной расшифровки либо выбери модуль.",
-            reply_markup=main_keyboard(admin=user_id == admin_user_id),
+            reply_markup=main_keyboard(
+                admin=user_id == admin_user_id,
+                reporter=operations is not None and operations.eligible(
+                    user_id, approved=user_id in allowed_user_ids,
+                ),
+            ),
         )
 
     @router.message(F.text == FACTS_START)
@@ -188,7 +195,12 @@ def create_navigation_router(
         await message.answer(
             "🎙 Отдельный режим расшифровки больше не нужен. "
             "Пришли голосовое или аудиофайл прямо из главного меню.",
-            reply_markup=main_keyboard(admin=user_id == admin_user_id),
+            reply_markup=main_keyboard(
+                admin=user_id == admin_user_id,
+                reporter=operations is not None and operations.eligible(
+                    user_id, approved=user_id in allowed_user_ids,
+                ),
+            ),
         )
 
     @router.message(F.text == TODO_START)
