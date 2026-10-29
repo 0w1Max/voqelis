@@ -18,6 +18,12 @@ from aiogram.types import (
 from ..access import AccessStore
 from ..menu import REPORT_BUTTON
 from ..navigation import NavigationStore
+from .github import (
+    GitHubAppConfig,
+    GitHubExportFailure,
+    GitHubIssuesClient,
+    make_http_client,
+)
 from .store import OperationsStore, Report
 
 logger = logging.getLogger(__name__)
@@ -68,6 +74,8 @@ def _report_keyboard(token: str) -> InlineKeyboardMarkup:
 def create_operations_router(
     *, store: OperationsStore, access: AccessStore,
     navigation: NavigationStore,
+    github_config: GitHubAppConfig | None = None,
+    release_sha: str = "unknown",
 ) -> Router:
     router = Router(name="operations")
     owner = access.admin_id
@@ -116,7 +124,9 @@ def create_operations_router(
             "🛠 Операции Voqelis\n"
             f"Тестировщик: {store.reporter_id() or 'не назначен'}\n"
             "Отчёты хранятся только в локальной SQLite. "
-            "Автоматическая выгрузка в GitHub отключена.",
+            "В GitHub отправляются только обезличенные метаданные по "
+            "твоему отдельному подтверждению.\n"
+            f"Экспорт: {'включён' if github_config else 'отключён — нужен GitHub App'}.",
             reply_markup=_admin_keyboard(),
         )
 
@@ -204,13 +214,143 @@ def create_operations_router(
                 await callback.answer("Отчёт не найден.", show_alert=True)
                 return
             await callback.answer()
-            markup = (
-                _buttons([[("✅ Отметить разобранным", f"ops:resolve:{report_id}")]])
-                if report.status == "new" else None
-            )
+            rows = []
+            if report.status == "new":
+                rows.append([("✅ Отметить разобранным", f"ops:resolve:{report_id}")])
+            rows.append([("👁 Экспорт: предпросмотр", f"ops:preview:{report_id}")])
+            markup = _buttons(rows)
             await callback.message.answer(
                 _report_text(report), parse_mode=None, reply_markup=markup,
             )
+            return
+
+
+        if action == "preview" and len(parts) == 3 and parts[2].isdigit():
+            report_id = int(parts[2])
+            ticket = store.prepare_export(user_id, report_id, release_sha)
+            if ticket is None:
+                await callback.answer("Отчёт не найден.", show_alert=True)
+                return
+            rows = []
+            if ticket.state == "sent":
+                status = (
+                    f"Уже отправлено: https://github.com/0w1Max/voqelis-ops/"
+                    f"issues/{ticket.issue_number}"
+                )
+            elif ticket.state in {"uncertain", "sending"}:
+                status = (
+                    "Результат предыдущей отправки неизвестен. "
+                    "Повторная отправка запрещена."
+                )
+                if github_config is not None:
+                    rows.append([(
+                        "🔎 Сверить с GitHub", f"ops:reconcile:{report_id}",
+                    )])
+            else:
+                status = (
+                    "Экспорт отключён: настрой GitHub App."
+                    if github_config is None else
+                    "Для создания Issue нажми кнопку подтверждения."
+                )
+                if github_config is not None:
+                    rows.append([(
+                        "📤 Подтвердить создание Issue",
+                        f"ops:send:{report_id}:{ticket.token}",
+                    )])
+            await callback.answer()
+            await callback.message.answer(
+                f"👁 Предпросмотр экспорта\n\n{ticket.issue_body}\n\n"
+                f"{status}\n\n"
+                "Личные комментарии и Telegram ID не передаются.",
+                reply_markup=_buttons(rows) if rows else None,
+                parse_mode=None,
+            )
+            return
+
+        if action == "send" and len(parts) == 4 and parts[2].isdigit():
+            if github_config is None:
+                await callback.answer("GitHub App не настроен.", show_alert=True)
+                return
+            report_id = int(parts[2])
+            ticket = store.claim_export(user_id, report_id, parts[3])
+            if ticket is None:
+                await callback.answer(
+                    "Подтверждение устарело или уже использовано.", show_alert=True,
+                )
+                return
+            await callback.answer("Запрос принят.")
+            try:
+                async with make_http_client() as client:
+                    number = await GitHubIssuesClient(
+                        github_config, client,
+                    ).create_issue(ticket.marker, ticket.issue_body)
+            except GitHubExportFailure as exc:
+                store.fail_export(
+                    report_id, ticket.marker, exc.code, uncertain=exc.uncertain,
+                )
+                await callback.message.answer(
+                    "⚠ Отправка не подтверждена. "
+                    + ("Результат неизвестен, повтор запрещён; открой предпросмотр "
+                       "и выбери сверку с GitHub."
+                       if exc.uncertain else
+                       "GitHub отклонил запрос; проверь конфигурацию и сделай "
+                       "новый предпросмотр.")
+                    + f"\nКод: {exc.code}"
+                )
+                return
+            except Exception:  # noqa: BLE001
+                # A failure after dispatch cannot prove that GitHub did not create the Issue.
+                store.fail_export(
+                    report_id, ticket.marker, "CREATE_OUTCOME_UNKNOWN", uncertain=True,
+                )
+                logger.error("OPERATIONS_GITHUB_UNEXPECTED_FAILURE")
+                await callback.message.answer(
+                    "⚠ Результат отправки неизвестен. Повтор запрещён; "
+                    "открой предпросмотр и запусти сверку с GitHub."
+                )
+                return
+            store.sent_export(report_id, ticket.marker, number)
+            await callback.message.answer(
+                f"✅ Создан приватный Issue #{number}\n"
+                f"https://github.com/0w1Max/voqelis-ops/issues/{number}"
+            )
+            return
+
+        if action == "reconcile" and len(parts) == 3 and parts[2].isdigit():
+            if github_config is None:
+                await callback.answer("GitHub App не настроен.", show_alert=True)
+                return
+            report_id = int(parts[2])
+            ticket = store.get_export(report_id)
+            if ticket is None or ticket.state != "uncertain":
+                await callback.answer("Нечего сверять.", show_alert=True)
+                return
+            await callback.answer("Проверяю...")
+            try:
+                async with make_http_client() as client:
+                    number = await GitHubIssuesClient(
+                        github_config, client,
+                    ).reconcile(ticket.marker)
+            except GitHubExportFailure:
+                await callback.message.answer(
+                    "⚠ GitHub пока недоступен для сверки. Повторное создание "
+                    "Issue заблокировано."
+                )
+                return
+            if number is None:
+                await callback.message.answer(
+                    "⚠ Совпадение пока не найдено. Поиск GitHub может "
+                    "индексироваться с задержкой; повторное создание Issue "
+                    "остаётся заблокированным."
+                )
+                return
+            if store.sent_export(report_id, ticket.marker, number, reconcile=True):
+                await callback.message.answer(
+                    f"✅ Найден существующий Issue #{number}\n"
+                    f"https://github.com/0w1Max/voqelis-ops/issues/{number}"
+                )
+            else:
+                await callback.message.answer("Состояние изменилось; обнови отчёт.")
             return
 
         if action == "diag" and len(parts) == 3 and parts[2].isdigit():

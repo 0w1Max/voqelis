@@ -17,6 +17,16 @@ EVENT_RETENTION_SECONDS = 7 * 86400
 REPORT_RETENTION_SECONDS = 30 * 86400
 MAX_DESCRIPTION = 800
 MAX_EVENTS = 50_000
+ERROR_CODES = frozenset({
+    "NONE", "HANDLER_EXCEPTION", "AUDIO_DECODE_FAILED",
+    "ASR_EMPTY", "TELEGRAM_SEND_FAILED", "TELEGRAM_RATE_LIMIT",
+    "WORKER_EXCEPTION",
+})
+EXPORT_ERRORS = frozenset({
+    "APP_AUTH_FAILED", "APP_SCOPE_INVALID", "APP_TOKEN_INVALID",
+    "GITHUB_REJECTED", "CREATE_OUTCOME_UNKNOWN",
+    "RECONCILE_UNAVAILABLE", "MULTIPLE_ISSUES",
+})
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS ops_config (
@@ -31,7 +41,8 @@ CREATE TABLE IF NOT EXISTS ops_events (
     section TEXT NOT NULL,
     operation TEXT NOT NULL CHECK(operation IN ('message', 'callback', 'audio')),
     outcome TEXT NOT NULL CHECK(outcome IN ('handled', 'failed', 'completed')),
-    elapsed_ms INTEGER NOT NULL
+    elapsed_ms INTEGER NOT NULL,
+    error_code TEXT NOT NULL DEFAULT 'NONE'
 );
 CREATE INDEX IF NOT EXISTS idx_ops_events_user_time
     ON ops_events(user_id, occurred_at);
@@ -53,6 +64,17 @@ CREATE TABLE IF NOT EXISTS ops_reports (
 );
 CREATE INDEX IF NOT EXISTS idx_ops_reports_user_time
     ON ops_reports(user_id, created_at);
+CREATE TABLE IF NOT EXISTS ops_exports (
+    report_id INTEGER PRIMARY KEY REFERENCES ops_reports(id),
+    marker TEXT UNIQUE NOT NULL,
+    token TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('pending','sending','uncertain','failed','sent')),
+    issue_body TEXT NOT NULL,
+    issue_number INTEGER,
+    last_error TEXT NOT NULL DEFAULT '',
+    updated_at INTEGER NOT NULL
+);
 """
 
 
@@ -63,8 +85,33 @@ class Report:
     created_at: int
     window_minutes: int
     description: str
-    snapshot: dict[str, int]
+    snapshot: dict[str, int | dict[str, int]]
     status: str
+
+
+@dataclass(frozen=True, slots=True)
+class ExportTicket:
+    report_id: int
+    marker: str
+    token: str
+    expires_at: int
+    state: str
+    issue_body: str
+    issue_number: int | None
+    last_error: str
+
+
+def _ticket(row: sqlite3.Row) -> ExportTicket:
+    return ExportTicket(
+        report_id=int(row["report_id"]),
+        marker=str(row["marker"]),
+        token=str(row["token"]),
+        expires_at=int(row["expires_at"]),
+        state=str(row["state"]),
+        issue_body=str(row["issue_body"]),
+        issue_number=(int(row["issue_number"]) if row["issue_number"] is not None else None),
+        last_error=str(row["last_error"]),
+    )
 
 
 def _report(row: sqlite3.Row) -> Report:
@@ -95,6 +142,19 @@ class OperationsStore:
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
+        columns = {row[1] for row in self.db.execute("PRAGMA table_info(ops_events)")}
+        if "error_code" not in columns:
+            with self.db:
+                self.db.execute(
+                    "ALTER TABLE ops_events "
+                    "ADD COLUMN error_code TEXT NOT NULL DEFAULT 'NONE'"
+                )
+        # A request sent before a crash may have created an issue. Never retry blindly.
+        with self.db:
+            self.db.execute(
+                "UPDATE ops_exports SET state='uncertain', "
+                "last_error='CREATE_OUTCOME_UNKNOWN' WHERE state='sending'"
+            )
 
     def close(self) -> None:
         self.db.close()
@@ -130,10 +190,13 @@ class OperationsStore:
     def record(
         self, user_id: int, section: str, operation: str,
         outcome: str, elapsed_ms: int = 0, *, now: int | None = None,
+        error_code: str = "NONE",
     ) -> None:
         if (
             user_id <= 0 or operation not in {"message", "callback", "audio"}
             or outcome not in {"handled", "failed", "completed"}
+            or error_code not in ERROR_CODES
+            or (outcome != "failed" and error_code != "NONE")
         ):
             raise ValueError("Invalid diagnostic event")
         when = int(time.time()) if now is None else now
@@ -144,10 +207,10 @@ class OperationsStore:
         with self.db:
             cur = self.db.execute(
                 "INSERT INTO ops_events "
-                "(occurred_at,user_id,section,operation,outcome,elapsed_ms) "
-                "VALUES(?,?,?,?,?,?)",
+                "(occurred_at,user_id,section,operation,outcome,elapsed_ms,error_code) "
+                "VALUES(?,?,?,?,?,?,?)",
                 (when, user_id, safe_section, operation, outcome,
-                 min(max(0, int(elapsed_ms)), 3_600_000)),
+                 min(max(0, int(elapsed_ms)), 3_600_000), error_code),
             )
             if int(cur.lastrowid) % 100 == 0:
                 self.db.execute(
@@ -180,6 +243,22 @@ class OperationsStore:
         for row in rows:
             counts[row["outcome"]] = int(row["n"])
         return counts
+
+    def classified_failures(
+        self, user_id: int, window_minutes: int, *, now: int,
+    ) -> dict[str, int]:
+        if window_minutes not in WINDOWS:
+            raise ValueError("Invalid time window")
+        rows = self.db.execute(
+            "SELECT error_code,COUNT(*) FROM ops_events WHERE user_id=? "
+            "AND occurred_at>=? AND occurred_at<=? AND outcome='failed' "
+            "AND error_code!='NONE' GROUP BY error_code",
+            (user_id, now - window_minutes * 60, now),
+        ).fetchall()
+        return {
+            str(code): int(count) for code, count in rows
+            if code in ERROR_CODES and code != "NONE"
+        }
 
     def begin_report(self, user_id: int, description: str = "") -> str:
         clean = "".join(c for c in description.strip() if c.isprintable())[:MAX_DESCRIPTION]
@@ -218,6 +297,9 @@ class OperationsStore:
             if recent >= 3:
                 return None
             snapshot = self.summary(user_id, window_minutes, now=when)
+            snapshot["error_codes"] = self.classified_failures(
+                user_id, window_minutes, now=when,
+            )
             cur = self.db.execute(
                 "INSERT INTO ops_reports "
                 "(user_id,created_at,window_minutes,description,snapshot) "
@@ -256,5 +338,90 @@ class OperationsStore:
             cur = self.db.execute(
                 "UPDATE ops_reports SET status='resolved' "
                 "WHERE id=? AND status='new'", (report_id,),
+            )
+        return cur.rowcount == 1
+
+
+    def get_export(self, report_id: int) -> ExportTicket | None:
+        row = self.db.execute(
+            "SELECT * FROM ops_exports WHERE report_id=?", (report_id,),
+        ).fetchone()
+        return _ticket(row) if row else None
+
+    def prepare_export(
+        self, actor_id: int, report_id: int, revision: str, *,
+        now: int | None = None,
+    ) -> ExportTicket | None:
+        """Owner-initiated preview: capture sanitized content once, never original comment."""
+        from .export import build_issue_body
+
+        if self.owner_id is None or actor_id != self.owner_id:
+            return None
+        when = int(time.time()) if now is None else now
+        report = self.get_report(report_id)
+        if report is None:
+            return None
+        with self.db:
+            self.db.execute("BEGIN IMMEDIATE")
+            existing = self.get_export(report_id)
+            if existing is None:
+                marker = f"VQEXP-{secrets.token_hex(16)}"
+                body = build_issue_body(report, marker, revision)
+                self.db.execute(
+                    "INSERT INTO ops_exports "
+                    "(report_id,marker,token,expires_at,state,issue_body,updated_at) "
+                    "VALUES(?,?,?,?,?,?,?)",
+                    (report_id, marker, secrets.token_hex(12), when + 600,
+                     "pending", body, when),
+                )
+            elif existing.state in {"pending", "failed"}:
+                self.db.execute(
+                    "UPDATE ops_exports SET token=?,expires_at=?,state='pending',"
+                    "last_error='',updated_at=? WHERE report_id=?",
+                    (secrets.token_hex(12), when + 600, when, report_id),
+                )
+        return self.get_export(report_id)
+
+    def claim_export(
+        self, actor_id: int, report_id: int, token: str, *,
+        now: int | None = None,
+    ) -> ExportTicket | None:
+        if self.owner_id is None or actor_id != self.owner_id:
+            return None
+        when = int(time.time()) if now is None else now
+        with self.db:
+            cur = self.db.execute(
+                "UPDATE ops_exports SET state='sending',updated_at=? "
+                "WHERE report_id=? AND token=? AND state='pending' AND expires_at>?",
+                (when, report_id, token, when),
+            )
+        return self.get_export(report_id) if cur.rowcount == 1 else None
+
+    def fail_export(self, report_id: int, marker: str, code: str, *,
+                    uncertain: bool) -> bool:
+        if code not in EXPORT_ERRORS:
+            raise ValueError("Invalid export error classification")
+        state = "uncertain" if uncertain else "failed"
+        with self.db:
+            cur = self.db.execute(
+                "UPDATE ops_exports SET state=?,last_error=?,updated_at=? "
+                "WHERE report_id=? AND marker=? AND state='sending'",
+                (state, code, int(time.time()), report_id, marker),
+            )
+        return cur.rowcount == 1
+
+    def sent_export(
+        self, report_id: int, marker: str, number: int, *,
+        reconcile: bool = False,
+    ) -> bool:
+        if type(number) is not int or number <= 0:
+            raise ValueError("Invalid GitHub Issue number")
+        status = "uncertain" if reconcile else "sending"
+        with self.db:
+            cur = self.db.execute(
+                "UPDATE ops_exports SET state='sent',issue_number=?,"
+                "last_error='',token='',expires_at=0,updated_at=? "
+                "WHERE report_id=? AND marker=? AND state=?",
+                (number, int(time.time()), report_id, marker, status),
             )
         return cur.rowcount == 1

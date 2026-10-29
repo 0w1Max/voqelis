@@ -15,6 +15,7 @@ dependencies = [
     "python-docx==1.2.0",
     "reportlab==5.0.1",
     "httpx==0.28.1",
+    "PyJWT[crypto]==2.10.1",
 ]
 
 [tool.setuptools]

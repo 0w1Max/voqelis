@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import subprocess
 from contextlib import suppress
 from dataclasses import replace
 from pathlib import Path
@@ -22,6 +23,7 @@ from .notes.bot import create_notes_router
 from .notes.service import NotesService
 from .notes.store import NotesStore
 from .operations.bot import create_operations_router
+from .operations.github import GitHubAppConfig
 from .operations.store import OperationsStore
 from .operations.telemetry import OperationsTelemetry
 from .planner.ai import (
@@ -46,6 +48,7 @@ logger = logging.getLogger(__name__)
 
 async def async_main() -> None:
     settings = load_settings()
+    github_config = GitHubAppConfig.from_env()
     # Environment IDs bootstrap the owner; approvals remain isolated in access.sqlite3.
     # All existing routers use the *same live* membership policy.
     access_store = AccessStore(
@@ -91,6 +94,14 @@ async def async_main() -> None:
         timezone=planner_config.timezone,
     )
     repo_root = Path(__file__).resolve().parents[2]
+    try:
+        release_sha = (await asyncio.to_thread(
+            subprocess.check_output,
+            ["git", "-C", str(repo_root), "rev-parse", "--verify", "HEAD"],
+            text=True, timeout=2,
+        )).strip()
+    except (OSError, subprocess.SubprocessError):
+        release_sha = "unknown"
     gguf_work_dir = settings.planner_db_path.parent / "asr-benchmark-transcribe-cpp"
     gguf_test_manager = GgufTestManager(
         data_dir=settings.planner_db_path.parent / "asr-gguf-telegram",
@@ -182,6 +193,7 @@ async def async_main() -> None:
     ))
     dp.include_router(create_operations_router(
         store=ops_store, access=access_store, navigation=navigation,
+        github_config=github_config, release_sha=release_sha,
     ))
     dp.include_router(create_navigation_router(
         navigation=navigation, allowed_user_ids=settings.allowed_user_ids,
