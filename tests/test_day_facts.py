@@ -850,12 +850,12 @@ def test_home_keyboard_contains_modules_and_facts_has_own_menu() -> None:
 
     home = [item.text for row in main_keyboard(admin=True).keyboard for item in row]
     guest_home = [item.text for row in main_keyboard().keyboard for item in row]
-    assert guest_home == ["📘 Факты дня", "✅ Список дел (скоро)"]
+    assert guest_home == ["📘 Факты дня", "✅ Список дел"]
     facts = [item.text for row in facts_keyboard().keyboard for item in row]
     planner = [item.text for row in planner_keyboard().keyboard for item in row]
 
     assert "📘 Факты дня" in home
-    assert "✅ Список дел (скоро)" in home
+    assert "✅ Список дел" in home
     assert "📝 Заметки" in home
     assert "📅 Планировщик" in home
     assert "🎙 Расшифровка" not in home

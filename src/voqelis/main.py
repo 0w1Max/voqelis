@@ -33,6 +33,9 @@ from .planner.service import PlannerService
 from .planner.store import PlannerStore
 from .queue import JobQueue
 from .text_punctuation import TextPunctuationProcessor
+from .todo.bot import create_todo_router
+from .todo.service import TodoService
+from .todo.store import TodoStore
 from .transcription import Transcriber
 
 logger = logging.getLogger(__name__)
@@ -155,6 +158,8 @@ async def async_main() -> None:
     )
     day_facts = DayFactsService(day_facts_store, timezone=planner_config.timezone)
     navigation = NavigationStore(settings.planner_db_path.with_name("navigation.sqlite3"))
+    todo_store = TodoStore(settings.planner_db_path.with_name("todo.sqlite3"))
+    todo = TodoService(todo_store)
 
     queue = JobQueue(
         max_pending_jobs=settings.max_pending_jobs,
@@ -187,6 +192,10 @@ async def async_main() -> None:
         planner=planner, notes=notes, export_dir=settings.temp_dir,
         admin_user_id=access_store.admin_id, navigation=navigation,
     ))
+    dp.include_router(create_todo_router(
+        service=todo, navigation=navigation,
+        allowed_user_ids=settings.allowed_user_ids,
+    ))
     dp.include_router(create_notes_router(
         service=notes, allowed_user_ids=owner_only_settings.allowed_user_ids,
         planner=planner, day_facts=day_facts, navigation=navigation,
@@ -197,7 +206,7 @@ async def async_main() -> None:
     ))
     dp.include_router(create_router(
         settings=settings, queue=queue, planner=planner,
-        notes=notes, day_facts=day_facts, navigation=navigation,
+        notes=notes, day_facts=day_facts, todo=todo, navigation=navigation,
         owner_user_id=access_store.admin_id,
     ))
 
@@ -215,7 +224,7 @@ async def async_main() -> None:
                 log_content=settings.planner_log_content,
                 punctuation_processor=punctuation_processor,
                 notes=notes,
-                day_facts=day_facts, navigation=navigation,
+                day_facts=day_facts, todo=todo, navigation=navigation,
                 owner_user_id=access_store.admin_id,
             ),
             name="transcription-worker",
@@ -235,6 +244,7 @@ async def async_main() -> None:
             planner_store.close()
             notes_store.close()
             day_facts_store.close()
+            todo_store.close()
             access_store.close()
             navigation.close()
 

@@ -20,7 +20,12 @@ NOTES_NEW = "🎙 Новая заметка"
 NOTES_LIST = "📋 Мои заметки"
 PLANNER_START = "📅 Планировщик"
 TRANSCRIBE_START = "🎙 Расшифровка"  # Legacy button: redirects to home, not a module
-TODO_START = "✅ Список дел (скоро)"
+TODO_START = "✅ Список дел"
+TODO_LEGACY = "✅ Список дел (скоро)"
+TODO_NEW = "➕ Добавить дело"
+TODO_ACTIVE = "📋 Активные дела"
+TODO_DONE = "✅ Выполненные"
+TODO_CANCEL = "❌ Отменить ввод"
 
 
 def _keyboard(rows: list[list[str]]) -> ReplyKeyboardMarkup:
@@ -62,3 +67,10 @@ def planner_section_keyboard() -> ReplyKeyboardMarkup:
         [HOME],
     ])
 
+
+def todo_keyboard() -> ReplyKeyboardMarkup:
+    return _keyboard([[TODO_NEW, TODO_ACTIVE], [TODO_DONE, HOME]])
+
+
+def todo_capture_keyboard() -> ReplyKeyboardMarkup:
+    return _keyboard([[TODO_CANCEL], [HOME]])

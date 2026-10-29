@@ -77,7 +77,7 @@ async def test_guest_cannot_force_owner_sections_by_old_buttons(tmp_path):
             guest = FakeMessage(2, text)
             await handler(router, name)(guest)
             assert guest.replies
-        assert nav.current(2)[0] == "facts"
+        assert nav.current(2)[0] == "todo"
     finally:
         nav.close()
 
