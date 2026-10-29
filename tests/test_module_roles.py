@@ -14,10 +14,10 @@ from voqelis.day_facts.store import DayFactsStore
 from voqelis.menu import (
     ADMIN_PANEL,
     FACTS_START,
-    REPORT_BUTTON,
     NOTES_NEW,
     NOTES_START,
     PLANNER_START,
+    REPORT_BUTTON,
     TODO_START,
     TRANSCRIBE_START,
     main_keyboard,
