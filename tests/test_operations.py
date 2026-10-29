@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import stat
 import time
 from pathlib import Path
@@ -9,13 +10,17 @@ from types import SimpleNamespace
 
 import pytest
 
+from voqelis import bot as audio_module
 from voqelis.access import AccessStore
+from voqelis.audio import AudioProcessingError
+from voqelis.domain import AudioJob
 from voqelis.menu import REPORT_BUTTON, main_keyboard
 from voqelis.navigation import NavigationStore
 from voqelis.operations import store as ops_store_module
 from voqelis.operations.bot import create_operations_router
 from voqelis.operations.store import OperationsStore
 from voqelis.operations.telemetry import OperationsTelemetry
+from voqelis.queue import JobQueue
 
 
 @pytest.fixture
@@ -307,3 +312,59 @@ def test_diagnostic_journal_is_bounded_even_when_active(data, monkeypatch):
     count = store.db.execute("SELECT COUNT(*) FROM ops_events").fetchone()[0]
     assert count == 50
     assert store.summary(1, 10)["handled"] == 50
+
+
+
+@pytest.mark.asyncio
+async def test_worker_audio_probe_failure_is_reported_without_transcript(
+    data, tmp_path, monkeypatch,
+):
+    _, store, nav = data
+    path = tmp_path / "invalid.ogg"
+    path.write_bytes(b"bad")
+    queue = JobQueue(max_pending_jobs=2, max_pending_per_user=2)
+    assert await queue.reserve(1)
+    await queue.put(AudioJob(
+        chat_id=1, reply_to_message_id=11, user_id=1, file_path=path,
+        navigation_section="home", navigation_revision=0,
+    ))
+
+    def bad_audio(_path):
+        raise AudioProcessingError("unsupported audio")
+
+    monkeypatch.setattr(audio_module, "probe_duration_seconds", bad_audio)
+
+    class StubBot:
+        def __init__(self):
+            self.event = asyncio.Event()
+            self.sent = []
+
+        async def send_chat_action(self, chat_id, action):
+            return None
+
+        async def send_message(self, chat_id, text, **kwargs):
+            self.sent.append(text)
+            self.event.set()
+
+    class StubTranscriber:
+        async def transcribe(self, _path):
+            raise AssertionError("Must not transcribe invalid audio")
+
+    bot = StubBot()
+    worker = asyncio.create_task(audio_module.run_worker(
+        bot=bot, queue=queue, transcriber=StubTranscriber(),
+        settings=SimpleNamespace(
+            allowed_user_ids=frozenset({1}), max_audio_seconds=1200,
+        ),
+        navigation=nav, operations=store,
+    ))
+    try:
+        await asyncio.wait_for(bot.event.wait(), timeout=4)
+        assert "Не получилось прочитать аудиофайл" in bot.sent[0]
+        assert store.summary(1, 10)["failed"] == 1
+        assert store.summary(1, 10)["completed"] == 0
+    finally:
+        worker.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await worker
+    assert not path.exists()
