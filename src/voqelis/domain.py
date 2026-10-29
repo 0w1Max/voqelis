@@ -12,6 +12,7 @@ class AudioJob:
     file_path: Path
     capture_token: str | None = None
     day_facts_token: str | None = None
+    todo_token: str | None = None
     navigation_section: str | None = None
     navigation_revision: int | None = None
 

@@ -32,6 +32,8 @@ from .queue import JobQueue
 from .text import chunk_text
 from .text_punctuation import TextPunctuationProcessor
 from .transcription import Transcriber
+from .todo.service import TodoService
+from .menu import todo_keyboard
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +42,7 @@ def create_router(
     *, settings: Settings, queue: JobQueue, planner: PlannerService | None = None,
     notes: NotesService | None = None,
     day_facts: DayFactsService | None = None,
+    todo: TodoService | None = None,
     navigation: NavigationStore | None = None,
     owner_user_id: int | None = None,
 ) -> Router:
@@ -111,6 +114,18 @@ def create_router(
         if navigation is not None:
             if section in {"notes", "planner"} and user_id != owner_user_id:
                 await message.reply("Этот модуль доступен только владельцу.")
+                return
+            if section == "todo":
+                await message.reply(
+                    "Сначала нажми «➕ Добавить дело» в «✅ Список дел»."
+                )
+                return
+            if section == "todo_capture" and (
+                todo is None or todo.store.pending(user_id) is None
+            ):
+                await message.reply(
+                    "Ввод дела истёк. Нажми «➕ Добавить дело» ещё раз."
+                )
                 return
             if section == "facts":
                 await message.reply(
@@ -249,6 +264,16 @@ def create_router(
                 raise _UserInputError(
                     "Ожидание заметки истекло. Нажми «🎙 Новая заметка» ещё раз."
                 )
+            todo_token = (
+                todo.store.claim_voice(user_id)
+                if navigation is not None and section == "todo_capture"
+                and todo is not None else None
+            )
+            if navigation is not None and section == "todo_capture" and todo_token is None:
+                raise _UserInputError(
+                    "Другое голосовое уже принято или ввод истёк. "
+                    "Отмени ввод и нажми «➕ Добавить дело» ещё раз."
+                )
             job = AudioJob(
                 chat_id=message.chat.id,
                 reply_to_message_id=message.message_id,
@@ -256,11 +281,14 @@ def create_router(
                 file_path=raw_path,
                 capture_token=capture_token,
                 day_facts_token=day_facts_token,
+                todo_token=todo_token,
                 navigation_section=section,
                 navigation_revision=revision,
             )
             await queue.put(job)
-            if day_facts_token is not None:
+            if todo_token is not None:
+                await message.reply("✅ Принял. Распознаю и сохраню одно дело.")
+            elif day_facts_token is not None:
                 await message.reply("✅ Принял. Добавлю в черновик «Факты дня».")
             elif capture_token is not None:
                 await message.reply("✅ Принял. Распознаю и сохраню как заметку.")
@@ -303,6 +331,7 @@ async def run_worker(
     punctuation_processor: TextPunctuationProcessor | None = None,
     notes: NotesService | None = None,
     day_facts: DayFactsService | None = None,
+    todo: TodoService | None = None,
     navigation: NavigationStore | None = None,
     owner_user_id: int | None = None,
 ) -> None:
@@ -373,6 +402,7 @@ async def run_worker(
             )
             if planner and session and (
                 job.day_facts_token is not None or job.capture_token is not None
+                or job.todo_token is not None
             ):
                 # A note/facts recording accepted before the Planner session
                 # appeared must never be converted into Planner tasks.
@@ -407,6 +437,54 @@ async def run_worker(
                         parse_mode=None,
                         reply_markup=planner_markup_for_state(planner, job.user_id),
                     )
+            elif todo is not None and job.todo_token is not None:
+                display_text = result.pause_aware_text or result.text
+                if punctuation_processor is not None:
+                    display_text = await punctuation_processor.format(
+                        result.text, fallback_text=display_text
+                    )
+                if allowed_users is not None and job.user_id not in allowed_users:
+                    continue
+                if not route_current(job):
+                    await bot.send_message(
+                        job.chat_id,
+                        "Режим изменился. Дело не добавлено.",
+                        reply_to_message_id=job.reply_to_message_id,
+                    )
+                    continue
+                pending = todo.store.pending(job.user_id)
+                was_edit = (
+                    pending is not None and pending.token == job.todo_token
+                    and pending.mode == "edit"
+                )
+                try:
+                    item = todo.store.capture_voice(
+                        job.user_id, job.todo_token, display_text,
+                    )
+                except ValueError:
+                    await bot.send_message(
+                        job.chat_id,
+                        "Дело должно содержать от 1 до 1000 символов. "
+                        "Нажми «❌ Отменить ввод» и попробуй ещё раз.",
+                        reply_to_message_id=job.reply_to_message_id,
+                    )
+                    continue
+                if item is None:
+                    await bot.send_message(
+                        job.chat_id,
+                        "Ввод изменился или отменён. Голосовое не сохранено.",
+                        reply_to_message_id=job.reply_to_message_id,
+                    )
+                    continue
+                if navigation is not None:
+                    navigation.activate(job.user_id, "todo")
+                await bot.send_message(
+                    job.chat_id,
+                    todo.saved_message(item, edited=was_edit),
+                    reply_to_message_id=job.reply_to_message_id,
+                    reply_markup=todo_keyboard(),
+                    parse_mode=None,
+                )
             elif day_facts is not None and job.day_facts_token is not None:
                 # Route by the immutable intent captured at queue admission,
                 # NOT whichever module happens to be active after ASR.

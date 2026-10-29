@@ -121,10 +121,10 @@ async def test_navigation_only_opens_modules_without_creating_drafts(nav, tmp_pa
         assert not guest.responses
         assert nav.current(3) == ("home", 0)
 
-        placeholder = FakeMessage(1, TODO_START)
-        await _handler(router, "on_todo")(placeholder)
-        assert "не принимает" in placeholder.responses[-1][0]
-        assert nav.current(1)[0] == "home"
+        opened_todo = FakeMessage(1, TODO_START)
+        await _handler(router, "on_todo")(opened_todo)
+        assert "Список дел" in opened_todo.responses[-1][0]
+        assert nav.current(1)[0] == "todo"
     finally:
         store.close()
 

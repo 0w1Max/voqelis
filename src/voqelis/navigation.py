@@ -22,18 +22,20 @@ from .menu import (
     NOTES_START,
     PLANNER_START,
     TODO_START,
+    TODO_LEGACY,
     TRANSCRIBE_START,
     facts_keyboard,
     main_keyboard,
     notes_keyboard,
     planner_section_keyboard,
+    todo_keyboard,
 )
 
-SECTIONS = frozenset({"home", "facts", "facts_capture", "notes", "planner"})
+SECTIONS = frozenset({"home", "facts", "facts_capture", "notes", "planner", "todo", "todo_capture"})
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS navigation_state (
     user_id INTEGER PRIMARY KEY,
-    section TEXT NOT NULL CHECK(section IN ('home','facts','facts_capture','notes','planner','transcribe')),
+    section TEXT NOT NULL CHECK(section IN ('home','facts','facts_capture','notes','planner','transcribe','todo','todo_capture')),
     revision INTEGER NOT NULL DEFAULT 1 CHECK(revision > 0)
 );
 """
@@ -55,6 +57,30 @@ class NavigationStore:
         self.db = sqlite3.connect(path, timeout=5)
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
+        # SQLite cannot ALTER a CHECK constraint. Transactionally preserve
+        # user IDs, active sections and navigation revisions.
+        ddl = self.db.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' "
+            "AND name='navigation_state'"
+        ).fetchone()[0]
+        if "'todo_capture'" not in ddl:
+            with self.db:
+                self.db.execute(
+                    "CREATE TABLE navigation_state_v2 ("
+                    "user_id INTEGER PRIMARY KEY, "
+                    "section TEXT NOT NULL CHECK(section IN "
+                    "('home','facts','facts_capture','notes','planner',"
+                    "'transcribe','todo','todo_capture')), "
+                    "revision INTEGER NOT NULL DEFAULT 1 CHECK(revision > 0))"
+                )
+                self.db.execute(
+                    "INSERT INTO navigation_state_v2(user_id, section, revision) "
+                    "SELECT user_id, section, revision FROM navigation_state"
+                )
+                self.db.execute("DROP TABLE navigation_state")
+                self.db.execute(
+                    "ALTER TABLE navigation_state_v2 RENAME TO navigation_state"
+                )
         # Legacy "transcribe" was a dedicated module. Bring persisted users
         # home without touching any module draft or other state.
         # Keep its old CHECK value in SCHEMA for existing SQLite databases.
@@ -166,12 +192,15 @@ def create_navigation_router(
         )
 
     @router.message(F.text == TODO_START)
+    @router.message(F.text == TODO_LEGACY)
     async def on_todo(message: Message) -> None:
         if not permitted(message):
             return
+        navigation.activate(message.from_user.id, "todo")
         await message.answer(
-            "✅ «Список дел» появится после согласования его правил. "
-            "Сейчас модуль ещё не принимает и не сохраняет записи."
+            "✅ Список дел\nВыбери действие. Это личный чек-лист "
+            "без дат и напоминаний.",
+            reply_markup=todo_keyboard(),
         )
 
     return router
