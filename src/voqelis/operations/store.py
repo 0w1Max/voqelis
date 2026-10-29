@@ -16,6 +16,7 @@ REPORT_TTL = 10 * 60
 EVENT_RETENTION_SECONDS = 7 * 86400
 REPORT_RETENTION_SECONDS = 30 * 86400
 MAX_DESCRIPTION = 800
+MAX_EVENTS = 50_000
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS ops_config (
@@ -152,6 +153,11 @@ class OperationsStore:
                 self.db.execute(
                     "DELETE FROM ops_events WHERE occurred_at<?",
                     (when - EVENT_RETENTION_SECONDS,),
+                )
+                self.db.execute(
+                    "DELETE FROM ops_events WHERE id <= "
+                    "(SELECT MAX(id) - ? FROM ops_events)",
+                    (MAX_EVENTS,),
                 )
 
     def summary(

@@ -6,6 +6,7 @@ import uuid
 from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot, F, Router
@@ -26,7 +27,6 @@ from .domain import AudioJob
 from .menu import main_keyboard, todo_keyboard
 from .navigation import NavigationStore
 from .notes.service import NotesService
-from .operations.store import OperationsStore
 from .planner.bot import planner_markup_for_state
 from .planner.service import PlannerService
 from .queue import JobQueue
@@ -34,6 +34,10 @@ from .text import chunk_text
 from .text_punctuation import TextPunctuationProcessor
 from .todo.service import TodoService
 from .transcription import Transcriber
+
+if TYPE_CHECKING:
+    from .operations.store import OperationsStore
+
 
 logger = logging.getLogger(__name__)
 

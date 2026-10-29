@@ -10,6 +10,7 @@ import os
 import sqlite3
 import stat
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from aiogram import F, Router
 from aiogram.enums import ChatType
@@ -30,7 +31,10 @@ from .menu import (
     planner_section_keyboard,
     todo_keyboard,
 )
-from .operations.store import OperationsStore
+
+if TYPE_CHECKING:
+    from .operations.store import OperationsStore
+
 
 SECTIONS = frozenset({"home", "facts", "facts_capture", "notes", "planner", "todo", "todo_capture"})
 SCHEMA = """

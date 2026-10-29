@@ -12,6 +12,7 @@ import pytest
 from voqelis.access import AccessStore
 from voqelis.menu import REPORT_BUTTON, main_keyboard
 from voqelis.navigation import NavigationStore
+from voqelis.operations import store as ops_store_module
 from voqelis.operations.bot import create_operations_router
 from voqelis.operations.store import OperationsStore
 from voqelis.operations.telemetry import OperationsTelemetry
@@ -295,3 +296,14 @@ async def test_telemetry_reports_handled_and_failed_without_swallowing(data):
     event.from_user.id = 3
     await telemetry(outsider, event, {})
     assert len(store.db.execute("SELECT * FROM ops_events").fetchall()) == 2
+
+
+
+def test_diagnostic_journal_is_bounded_even_when_active(data, monkeypatch):
+    _, store, _ = data
+    monkeypatch.setattr(ops_store_module, "MAX_EVENTS", 50)
+    for _ in range(100):
+        store.record(1, "home", "message", "handled")
+    count = store.db.execute("SELECT COUNT(*) FROM ops_events").fetchone()[0]
+    assert count == 50
+    assert store.summary(1, 10)["handled"] == 50

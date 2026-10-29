@@ -9,6 +9,7 @@ import time
 from collections.abc import Iterator
 from collections.abc import Set as AbstractSet
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from aiogram import F, Router
 from aiogram.enums import ChatType
@@ -22,7 +23,10 @@ from aiogram.types import (
 
 from .menu import ADMIN_PANEL, main_keyboard
 from .navigation import NavigationStore
-from .operations.store import OperationsStore
+
+if TYPE_CHECKING:
+    from .operations.store import OperationsStore
+
 
 logger = logging.getLogger(__name__)
 
