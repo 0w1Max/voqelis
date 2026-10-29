@@ -6,6 +6,7 @@ import uuid
 from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot, F, Router
@@ -34,6 +35,10 @@ from .text_punctuation import TextPunctuationProcessor
 from .todo.service import TodoService
 from .transcription import Transcriber
 
+if TYPE_CHECKING:
+    from .operations.store import OperationsStore
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -44,6 +49,7 @@ def create_router(
     todo: TodoService | None = None,
     navigation: NavigationStore | None = None,
     owner_user_id: int | None = None,
+    operations: OperationsStore | None = None,
 ) -> Router:
     router = Router(name="audio")
 
@@ -77,7 +83,13 @@ def create_router(
             "🏠 Главное меню Voqelis.\n"
             "Пришли голосовое или аудиофайл для обычной расшифровки "
             "либо выбери модуль. Ничего не сохраню в другие модули.",
-            reply_markup=main_keyboard(admin=message.from_user.id == owner_user_id),
+            reply_markup=main_keyboard(
+                admin=message.from_user.id == owner_user_id,
+                reporter=operations is not None and operations.eligible(
+                    message.from_user.id,
+                    approved=message.from_user.id in settings.allowed_user_ids,
+                ),
+            ),
         )
 
     @router.message(Command("status"))
@@ -333,6 +345,7 @@ async def run_worker(
     todo: TodoService | None = None,
     navigation: NavigationStore | None = None,
     owner_user_id: int | None = None,
+    operations: OperationsStore | None = None,
 ) -> None:
     planner_tz = ZoneInfo(planner.config.timezone) if planner else None
     allowed_users = getattr(settings, "allowed_user_ids", None)
@@ -344,6 +357,16 @@ async def run_worker(
             or navigation.current(job.user_id)
             == (job.navigation_section, job.navigation_revision)
         )
+
+    def record_audio_failure(job: AudioJob) -> None:
+        if operations is not None:
+            try:
+                operations.record(
+                    job.user_id, job.navigation_section or "unknown",
+                    "audio", "failed",
+                )
+            except Exception:
+                logger.exception("OPERATIONS_AUDIO_TELEMETRY_FAILED")
 
     while True:
         job = await queue.get()
@@ -377,6 +400,7 @@ async def run_worker(
 
             result = await transcriber.transcribe(str(job.file_path))
             if not result.text:
+                record_audio_failure(job)
                 await bot.send_message(
                     job.chat_id,
                     "Не удалось распознать речь: файл пустой, без речи или слишком тихий.",
@@ -578,6 +602,14 @@ async def run_worker(
                     if index < len(parts) - 1:
                         await asyncio.sleep(1.05)
 
+            if operations is not None:
+                try:
+                    operations.record(
+                        job.user_id, job.navigation_section or "unknown",
+                        "audio", "completed", int(result.processing_seconds * 1000),
+                    )
+                except Exception:
+                    logger.exception("OPERATIONS_AUDIO_TELEMETRY_FAILED")
             logger.info(
                 "Transcribed user=%s duration=%.1fs processing=%.1fs language=%s prob=%.3f",
                 job.user_id,
@@ -587,6 +619,7 @@ async def run_worker(
                 result.language_probability,
             )
         except AudioProcessingError as exc:
+            record_audio_failure(job)
             logger.warning("Audio probe/decoding failed for user=%s: %s", job.user_id, exc)
             await _safe_error_message(
                 bot,
@@ -595,12 +628,15 @@ async def run_worker(
                 "Не получилось прочитать аудиофайл. Возможно, он повреждён или формат не поддерживается.",
             )
         except (TelegramNetworkError, TelegramBadRequest) as exc:
+            record_audio_failure(job)
             logger.warning("Telegram response failed for user=%s: %s", job.user_id, exc)
         except TelegramRetryAfter as exc:
+            record_audio_failure(job)
             logger.warning("Telegram retry-after for user=%s: %ss", job.user_id, exc.retry_after)
             with suppress(Exception):
                 await asyncio.sleep(float(exc.retry_after))
         except Exception:
+            record_audio_failure(job)
             logger.exception("Unexpected worker failure for user=%s", job.user_id)
             await _safe_error_message(
                 bot,

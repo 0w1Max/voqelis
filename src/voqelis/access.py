@@ -9,6 +9,7 @@ import time
 from collections.abc import Iterator
 from collections.abc import Set as AbstractSet
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from aiogram import F, Router
 from aiogram.enums import ChatType
@@ -22,6 +23,10 @@ from aiogram.types import (
 
 from .menu import ADMIN_PANEL, main_keyboard
 from .navigation import NavigationStore
+
+if TYPE_CHECKING:
+    from .operations.store import OperationsStore
+
 
 logger = logging.getLogger(__name__)
 
@@ -229,6 +234,9 @@ def _admin_markup(store: AccessStore, page: int = 0) -> InlineKeyboardMarkup:
             text="➡️ Ещё", callback_data=f"access:panel:{page + 1}"
         )])
     rows.append([InlineKeyboardButton(
+        text="🛠 Операции", callback_data="ops:admin"
+    )])
+    rows.append([InlineKeyboardButton(
         text="🔄 Обновить", callback_data=f"access:panel:{page}"
     )])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -263,7 +271,8 @@ def _admin_summary(store: AccessStore, page: int = 0) -> str:
 
 
 def create_access_router(
-    store: AccessStore, *, navigation: NavigationStore | None = None
+    store: AccessStore, *, navigation: NavigationStore | None = None,
+    operations: OperationsStore | None = None,
 ) -> Router:
     router = Router(name="access")
     owner = store.admin_id
@@ -323,7 +332,12 @@ def create_access_router(
                 "🏠 Добро пожаловать в Voqelis!\n"
                 "Отправь голосовое или аудиофайл — верну расшифровку текста.\n"
                 "Для других действий выбери модуль.",
-                reply_markup=main_keyboard(admin=message.from_user.id == owner),
+                reply_markup=main_keyboard(
+                    admin=message.from_user.id == owner,
+                    reporter=operations is not None and operations.eligible(
+                        message.from_user.id, approved=store.is_allowed(message.from_user.id),
+                    ),
+                ),
             )
         else:
             await message.answer(

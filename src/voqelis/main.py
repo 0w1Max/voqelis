@@ -21,6 +21,9 @@ from .navigation import NavigationStore, create_navigation_router
 from .notes.bot import create_notes_router
 from .notes.service import NotesService
 from .notes.store import NotesStore
+from .operations.bot import create_operations_router
+from .operations.store import OperationsStore
+from .operations.telemetry import OperationsTelemetry
 from .planner.ai import (
     AIProviderRouter,
     CloudflarePlannerAI,
@@ -160,6 +163,10 @@ async def async_main() -> None:
     navigation = NavigationStore(settings.planner_db_path.with_name("navigation.sqlite3"))
     todo_store = TodoStore(settings.planner_db_path.with_name("todo.sqlite3"))
     todo = TodoService(todo_store)
+    ops_store = OperationsStore(
+        settings.planner_db_path.with_name("operations.sqlite3"),
+        owner_id=access_store.admin_id,
+    )
 
     queue = JobQueue(
         max_pending_jobs=settings.max_pending_jobs,
@@ -167,10 +174,18 @@ async def async_main() -> None:
     )
 
     dp = Dispatcher()
-    dp.include_router(create_access_router(access_store, navigation=navigation))
+    telemetry = OperationsTelemetry(ops_store, navigation, settings.allowed_user_ids)
+    dp.message.outer_middleware(telemetry)
+    dp.callback_query.outer_middleware(telemetry)
+    dp.include_router(create_access_router(
+        access_store, navigation=navigation, operations=ops_store,
+    ))
+    dp.include_router(create_operations_router(
+        store=ops_store, access=access_store, navigation=navigation,
+    ))
     dp.include_router(create_navigation_router(
         navigation=navigation, allowed_user_ids=settings.allowed_user_ids,
-        admin_user_id=access_store.admin_id,
+        admin_user_id=access_store.admin_id, operations=ops_store,
     ))
     dp.include_router(
         create_asr_test_router(
@@ -207,7 +222,7 @@ async def async_main() -> None:
     dp.include_router(create_router(
         settings=settings, queue=queue, planner=planner,
         notes=notes, day_facts=day_facts, todo=todo, navigation=navigation,
-        owner_user_id=access_store.admin_id,
+        owner_user_id=access_store.admin_id, operations=ops_store,
     ))
 
     async with Bot(
@@ -225,7 +240,7 @@ async def async_main() -> None:
                 punctuation_processor=punctuation_processor,
                 notes=notes,
                 day_facts=day_facts, todo=todo, navigation=navigation,
-                owner_user_id=access_store.admin_id,
+                owner_user_id=access_store.admin_id, operations=ops_store,
             ),
             name="transcription-worker",
         )
@@ -245,6 +260,7 @@ async def async_main() -> None:
             notes_store.close()
             day_facts_store.close()
             todo_store.close()
+            ops_store.close()
             access_store.close()
             navigation.close()
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 
 ADMIN_PANEL = "🛡 Админ-панель"
+REPORT_BUTTON = "🐞 Сообщить об ошибке"
 HOME = "⬅️ Главное меню"
 FACTS_START = "📘 Факты дня"
 FACTS_NEW = "➕ Новая запись"
@@ -35,8 +36,12 @@ def _keyboard(rows: list[list[str]]) -> ReplyKeyboardMarkup:
     )
 
 
-def main_keyboard(*, admin: bool = False) -> ReplyKeyboardMarkup:
+def main_keyboard(
+    *, admin: bool = False, reporter: bool = False,
+) -> ReplyKeyboardMarkup:
     rows = [[FACTS_START, TODO_START]]
+    if admin or reporter:
+        rows.append([REPORT_BUTTON])
     if admin:
         rows.extend([
             [NOTES_START, PLANNER_START],
