@@ -30,7 +30,7 @@ def build_issue_body(report: Report, marker: str, revision: str) -> str:
         counts[key] = number
     raw_codes = data.get("error_codes", {})
     if not isinstance(raw_codes, dict):
-        raise ValueError("Invalid diagnostics")
+        raise TypeError("Invalid diagnostics")
     codes: list[str] = []
     for key in sorted(raw_codes):
         value = raw_codes[key]
@@ -57,8 +57,8 @@ def build_issue_body(report: Report, marker: str, revision: str) -> str:
         "### Classified failures",
         *(codes if codes else ["- None recorded"]),
         "",
-        "No Telegram user IDs, messages, free-text comments, audio, "
-        "transcripts, stack traces or credentials are included.",
+        ("No Telegram user IDs, messages, free-text comments, audio, "
+         "transcripts, stack traces or credentials are included."),
     ])
 
 

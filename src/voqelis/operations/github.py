@@ -157,7 +157,7 @@ class GitHubIssuesClient:
                 raise GitHubExportFailure("RECONCILE_UNAVAILABLE", uncertain=True)
             items = response.json()["items"]
             if not isinstance(items, list):
-                raise ValueError("Invalid search response")
+                raise TypeError("Invalid search response")
             exact = [
                 item["number"] for item in items
                 if isinstance(item, dict)

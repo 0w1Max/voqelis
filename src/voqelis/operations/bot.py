@@ -18,7 +18,12 @@ from aiogram.types import (
 from ..access import AccessStore
 from ..menu import REPORT_BUTTON
 from ..navigation import NavigationStore
-from .github import GitHubAppConfig, GitHubExportFailure, GitHubIssuesClient, make_http_client
+from .github import (
+    GitHubAppConfig,
+    GitHubExportFailure,
+    GitHubIssuesClient,
+    make_http_client,
+)
 from .store import OperationsStore, Report
 
 logger = logging.getLogger(__name__)
@@ -293,7 +298,7 @@ def create_operations_router(
                     + f"\nКод: {exc.code}"
                 )
                 return
-            except Exception:
+            except Exception:  # noqa: BLE001
                 # A failure after dispatch cannot prove that GitHub did not create the Issue.
                 store.fail_export(
                     report_id, ticket.marker, "CREATE_OUTCOME_UNKNOWN", uncertain=True,
