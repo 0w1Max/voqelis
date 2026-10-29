@@ -55,7 +55,10 @@ class OperationsTelemetry(BaseMiddleware):
         finally:
             elapsed = int((time.monotonic() - started) * 1000)
             try:
-                self.store.record(uid, section, operation, outcome, elapsed)
+                self.store.record(
+                    uid, section, operation, outcome, elapsed,
+                    error_code="HANDLER_EXCEPTION" if outcome == "failed" else "NONE",
+                )
             except Exception:
                 # Telemetry must not block a user action or hide its exception.
                 logger.exception("OPERATIONS_TELEMETRY_WRITE_FAILED")
