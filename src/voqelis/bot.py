@@ -358,6 +358,16 @@ async def run_worker(
             == (job.navigation_section, job.navigation_revision)
         )
 
+    def record_audio_failure(job: AudioJob) -> None:
+        if operations is not None:
+            try:
+                operations.record(
+                    job.user_id, job.navigation_section or "unknown",
+                    "audio", "failed",
+                )
+            except Exception:
+                logger.exception("OPERATIONS_AUDIO_TELEMETRY_FAILED")
+
     while True:
         job = await queue.get()
         try:
@@ -390,6 +400,7 @@ async def run_worker(
 
             result = await transcriber.transcribe(str(job.file_path))
             if not result.text:
+                record_audio_failure(job)
                 await bot.send_message(
                     job.chat_id,
                     "Не удалось распознать речь: файл пустой, без речи или слишком тихий.",
@@ -608,6 +619,7 @@ async def run_worker(
                 result.language_probability,
             )
         except AudioProcessingError as exc:
+            record_audio_failure(job)
             logger.warning("Audio probe/decoding failed for user=%s: %s", job.user_id, exc)
             await _safe_error_message(
                 bot,
@@ -616,20 +628,15 @@ async def run_worker(
                 "Не получилось прочитать аудиофайл. Возможно, он повреждён или формат не поддерживается.",
             )
         except (TelegramNetworkError, TelegramBadRequest) as exc:
+            record_audio_failure(job)
             logger.warning("Telegram response failed for user=%s: %s", job.user_id, exc)
         except TelegramRetryAfter as exc:
+            record_audio_failure(job)
             logger.warning("Telegram retry-after for user=%s: %ss", job.user_id, exc.retry_after)
             with suppress(Exception):
                 await asyncio.sleep(float(exc.retry_after))
         except Exception:
-            if operations is not None:
-                try:
-                    operations.record(
-                        job.user_id, job.navigation_section or "unknown",
-                        "audio", "failed",
-                    )
-                except Exception:
-                    logger.exception("OPERATIONS_AUDIO_TELEMETRY_FAILED")
+            record_audio_failure(job)
             logger.exception("Unexpected worker failure for user=%s", job.user_id)
             await _safe_error_message(
                 bot,
