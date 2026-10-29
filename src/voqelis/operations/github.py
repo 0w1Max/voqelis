@@ -92,16 +92,24 @@ class GitHubIssuesClient:
             if response.status_code != 201:
                 raise GitHubExportFailure("APP_AUTH_FAILED")
             payload = response.json()
+            if not isinstance(payload, dict):
+                raise GitHubExportFailure("APP_SCOPE_INVALID")
+            permissions = payload.get("permissions")
+            repositories = payload.get("repositories")
+            if not isinstance(permissions, dict) or not isinstance(repositories, list):
+                raise GitHubExportFailure("APP_SCOPE_INVALID")
+            granted = {
+                r.get("full_name") for r in repositories if isinstance(r, dict)
+            }
             if (
-                not isinstance(payload, dict)
-                or not isinstance(payload.get("permissions"), dict)
-                or payload["permissions"].get("issues") != "write"
-                or not isinstance(payload.get("repositories"), list)
-                or not any(
-                    r.get("full_name") == REPO
-                    for r in payload["repositories"]
-                    if isinstance(r, dict)
+                permissions.get("issues") != "write"
+                or any(
+                    key not in {"issues", "metadata"} or (
+                        key == "metadata" and value != "read"
+                    )
+                    for key, value in permissions.items()
                 )
+                or granted != {REPO}
             ):
                 raise GitHubExportFailure("APP_SCOPE_INVALID")
             token = payload.get("token")
