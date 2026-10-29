@@ -47,7 +47,7 @@ exceptions, not logical inaccuracies.
 
 The independent database operations.sqlite3 uses private filesystem mode
 0600, no symlinks, bounded input and transaction-protected tokens.
-Events are pruned after 7 days on every 100th event insert. Reports are pruned
+Events are pruned after 7 days and capped at 50,000 rows, checked every 100 event inserts. Reports are pruned
 after 30 days upon report creation. These are lazy retention limits, not
 scheduled guaranteed expiration if activity stops. Periodic cleanup can be
 added later as a separate planned task.
