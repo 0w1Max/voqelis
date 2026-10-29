@@ -53,7 +53,7 @@ def _now() -> str:
 
 def _text(value: str) -> str:
     if not isinstance(value, str):
-        raise ValueError("Task must be text")
+        raise TypeError("Task must be text")
     clean = value.strip()
     if not clean or len(clean) > MAX_TEXT_CHARS:
         raise ValueError("Task must contain 1–1000 characters")

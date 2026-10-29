@@ -6,14 +6,31 @@ from aiogram import F, Router
 from aiogram.enums import ChatType
 from aiogram.filters import Command
 from aiogram.types import (
-    CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message,
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
 )
 
 from ..menu import (
-    FACTS_NEW, FACTS_RESUME, FACTS_START, FACTS_TODAY, FACTS_HISTORY,
-    HOME, NOTES_LIST, NOTES_NEW, NOTES_START, PLANNER_START,
-    TODO_ACTIVE, TODO_CANCEL, TODO_DONE, TODO_NEW, TODO_START,
-    TODO_LEGACY, todo_capture_keyboard, todo_keyboard,
+    FACTS_HISTORY,
+    FACTS_NEW,
+    FACTS_RESUME,
+    FACTS_START,
+    FACTS_TODAY,
+    HOME,
+    NOTES_LIST,
+    NOTES_NEW,
+    NOTES_START,
+    PLANNER_START,
+    TODO_ACTIVE,
+    TODO_CANCEL,
+    TODO_DONE,
+    TODO_LEGACY,
+    TODO_NEW,
+    TODO_START,
+    todo_capture_keyboard,
+    todo_keyboard,
 )
 from ..navigation import NavigationStore
 from .service import TodoService

@@ -12,10 +12,7 @@ import pytest
 
 from voqelis import bot as audio_module
 from voqelis.domain import AudioJob, TranscriptionResult
-from voqelis.menu import (
-    TODO_ACTIVE, TODO_CANCEL, TODO_DONE, TODO_NEW, TODO_START,
-    todo_keyboard,
-)
+from voqelis.menu import TODO_ACTIVE, TODO_NEW, TODO_START
 from voqelis.navigation import NavigationStore, create_navigation_router
 from voqelis.queue import JobQueue
 from voqelis.todo.bot import create_todo_router, item_markup

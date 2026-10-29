@@ -33,10 +33,10 @@ from .planner.service import PlannerService
 from .planner.store import PlannerStore
 from .queue import JobQueue
 from .text_punctuation import TextPunctuationProcessor
-from .transcription import Transcriber
 from .todo.bot import create_todo_router
 from .todo.service import TodoService
 from .todo.store import TodoStore
+from .transcription import Transcriber
 
 logger = logging.getLogger(__name__)
 

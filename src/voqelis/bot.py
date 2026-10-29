@@ -23,7 +23,7 @@ from .config import Settings
 from .day_facts.bot import facts_markup
 from .day_facts.service import DayFactsService
 from .domain import AudioJob
-from .menu import main_keyboard
+from .menu import main_keyboard, todo_keyboard
 from .navigation import NavigationStore
 from .notes.service import NotesService
 from .planner.bot import planner_markup_for_state
@@ -31,9 +31,8 @@ from .planner.service import PlannerService
 from .queue import JobQueue
 from .text import chunk_text
 from .text_punctuation import TextPunctuationProcessor
-from .transcription import Transcriber
 from .todo.service import TodoService
-from .menu import todo_keyboard
+from .transcription import Transcriber
 
 logger = logging.getLogger(__name__)
 
