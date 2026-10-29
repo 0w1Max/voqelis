@@ -384,3 +384,70 @@ async def test_disabled_export_does_not_dispatch(store, tmp_path):
     finally:
         nav.close()
         access.close()
+
+
+
+def test_v1_report_and_tester_permission_survive_upgrade(tmp_path):
+    path = tmp_path / "operations.sqlite3"
+    with sqlite3.connect(path) as db:
+        db.executescript("""
+        CREATE TABLE ops_config (
+            id INTEGER PRIMARY KEY CHECK(id=1), reporter_user_id INTEGER
+        );
+        CREATE TABLE ops_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            occurred_at INTEGER NOT NULL, user_id INTEGER NOT NULL,
+            section TEXT NOT NULL, operation TEXT NOT NULL,
+            outcome TEXT NOT NULL, elapsed_ms INTEGER NOT NULL
+        );
+        CREATE TABLE ops_reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL, created_at INTEGER NOT NULL,
+            window_minutes INTEGER NOT NULL, description TEXT NOT NULL,
+            snapshot TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'new'
+        );
+        """)
+        db.execute("INSERT INTO ops_config VALUES(1,2)")
+        db.execute(
+            "INSERT INTO ops_reports "
+            "(id,user_id,created_at,window_minutes,description,snapshot,status) "
+            "VALUES(77,2,1793000000,30,?,?,?)",
+            ("private local comment", json.dumps({
+                "handled": 7, "completed": 1, "failed": 0,
+            }), "resolved"),
+        )
+    upgraded = OperationsStore(path, owner_id=1)
+    try:
+        assert upgraded.reporter_id() == 2
+        report = upgraded.get_report(77)
+        assert report is not None
+        assert report.id == 77
+        assert report.user_id == 2
+        assert report.description == "private local comment"
+        assert report.status == "resolved"
+        export = upgraded.prepare_export(1, 77, SHA)
+        assert export is not None
+        assert "private local comment" not in export.issue_body
+        assert upgraded.db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    finally:
+        upgraded.close()
+
+
+@pytest.mark.asyncio
+async def test_wrong_github_repository_or_extra_permissions_fail_closed(app_config):
+    calls = []
+    def handler(req):
+        calls.append(req.url.path)
+        return httpx.Response(201, json={
+            "token": "scoped-token",
+            "permissions": {"issues": "write", "contents": "write"},
+            "repositories": [{"full_name": "0w1Max/voqelis"}],
+        })
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(GitHubExportFailure) as exc:
+            await GitHubIssuesClient(app_config, client).create_issue(
+                "VQEXP-" + "d" * 32, "safe body",
+            )
+    assert exc.value.code == "APP_SCOPE_INVALID"
+    assert not exc.value.uncertain
+    assert calls == ["/app/installations/456/access_tokens"]
