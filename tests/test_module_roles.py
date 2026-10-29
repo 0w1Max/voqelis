@@ -14,6 +14,7 @@ from voqelis.day_facts.store import DayFactsStore
 from voqelis.menu import (
     ADMIN_PANEL,
     FACTS_START,
+    REPORT_BUTTON,
     NOTES_NEW,
     NOTES_START,
     PLANNER_START,
@@ -35,7 +36,7 @@ def labels(keyboard):
 def test_owner_sees_all_modules_guest_only_two():
     assert labels(main_keyboard()) == [FACTS_START, TODO_START]
     assert labels(main_keyboard(admin=True)) == [
-        FACTS_START, TODO_START, NOTES_START, PLANNER_START,
+        FACTS_START, TODO_START, REPORT_BUTTON, NOTES_START, PLANNER_START,
         ADMIN_PANEL,
     ]
 
