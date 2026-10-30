@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 
 from aiogram import F, Router
@@ -53,14 +54,23 @@ def _home_markup() -> InlineKeyboardMarkup:
     ])
 
 
-def _preview_markup(announcement: Announcement, *, enabled: bool) -> InlineKeyboardMarkup:
+def _audience_stamp(recipient_ids: list[int]) -> str:
+    """Bind owner confirmation to the exact approved audience seen in preview."""
+    canonical = ",".join(str(uid) for uid in sorted(recipient_ids))
+    return hashlib.sha256(canonical.encode("ascii")).hexdigest()[:16]
+
+
+def _preview_markup(
+    announcement: Announcement, *, enabled: bool, audience_stamp: str,
+) -> InlineKeyboardMarkup:
     rows = [
         [("✏️ Изменить", f"news:edit:{announcement.id}")],
     ]
     if enabled:
         rows.append([(
             "✅ Подтвердить рассылку",
-            f"news:send:{announcement.id}:{announcement.revision}:{announcement.token}",
+            f"news:send:{announcement.id}:{announcement.revision}:"
+            f"{announcement.token}:{audience_stamp}",
         )])
     rows.extend([
         [("👁 Проверить текст на себе", f"news:self:{announcement.id}")],
@@ -109,18 +119,22 @@ def create_notification_router(
         ]
 
     async def show_preview(message: Message, item: Announcement) -> None:
+        recipients = eligible_recipients()
         await message.answer(
             "📝 Предпросмотр объявления\n\n"
             f"{item.body or '(текст ещё не введён)'}\n\n"
             f"Версия: {item.revision}\n"
-            f"Получателей сейчас: {len(eligible_recipients())}\n"
+            f"Получателей сейчас: {len(recipients)}\n"
             "Список будет зафиксирован при подтверждении.\n"
             + (
                 "⚠ Рассылка пока отключена на сервере. Можно подготовить черновик."
                 if not enabled else
                 "Это сообщение будет разослано только после нажатия подтверждения."
             ),
-            reply_markup=_preview_markup(item, enabled=enabled) if item.body else
+            reply_markup=_preview_markup(
+                item, enabled=enabled,
+                audience_stamp=_audience_stamp(recipients),
+            ) if item.body else
             _buttons([[("✏️ Ввести текст", f"news:edit:{item.id}")]]),
             parse_mode=None,
         )
@@ -287,12 +301,20 @@ def create_notification_router(
                 logger.warning("ANNOUNCEMENT_SELF_PREVIEW_FAILED")
                 await callback.message.answer("⚠ Не удалось отправить тест себе.")
             return
-        if action == "send" and len(parts) == 5 and parts[3].isdigit():
+        if action == "send" and len(parts) == 6 and parts[3].isdigit():
             if not enabled:
                 await callback.answer("Рассылка пока отключена.", show_alert=True)
                 return
+            recipients = eligible_recipients()
+            if parts[5] != _audience_stamp(recipients):
+                await callback.answer(
+                    "Список получателей изменился. Проверь новый предпросмотр.",
+                    show_alert=True,
+                )
+                await show_preview(callback.message, item)
+                return
             count = store.confirmation(
-                uid, aid, int(parts[3]), parts[4], eligible_recipients(),
+                uid, aid, int(parts[3]), parts[4], recipients,
             )
             if count is None:
                 await callback.answer(
