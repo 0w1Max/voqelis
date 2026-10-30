@@ -4,7 +4,7 @@ import asyncio
 import logging
 import uuid
 from contextlib import suppress
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
@@ -32,7 +32,10 @@ from .planner.service import PlannerService
 from .queue import JobQueue
 from .text import chunk_text
 from .text_punctuation import TextPunctuationProcessor
+from .todo.reminder_ui import reminder_confirm_keyboard
+from .todo.reminders import ReminderRepository
 from .todo.service import TodoService
+from .todo.temporal import ReminderTimeError, parse_reminder_time
 from .transcription import Transcriber
 
 if TYPE_CHECKING:
@@ -50,6 +53,7 @@ def create_router(
     navigation: NavigationStore | None = None,
     owner_user_id: int | None = None,
     operations: OperationsStore | None = None,
+    reminders: ReminderRepository | None = None,
 ) -> Router:
     router = Router(name="audio")
 
@@ -217,6 +221,7 @@ def create_router(
             return
 
         raw_path = settings.temp_dir / uuid.uuid4().hex
+        reminder_token: str | None = None
         try:
             file_info = await bot.get_file(file_id)
             remote_size = getattr(file_info, "file_size", None)
@@ -275,6 +280,20 @@ def create_router(
                 raise _UserInputError(
                     "Ожидание заметки истекло. Нажми «🎙 Новая заметка» ещё раз."
                 )
+            reminder_draft = (
+                reminders.pending(user_id)
+                if reminders is not None and navigation is not None
+                and section == "todo" else None
+            )
+            if (
+                reminder_draft is not None
+                and reminder_draft.navigation_revision == revision
+            ):
+                if not reminders.claim_voice(user_id, reminder_draft.token):
+                    raise _UserInputError(
+                        "Дата уже распознаётся. Дождись результата или отмени ввод."
+                    )
+                reminder_token = reminder_draft.token
             todo_token = (
                 todo.store.claim_voice(user_id)
                 if navigation is not None and section == "todo_capture"
@@ -293,11 +312,14 @@ def create_router(
                 capture_token=capture_token,
                 day_facts_token=day_facts_token,
                 todo_token=todo_token,
+                todo_reminder_token=reminder_token,
                 navigation_section=section,
                 navigation_revision=revision,
             )
             await queue.put(job)
-            if todo_token is not None:
+            if reminder_token is not None:
+                await message.reply("✅ Принял. Распознаю дату напоминания.")
+            elif todo_token is not None:
                 await message.reply("✅ Принял. Распознаю и сохраню одно дело.")
             elif day_facts_token is not None:
                 await message.reply("✅ Принял. Добавлю в черновик «Факты дня».")
@@ -306,19 +328,27 @@ def create_router(
             elif planner_session is None:
                 await message.reply("✅ Принял. Распознаю по очереди.")
         except _UserInputError as exc:
+            if reminder_token is not None and reminders is not None:
+                reminders.release_voice(user_id, reminder_token)
             raw_path.unlink(missing_ok=True)
             await queue.release(user_id)
             await message.reply(str(exc))
         except (TelegramNetworkError, TelegramBadRequest) as exc:
+            if reminder_token is not None and reminders is not None:
+                reminders.release_voice(user_id, reminder_token)
             raw_path.unlink(missing_ok=True)
             await queue.release(user_id)
             logger.warning("Telegram file handling failed: %s", exc)
             await message.reply("Не удалось получить аудиофайл из Telegram. Попробуй отправить его ещё раз.")
         except TelegramRetryAfter as exc:
+            if reminder_token is not None and reminders is not None:
+                reminders.release_voice(user_id, reminder_token)
             raw_path.unlink(missing_ok=True)
             await queue.release(user_id)
             await message.reply(f"Telegram временно ограничил запросы. Повтори через {exc.retry_after} сек.")
         except Exception:
+            if reminder_token is not None and reminders is not None:
+                reminders.release_voice(user_id, reminder_token)
             raw_path.unlink(missing_ok=True)
             await queue.release(user_id)
             logger.exception("Failed to accept incoming audio")
@@ -346,6 +376,7 @@ async def run_worker(
     navigation: NavigationStore | None = None,
     owner_user_id: int | None = None,
     operations: OperationsStore | None = None,
+    reminders: ReminderRepository | None = None,
 ) -> None:
     planner_tz = ZoneInfo(planner.config.timezone) if planner else None
     allowed_users = getattr(settings, "allowed_user_ids", None)
@@ -428,6 +459,7 @@ async def run_worker(
             if planner and session and (
                 job.day_facts_token is not None or job.capture_token is not None
                 or job.todo_token is not None
+                or job.todo_reminder_token is not None
             ):
                 # A note/facts recording accepted before the Planner session
                 # appeared must never be converted into Planner tasks.
@@ -462,6 +494,50 @@ async def run_worker(
                         parse_mode=None,
                         reply_markup=planner_markup_for_state(planner, job.user_id),
                     )
+            elif reminders is not None and job.todo_reminder_token is not None:
+                draft = reminders.pending(job.user_id)
+                if draft is None or draft.token != job.todo_reminder_token:
+                    await bot.send_message(
+                        job.chat_id, "Ввод даты устарел. Настрой напоминание заново."
+                    )
+                    continue
+                if draft.navigation_revision != job.navigation_revision:
+                    await bot.send_message(
+                        job.chat_id, "Раздел изменился. Напоминание не сохранено."
+                    )
+                    continue
+                try:
+                    at = parse_reminder_time(
+                        result.text, now=datetime.now(UTC), timezone=draft.timezone,
+                    )
+                    proposed = reminders.propose(job.user_id, draft.token, at)
+                except ReminderTimeError:
+                    await bot.send_message(
+                        job.chat_id,
+                        "Не получилось определить точную дату и время. "
+                        "Попробуй «завтра в 18:30» или введи дату текстом."
+                    )
+                    continue
+                except ValueError:
+                    await bot.send_message(
+                        job.chat_id, "Время недействительно. Выбери другое."
+                    )
+                    continue
+                if proposed is None:
+                    await bot.send_message(
+                        job.chat_id, "Настройка устарела. Открой дело заново."
+                    )
+                    continue
+                local = datetime.fromtimestamp(
+                    proposed.proposed_at_utc, ZoneInfo(proposed.timezone)
+                )
+                await bot.send_message(
+                    job.chat_id,
+                    f"🔔 Подтверди напоминание:\n"
+                    f"{local:%d.%m.%Y · %H:%M} ({proposed.timezone})",
+                    reply_markup=reminder_confirm_keyboard(proposed.token),
+                    parse_mode=None,
+                )
             elif todo is not None and job.todo_token is not None:
                 display_text = result.pause_aware_text or result.text
                 if punctuation_processor is not None:
@@ -505,11 +581,20 @@ async def run_worker(
                     navigation.activate(job.user_id, "todo")
                 await bot.send_message(
                     job.chat_id,
-                    todo.saved_message(item, edited=was_edit),
+                    todo.saved_message(item, edited=was_edit)
+                    + ("\n\n🔔 Хочешь поставить напоминание?"
+                       if not was_edit else ""),
                     reply_to_message_id=job.reply_to_message_id,
                     reply_markup=todo_keyboard(),
                     parse_mode=None,
                 )
+                if not was_edit:
+                    from .todo.bot import item_markup
+
+                    await bot.send_message(
+                        job.chat_id, todo.item_message(item),
+                        reply_markup=item_markup(item), parse_mode=None,
+                    )
             elif day_facts is not None and job.day_facts_token is not None:
                 # Route by the immutable intent captured at queue admission,
                 # NOT whichever module happens to be active after ASR.
@@ -647,6 +732,8 @@ async def run_worker(
                 "Внутренняя ошибка при обработке. Подробность записана в журнал.",
             )
         finally:
+            if reminders is not None and job.todo_reminder_token is not None:
+                reminders.release_voice(job.user_id, job.todo_reminder_token)
             job.file_path.unlink(missing_ok=True)
             await queue.release(job.user_id)
             queue.task_done()
