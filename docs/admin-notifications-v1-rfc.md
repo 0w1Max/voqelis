@@ -1,6 +1,6 @@
 # RFC — Voqelis Admin Notifications V1
 
-Status: product requirements confirmed; implementation and production release pending.
+Status: owner-approved RFC; implementation is staged in this draft PR, never merged or deployed.
 
 ## Purpose
 
@@ -114,3 +114,20 @@ and with broadcasts disabled until separately approved and tested. Review
 on test accounts first. Back up all applicable production SQLite files,
 rehearse migrations, run full CI and explicitly authorize VPS deployment.
 Neither draft creation nor CI may send real Telegram announcements.
+
+## V1 code release controls
+
+- Environment flag `ADMIN_ANNOUNCEMENTS_ENABLED=false` disables all broadcasts,
+  but the owner can still compose/preview drafts and test the message on themselves.
+- `admin_notifications.sqlite3` is a new independent eighth SQLite DB; back up
+  seven existing DBs before upgrading, then verify all eight after startup.
+- The actor is the unique bootstrap owner from `ALLOWED_USER_IDS`; recipients
+  are rechecked against the live approved-user set at delivery time.
+- An admin can send manually created announcements only after reviewing and
+  confirming their exact content. Automated major-release suggestions are future
+  drafts, not push notifications triggered by a GitHub merge.
+- Users may opt out with `/notify_off` and restore with `/notify_on`.
+  These controls do NOT touch user ToDo reminders.
+- A single active send may complete during pause/cancel due to an in-flight
+  Telegram request. Unknown results remain `uncertain`, without blind retry.
+- No real messages are sent in CI; sender tests use a fake Bot object.
