@@ -1,0 +1,97 @@
+"""Restart-safe single-process sender of user-approved ToDo reminders."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
+
+from aiogram import Bot
+from aiogram.exceptions import (
+    TelegramAPIError,
+    TelegramBadRequest,
+    TelegramForbiddenError,
+    TelegramRetryAfter,
+)
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+from ..access import AccessStore
+from .reminders import MAX_DELAY_SECONDS, Reminder, ReminderRepository
+
+logger = logging.getLogger(__name__)
+
+
+def _reminder_markup(item_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Выполнено", callback_data=f"td:rem:complete:{item_id}"),
+        InlineKeyboardButton(text="📋 Открыть дело", callback_data=f"td:rem:open:{item_id}"),
+    ]])
+
+
+async def _send_one(
+    bot: Bot, repository: ReminderRepository, access: AccessStore,
+    reminder: Reminder,
+) -> None:
+    now = int(time.time())
+    item = repository.todo.get(reminder.user_id, reminder.item_id)
+    if item is None or item.completed_at is not None or not access.is_allowed(reminder.user_id):
+        repository.finish_send(reminder.id, sent=False, now=now)
+        return
+    if repository.get(reminder.user_id, reminder.id).state != "sending":
+        return
+    local = datetime.fromtimestamp(reminder.remind_at_utc, ZoneInfo(reminder.timezone))
+    overdue = now - reminder.remind_at_utc > 60
+    message = (
+        "🔔 Напоминание о деле\n\n"
+        f"{item.text}\n\n"
+        f"⏰ {local:%d.%m.%Y, %H:%M} ({reminder.timezone})"
+        + ("\n⚠ Доставлено с задержкой." if overdue else "")
+    )
+    try:
+        await bot.send_message(
+            reminder.user_id, message,
+            reply_markup=_reminder_markup(reminder.item_id),
+            parse_mode=None,
+        )
+    except TelegramRetryAfter as exc:
+        # A rate-limit response unambiguously rejected this attempt.
+        delay = min(max(1, int(exc.retry_after) + 1), 3600)
+        if not repository.retry_after(reminder.id, now=now, delay=delay):
+            repository.finish_send(reminder.id, sent=False, now=now)
+        logger.warning("TODO_REMINDER_RATE_LIMITED")
+    except (TelegramForbiddenError, TelegramBadRequest):
+        repository.finish_send(reminder.id, sent=False, now=now)
+        logger.warning("TODO_REMINDER_UNDELIVERABLE")
+    except TelegramAPIError:
+        # With API/server errors we cannot rule out delivery after a network break.
+        repository.finish_send(reminder.id, sent=False, uncertain=True, now=now)
+        logger.warning("TODO_REMINDER_DELIVERY_UNCERTAIN")
+    except Exception:  # noqa: BLE001
+        repository.finish_send(reminder.id, sent=False, uncertain=True, now=now)
+        logger.error("TODO_REMINDER_DELIVERY_UNKNOWN")
+    else:
+        repository.finish_send(reminder.id, sent=True, now=int(time.time()))
+
+
+async def run_reminder_sender(
+    bot: Bot, repository: ReminderRepository, access: AccessStore,
+    *, interval: float = 15.0,
+) -> None:
+    """Recover ambiguous in-flight sends and process a bounded due batch."""
+    if interval <= 0:
+        raise ValueError("interval must be positive")
+    recovered = repository.recover_inflight()
+    if recovered:
+        logger.warning("TODO_REMINDER_INFLIGHT_UNCERTAIN count=%d", recovered)
+    while True:
+        try:
+            due = repository.claim_due(now=int(time.time()), limit=10)
+            for reminder in due:
+                await _send_one(bot, repository, access, reminder)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.exception("TODO_REMINDER_SCHEDULER_FAILURE")
+        await asyncio.sleep(interval)
