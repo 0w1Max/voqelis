@@ -40,8 +40,11 @@ async def _send_one(
         repository.finish_send(reminder.id, sent=False, now=now)
         return
     current = repository.get(reminder.user_id, reminder.id)
-    if current is None or current.state != "sending":
-        # Task may have been deleted or cancelled since the claim was prepared.
+    if current is None:
+        # A concurrently removed task must not leave a claimed reminder in flight.
+        repository.finish_send(reminder.id, sent=False, now=now)
+        return
+    if current.state != "sending":
         return
     local = datetime.fromtimestamp(reminder.remind_at_utc, ZoneInfo(reminder.timezone))
     overdue = now - reminder.remind_at_utc > 60
