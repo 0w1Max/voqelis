@@ -12,6 +12,7 @@ from pathlib import Path
 MAX_TEXT = 3500
 MAX_RECIPIENTS = 5000
 EDIT_TTL = 900
+APPROVAL_TTL = 900
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS announcements (
@@ -194,6 +195,21 @@ class AnnouncementStore:
             )
         return self.get(uid, aid)
 
+    def refresh_preview(
+        self, uid: int, aid: int, *, now: int | None = None,
+    ) -> Announcement | None:
+        """Refresh the one-shot approval button when the owner opens a preview."""
+        if not self._admin(uid):
+            return None
+        ts = int(time.time()) if now is None else now
+        with self.db:
+            cur = self.db.execute(
+                "UPDATE announcements SET token=?,updated_at=? "
+                "WHERE id=? AND owner_id=? AND state='draft'",
+                (secrets.token_hex(12), ts, aid, uid),
+            )
+        return self.get(uid, aid) if cur.rowcount == 1 else None
+
     def confirmation(
         self, uid: int, aid: int, revision: int, token: str,
         recipient_ids: list[int] | tuple[int, ...], *,
@@ -202,11 +218,10 @@ class AnnouncementStore:
         """One-shot approval; recipient list captured transactionally."""
         if not self._admin(uid) or not isinstance(recipient_ids, (list, tuple)):
             return None
+        if any(type(r) is not int or r <= 0 for r in recipient_ids):
+            return None
         recipients = sorted(set(recipient_ids) - {uid})
-        if (
-            not recipients or len(recipients) > MAX_RECIPIENTS
-            or any(type(r) is not int or r <= 0 for r in recipients)
-        ):
+        if not recipients or len(recipients) > MAX_RECIPIENTS:
             return None
         ts = int(time.time()) if now is None else now
         with self.db:
@@ -214,8 +229,10 @@ class AnnouncementStore:
             cur = self.db.execute(
                 "UPDATE announcements SET state='queued',updated_at=?,token=? "
                 "WHERE id=? AND owner_id=? AND state='draft' "
-                "AND revision=? AND token=? AND length(body)>0",
-                (ts, secrets.token_hex(12), aid, uid, revision, token),
+                "AND revision=? AND token=? AND length(body)>0 "
+                "AND updated_at>? AND updated_at<=?",
+                (ts, secrets.token_hex(12), aid, uid, revision, token,
+                 ts - APPROVAL_TTL, ts),
             )
             if cur.rowcount != 1:
                 return None
