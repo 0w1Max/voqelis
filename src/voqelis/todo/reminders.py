@@ -35,6 +35,7 @@ class ReminderDraft:
     timezone: str
     expires_at: int
     claimed: bool
+    navigation_revision: int
 
 
 def _reminder(row: sqlite3.Row) -> Reminder:
@@ -81,6 +82,7 @@ class ReminderRepository:
     def begin(
         self, user_id: int, item_id: int, *,
         timezone: str = "Europe/Moscow", now: int | None = None,
+        navigation_revision: int = 0,
     ) -> ReminderDraft:
         self._valid_timezone(timezone)
         item = self.todo.get(user_id, item_id)
@@ -90,12 +92,14 @@ class ReminderRepository:
         with self.db:
             self.db.execute(
                 "INSERT INTO todo_reminder_drafts "
-                "(user_id,item_id,token,proposed_at_utc,timezone,expires_at) "
-                "VALUES(?,?,?,NULL,?,?) ON CONFLICT(user_id) DO UPDATE SET "
+                "(user_id,item_id,token,proposed_at_utc,timezone,expires_at,navigation_revision) "
+                "VALUES(?,?,?,NULL,?,?,?) ON CONFLICT(user_id) DO UPDATE SET "
                 "item_id=excluded.item_id,token=excluded.token,"
                 "proposed_at_utc=NULL,timezone=excluded.timezone,"
-                "expires_at=excluded.expires_at,claimed=0",
-                (user_id, item_id, secrets.token_hex(12), timezone, ts + DRAFT_TTL),
+                "expires_at=excluded.expires_at,navigation_revision=excluded.navigation_revision,"
+                "claimed=0",
+                (user_id, item_id, secrets.token_hex(12), timezone, ts + DRAFT_TTL,
+                 navigation_revision),
             )
         draft = self.pending(user_id, now=ts)
         assert draft is not None
@@ -116,6 +120,7 @@ class ReminderRepository:
             ),
             timezone=str(row["timezone"]), expires_at=int(row["expires_at"]),
             claimed=bool(row["claimed"]),
+            navigation_revision=int(row["navigation_revision"]),
         )
 
     def claim_voice(self, user_id: int, token: str, *, now: int | None = None) -> bool:
@@ -240,9 +245,10 @@ class ReminderRepository:
                 "SELECT r.id,r.user_id FROM todo_reminders r JOIN todo_items t "
                 "ON t.id=r.item_id AND t.user_id=r.user_id "
                 "WHERE r.state='pending' AND r.remind_at_utc<=? "
+                "AND (r.attempt_after_utc IS NULL OR r.attempt_after_utc<=?) "
                 "AND t.completed_at IS NULL AND t.deleted_at IS NULL "
                 "ORDER BY r.remind_at_utc,r.id LIMIT ?",
-                (now, limit),
+                (now, now, limit),
             ).fetchall()
             items = []
             for row in rows:
@@ -264,5 +270,16 @@ class ReminderRepository:
                 "UPDATE todo_reminders SET state=?,delivered_at=? "
                 "WHERE id=? AND state='sending'",
                 (state, ts if sent else None, reminder_id),
+            )
+        return cur.rowcount == 1
+
+    def retry_after(self, reminder_id: int, *, now: int, delay: int) -> bool:
+        if not 1 <= delay <= 3600:
+            raise ValueError("Invalid retry interval")
+        with self.db:
+            cur = self.db.execute(
+                "UPDATE todo_reminders SET state='pending', attempt_after_utc=? "
+                "WHERE id=? AND state='sending' AND attempts<3",
+                (now + delay, reminder_id),
             )
         return cur.rowcount == 1
