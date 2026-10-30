@@ -68,7 +68,8 @@ CREATE TABLE IF NOT EXISTS todo_reminder_drafts (
     token TEXT NOT NULL,
     proposed_at_utc INTEGER,
     timezone TEXT NOT NULL,
-    expires_at INTEGER NOT NULL
+    expires_at INTEGER NOT NULL,
+    claimed INTEGER NOT NULL DEFAULT 0 CHECK(claimed IN (0,1))
 );
 """
 
