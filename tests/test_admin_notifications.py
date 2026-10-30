@@ -116,6 +116,7 @@ def test_crash_recovery_no_repeated_sends(tmp_path: Path):
         assert reopened.recover() == 1
         assert reopened.claim() is None
         assert reopened.summary(1, item.id)["uncertain"] == 1
+        assert reopened.get(1, item.id).state == "completed"
         assert reopened.db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     finally:
         reopened.close()
@@ -279,3 +280,17 @@ async def test_sender_only_confirmed_private_recipients(env):
     assert "/notify_off" in messages[0][1]
     assert messages[0][2]["parse_mode"] is None
     assert store.summary(1, item.id)["sent"] == 1
+
+
+
+def test_cancel_while_claimed_does_not_leave_pending(env):
+    store, _, _ = env
+    item = draft(store)
+    assert store.confirmation(1, item.id, 1, item.token, [2]) == 1
+    delivery = store.claim()
+    assert delivery and delivery.recipient_id == 2
+    assert store.cancel(1, item.id)
+    assert store.release_claim(item.id, 2)
+    assert store.delivery_state(item.id, 2) == "skipped"
+    assert store.summary(1, item.id)["pending"] == 0
+    assert store.claim() is None
