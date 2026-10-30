@@ -223,3 +223,28 @@ def test_sqlite_schema_upgrade_preserves_v1_tasks(tmp_path):
         ).fetchone()
     finally:
         store.close()
+
+
+
+def test_cancellation_allows_same_time_again_without_erasing_history(data):
+    store, reminders = data
+    item, original = make_reminder(store, reminders)
+    timestamp = original.remind_at_utc
+    assert reminders.cancel(1, original.id)
+    assert reminders.get(1, original.id).state == "cancelled"
+    next_draft = reminders.begin(1, item.id)
+    now = int(time.time())
+    at = datetime.fromtimestamp(timestamp, UTC)
+    assert reminders.propose(1, next_draft.token, at, now=now)
+    again = reminders.confirm(1, next_draft.token, now=now)
+    assert again is not None
+    assert again.id != original.id
+    assert again.remind_at_utc == original.remind_at_utc
+    assert again.state == "pending"
+    assert reminders.get(1, original.id).state == "cancelled"
+    assert len(reminders.for_item(1, item.id)) == 2
+    # A second identical active reminder is still rejected.
+    repeated = reminders.begin(1, item.id)
+    assert reminders.propose(1, repeated.token, at, now=now)
+    assert reminders.confirm(1, repeated.token, now=now) is None
+    assert len(reminders.for_item(1, item.id)) == 2
