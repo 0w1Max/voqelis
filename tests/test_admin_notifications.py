@@ -339,3 +339,51 @@ async def test_broadcast_rechecks_exact_previewed_recipients(env):
     assert store.get(1, item.id).state == "queued"
     assert store.delivery_state(item.id, 4) == "pending"
     assert store.delivery_state(item.id, 2) is None
+
+
+
+def test_expired_announcement_confirmation_requires_fresh_preview(env):
+    store, _, _ = env
+    created = store.create(1, now=1000)
+    saved = store.submit_text(1, "Важное обновление.", now=1001)
+    assert saved and saved.id == created.id
+    assert store.confirmation(
+        1, saved.id, saved.revision, saved.token, [2], now=1902,
+    ) is None
+    assert store.get(1, saved.id).state == "draft"
+    refreshed = store.refresh_preview(1, saved.id, now=1903)
+    assert refreshed and refreshed.token != saved.token
+    assert store.confirmation(
+        1, saved.id, saved.revision, saved.token, [2], now=1904,
+    ) is None
+    assert store.confirmation(
+        1, refreshed.id, refreshed.revision, refreshed.token, [2], now=1904,
+    ) == 1
+
+
+@pytest.mark.asyncio
+async def test_old_broadcast_preview_button_is_rejected(env):
+    store, access, navigation = env
+    router = create_notification_router(
+        store=store, access=access, navigation=navigation, enabled=True,
+    )
+    cb = router.callback_query.handlers[0].callback
+    owner = FakeMessage()
+    item = draft(store)
+    await cb(FakeCallback(1, f"news:preview:{item.id}", owner), object())
+    first_markup = owner.replies[-1][1]["reply_markup"]
+    first = next(
+        b.callback_data for row in first_markup.inline_keyboard for b in row
+        if "Подтвердить рассылку" in b.text
+    )
+    await cb(FakeCallback(1, f"news:preview:{item.id}", owner), object())
+    second_markup = owner.replies[-1][1]["reply_markup"]
+    second = next(
+        b.callback_data for row in second_markup.inline_keyboard for b in row
+        if "Подтвердить рассылку" in b.text
+    )
+    assert first != second
+    await cb(FakeCallback(1, first, owner), object())
+    assert store.get(1, item.id).state == "draft"
+    await cb(FakeCallback(1, second, owner), object())
+    assert store.get(1, item.id).state == "queued"
