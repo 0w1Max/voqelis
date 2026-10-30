@@ -44,6 +44,32 @@ CREATE TABLE IF NOT EXISTS todo_deletions (
     token TEXT NOT NULL,
     expires_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS todo_reminders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    item_id INTEGER NOT NULL REFERENCES todo_items(id),
+    remind_at_utc INTEGER NOT NULL,
+    timezone TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'pending'
+        CHECK(state IN ('pending','sending','sent','uncertain','failed','missed','cancelled')),
+    attempts INTEGER NOT NULL DEFAULT 0,
+    claimed_at INTEGER,
+    delivered_at INTEGER,
+    created_at INTEGER NOT NULL,
+    UNIQUE(user_id,item_id,remind_at_utc)
+);
+CREATE INDEX IF NOT EXISTS idx_todo_reminders_due
+    ON todo_reminders(state, remind_at_utc);
+CREATE INDEX IF NOT EXISTS idx_todo_reminders_item
+    ON todo_reminders(user_id,item_id,state);
+CREATE TABLE IF NOT EXISTS todo_reminder_drafts (
+    user_id INTEGER PRIMARY KEY,
+    item_id INTEGER NOT NULL,
+    token TEXT NOT NULL,
+    proposed_at_utc INTEGER,
+    timezone TEXT NOT NULL,
+    expires_at INTEGER NOT NULL
+);
 """
 
 
@@ -263,6 +289,16 @@ class TodoStore:
                 "WHERE user_id=? AND id=? AND deleted_at IS NULL",
                 (_now() if completed else None, _now(), user_id, item_id),
             )
+            if completed:
+                self.db.execute(
+                    "UPDATE todo_reminders SET state='cancelled' "
+                    "WHERE user_id=? AND item_id=? AND state='pending'",
+                    (user_id, item_id),
+                )
+                self.db.execute(
+                    "DELETE FROM todo_reminder_drafts WHERE user_id=? AND item_id=?",
+                    (user_id, item_id),
+                )
         return self.get(user_id, item_id)
 
     def ask_delete(
@@ -306,6 +342,15 @@ class TodoStore:
             self.db.execute(
                 "DELETE FROM todo_captures "
                 "WHERE user_id=? AND mode='edit' AND item_id=?",
+                (user_id, item_id),
+            )
+            self.db.execute(
+                "UPDATE todo_reminders SET state='cancelled' "
+                "WHERE user_id=? AND item_id=? AND state='pending'",
+                (user_id, item_id),
+            )
+            self.db.execute(
+                "DELETE FROM todo_reminder_drafts WHERE user_id=? AND item_id=?",
                 (user_id, item_id),
             )
         return changed.rowcount == 1
