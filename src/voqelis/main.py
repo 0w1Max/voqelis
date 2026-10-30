@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import subprocess
 from contextlib import suppress
 from dataclasses import replace
@@ -22,6 +23,9 @@ from .navigation import NavigationStore, create_navigation_router
 from .notes.bot import create_notes_router
 from .notes.service import NotesService
 from .notes.store import NotesStore
+from .notifications.bot import create_notification_router
+from .notifications.delivery import run_announcement_sender
+from .notifications.store import AnnouncementStore
 from .operations.bot import create_operations_router
 from .operations.github import GitHubAppConfig
 from .operations.store import OperationsStore
@@ -178,6 +182,14 @@ async def async_main() -> None:
         settings.planner_db_path.with_name("operations.sqlite3"),
         owner_id=access_store.admin_id,
     )
+    announcement_store = AnnouncementStore(
+        settings.planner_db_path.with_name("admin_notifications.sqlite3"),
+        owner_id=access_store.admin_id,
+    )
+    # No user announcements until explicitly enabled after separate rollout.
+    announcements_enabled = os.getenv(
+        "ADMIN_ANNOUNCEMENTS_ENABLED", "false",
+    ).lower() == "true"
 
     queue = JobQueue(
         max_pending_jobs=settings.max_pending_jobs,
@@ -194,6 +206,10 @@ async def async_main() -> None:
     dp.include_router(create_operations_router(
         store=ops_store, access=access_store, navigation=navigation,
         github_config=github_config, release_sha=release_sha,
+    ))
+    dp.include_router(create_notification_router(
+        store=announcement_store, access=access_store, navigation=navigation,
+        enabled=announcements_enabled,
     ))
     dp.include_router(create_navigation_router(
         navigation=navigation, allowed_user_ids=settings.allowed_user_ids,
@@ -241,6 +257,13 @@ async def async_main() -> None:
         token=settings.bot_token,
         default=DefaultBotProperties(parse_mode=None),
     ) as bot:
+        announcement_task = (
+            asyncio.create_task(
+                run_announcement_sender(bot, announcement_store, access_store),
+                name="announcement-sender",
+            )
+            if announcements_enabled else None
+        )
         worker_task = asyncio.create_task(
             run_worker(
                 bot=bot,
@@ -267,12 +290,17 @@ async def async_main() -> None:
             worker_task.cancel()
             with suppress(asyncio.CancelledError):
                 await worker_task
+            if announcement_task is not None:
+                announcement_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await announcement_task
             await transcriber.close()
             planner_store.close()
             notes_store.close()
             day_facts_store.close()
             todo_store.close()
             ops_store.close()
+            announcement_store.close()
             access_store.close()
             navigation.close()
 
