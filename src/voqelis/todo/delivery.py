@@ -39,7 +39,9 @@ async def _send_one(
     if item is None or item.completed_at is not None or not access.is_allowed(reminder.user_id):
         repository.finish_send(reminder.id, sent=False, now=now)
         return
-    if repository.get(reminder.user_id, reminder.id).state != "sending":
+    current = repository.get(reminder.user_id, reminder.id)
+    if current is None or current.state != "sending":
+        # Task may have been deleted or cancelled since the claim was prepared.
         return
     local = datetime.fromtimestamp(reminder.remind_at_utc, ZoneInfo(reminder.timezone))
     overdue = now - reminder.remind_at_utc > 60
