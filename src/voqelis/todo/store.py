@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS todo_reminders (
     state TEXT NOT NULL DEFAULT 'pending'
         CHECK(state IN ('pending','sending','sent','uncertain','failed','missed','cancelled')),
     attempts INTEGER NOT NULL DEFAULT 0,
+    attempt_after_utc INTEGER,
     claimed_at INTEGER,
     delivered_at INTEGER,
     created_at INTEGER NOT NULL,
@@ -69,6 +70,7 @@ CREATE TABLE IF NOT EXISTS todo_reminder_drafts (
     proposed_at_utc INTEGER,
     timezone TEXT NOT NULL,
     expires_at INTEGER NOT NULL,
+    navigation_revision INTEGER NOT NULL DEFAULT 0,
     claimed INTEGER NOT NULL DEFAULT 0 CHECK(claimed IN (0,1))
 );
 """
