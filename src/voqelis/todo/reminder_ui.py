@@ -7,7 +7,12 @@ from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
 from aiogram.enums import ChatType
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 from ..access import AccessStore
 from ..menu import HOME, TODO_ACTIVE, TODO_DONE, TODO_NEW, TODO_START

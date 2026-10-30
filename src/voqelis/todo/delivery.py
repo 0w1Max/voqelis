@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import UTC, datetime
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot
@@ -18,7 +18,7 @@ from aiogram.exceptions import (
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from ..access import AccessStore
-from .reminders import MAX_DELAY_SECONDS, Reminder, ReminderRepository
+from .reminders import Reminder, ReminderRepository
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +92,6 @@ async def run_reminder_sender(
                 await _send_one(bot, repository, access, reminder)
         except asyncio.CancelledError:
             raise
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("TODO_REMINDER_SCHEDULER_FAILURE")
         await asyncio.sleep(interval)
