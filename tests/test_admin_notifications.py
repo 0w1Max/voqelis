@@ -207,7 +207,11 @@ async def test_owner_preview_confirm_and_guest_denied(env):
     await capture(owner)
     ready = store.get(1, item.id)
     assert ready.revision == 1
-    data = f"news:send:{ready.id}:{ready.revision}:{ready.token}"
+    markup = owner.replies[-1][1]["reply_markup"]
+    data = next(
+        button.callback_data for row in markup.inline_keyboard for button in row
+        if "Подтвердить рассылку" in button.text
+    )
     await cb(FakeCallback(1, data, owner), object())
     assert store.get(1, ready.id).state == "queued"
     await cb(FakeCallback(1, data, owner), object())
@@ -224,7 +228,7 @@ async def test_export_disabled_fails_closed(env):
     item = draft(store)
     message = FakeMessage()
     await cb(FakeCallback(
-        1, f"news:send:{item.id}:1:{item.token}", message,
+        1, f"news:send:{item.id}:1:{item.token}:0000000000000000", message,
     ), object())
     assert store.get(1, item.id).state == "draft"
     assert store.summary(1, item.id)["pending"] == 0
@@ -294,3 +298,44 @@ def test_cancel_while_claimed_does_not_leave_pending(env):
     assert store.delivery_state(item.id, 2) == "skipped"
     assert store.summary(1, item.id)["pending"] == 0
     assert store.claim() is None
+
+
+
+@pytest.mark.asyncio
+async def test_broadcast_rechecks_exact_previewed_recipients(env):
+    store, access, navigation = env
+    router = create_notification_router(
+        store=store, access=access, navigation=navigation, enabled=True,
+    )
+    cb = router.callback_query.handlers[0].callback
+    owner = FakeMessage()
+    item = draft(store)
+    await cb(FakeCallback(1, f"news:preview:{item.id}", owner), object())
+    markup = owner.replies[-1][1]["reply_markup"]
+    first_button = next(
+        button.callback_data for row in markup.inline_keyboard for button in row
+        if "Подтвердить рассылку" in button.text
+    )
+    # The count remains two, but the identities change.
+    assert access.revoke(1, 2)
+    assert access.request(4, display_name="New recipient", username="new") == "created"
+    assert access.decide(1, 4, approve=True)
+    assert len(access.allowed_ids() - {1}) == 2
+    click = FakeCallback(1, first_button, owner)
+    await cb(click, object())
+    assert store.get(1, item.id).state == "draft"
+    assert not store.summary(1, item.id)["pending"]
+    assert any(
+        "изменился" in str(message) for message, _ in click.answers
+    )
+    # The refreshed preview now binds to the new recipient set.
+    markup = owner.replies[-1][1]["reply_markup"]
+    next_button = next(
+        button.callback_data for row in markup.inline_keyboard for button in row
+        if "Подтвердить рассылку" in button.text
+    )
+    assert first_button != next_button
+    await cb(FakeCallback(1, next_button, owner), object())
+    assert store.get(1, item.id).state == "queued"
+    assert store.delivery_state(item.id, 4) == "pending"
+    assert store.delivery_state(item.id, 2) is None
