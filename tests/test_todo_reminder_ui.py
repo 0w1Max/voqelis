@@ -199,3 +199,54 @@ def test_one_shot_voice_admission_per_reminder_draft(ctx):
     reminders.release_voice(1, draft.token)
     assert not reminders.claim_voice(1, draft.token)
     assert reminders.claim_voice(1, later.token)
+
+
+
+@pytest.mark.asyncio
+async def test_revoked_user_never_receives_claimed_reminder(ctx):
+    todo, _nav, _access, reminders, _router = ctx
+    task = add(todo)
+    now = int(datetime.now(UTC).timestamp())
+    draft = reminders.begin(1, task.id)
+    reminders.propose(1, draft.token, datetime.fromtimestamp(now + 3600, UTC))
+    saved = reminders.confirm(1, draft.token)
+    claimed = reminders.claim_due(now=saved.remind_at_utc)
+
+    class Revoked:
+        def is_allowed(self, _uid):
+            return False
+
+    class MustNotSend:
+        async def send_message(self, *_args, **_kwargs):
+            raise AssertionError("Access revoked: no message may be sent")
+
+    await _send_one(MustNotSend(), reminders, Revoked(), claimed[0])
+    assert reminders.get(1, saved.id).state == "failed"
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_requeues_without_early_delivery(ctx, monkeypatch):
+    from aiogram.exceptions import TelegramRetryAfter
+    from aiogram.methods import SendMessage
+
+    todo, _nav, access, reminders, _router = ctx
+    task = add(todo)
+    now = int(datetime.now(UTC).timestamp())
+    draft = reminders.begin(1, task.id)
+    reminders.propose(1, draft.token, datetime.fromtimestamp(now + 3600, UTC))
+    saved = reminders.confirm(1, draft.token)
+    due = saved.remind_at_utc
+    claimed = reminders.claim_due(now=due)
+    monkeypatch.setattr("voqelis.todo.delivery.time.time", lambda: due)
+
+    class RateLimited:
+        async def send_message(self, *_args, **_kwargs):
+            raise TelegramRetryAfter(
+                method=SendMessage(chat_id=1, text="test"), message="rate limited",
+                retry_after=18,
+            )
+
+    await _send_one(RateLimited(), reminders, access, claimed[0])
+    assert reminders.get(1, saved.id).state == "pending"
+    assert reminders.claim_due(now=due + 18) == []
+    assert len(reminders.claim_due(now=due + 19)) == 1
