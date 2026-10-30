@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -153,7 +153,7 @@ def test_delete_cancels_pending_and_removes_draft(data):
 
 def test_exactly_one_due_claim_and_crash_uncertainty(data):
     store, reminders = data
-    item, first = make_reminder(store, reminders)
+    _, first = make_reminder(store, reminders)
     at = first.remind_at_utc
     assert reminders.claim_due(now=at - 1) == []
     batch = reminders.claim_due(now=at)
