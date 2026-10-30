@@ -119,6 +119,11 @@ def create_notification_router(
         ]
 
     async def show_preview(message: Message, item: Announcement) -> None:
+        refreshed = store.refresh_preview(owner_id, item.id)
+        if refreshed is None:
+            await message.answer("Черновик больше недоступен. Открой историю.")
+            return
+        item = refreshed
         recipients = eligible_recipients()
         await message.answer(
             "📝 Предпросмотр объявления\n\n"
