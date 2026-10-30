@@ -250,3 +250,31 @@ async def test_rate_limit_requeues_without_early_delivery(ctx, monkeypatch):
     assert reminders.get(1, saved.id).state == "pending"
     assert reminders.claim_due(now=due + 18) == []
     assert len(reminders.claim_due(now=due + 19)) == 1
+
+
+
+@pytest.mark.asyncio
+async def test_sender_handles_reminder_disappearing_before_delivery(ctx, monkeypatch):
+    todo, _nav, access, reminders, _router = ctx
+    task = add(todo)
+    now = int(datetime.now(UTC).timestamp())
+    draft = reminders.begin(1, task.id)
+    reminders.propose(1, draft.token, datetime.fromtimestamp(now + 3600, UTC))
+    saved = reminders.confirm(1, draft.token)
+    assert saved
+    due = reminders.claim_due(now=saved.remind_at_utc)
+    assert len(due) == 1
+
+    # Simulate a concurrent delete after the task was read but before
+    # a second lookup of the reminder row.
+    monkeypatch.setattr(reminders, "get", lambda _uid, _rid: None)
+
+    class MustNotSend:
+        async def send_message(self, *_args, **_kwargs):
+            raise AssertionError("Orphaned reminder must not be sent")
+
+    await _send_one(MustNotSend(), reminders, access, due[0])
+    state = todo.db.execute(
+        "SELECT state FROM todo_reminders WHERE id=?", (saved.id,),
+    ).fetchone()[0]
+    assert state == "failed"
