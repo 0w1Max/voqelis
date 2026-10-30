@@ -69,8 +69,8 @@ def _preview_markup(
     if enabled:
         rows.append([(
             "✅ Подтвердить рассылку",
-            f"news:send:{announcement.id}:{announcement.revision}:"
-            f"{announcement.token}:{audience_stamp}",
+            (f"news:send:{announcement.id}:{announcement.revision}:"
+             f"{announcement.token}:{audience_stamp}"),
         )])
     rows.extend([
         [("👁 Проверить текст на себе", f"news:self:{announcement.id}")],
