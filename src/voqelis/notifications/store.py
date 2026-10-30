@@ -297,6 +297,13 @@ class AnnouncementStore:
                 "UPDATE announcement_deliveries SET state='uncertain' "
                 "WHERE state='sending'",
             )
+            self.db.execute(
+                "UPDATE announcements SET state='completed' "
+                "WHERE state='queued' AND NOT EXISTS "
+                "(SELECT 1 FROM announcement_deliveries d WHERE "
+                "d.announcement_id=announcements.id "
+                "AND d.state IN ('pending','sending'))"
+            )
         return cur.rowcount
 
     def claim(self, *, now: int | None = None) -> Delivery | None:
@@ -340,10 +347,13 @@ class AnnouncementStore:
         """Return a claimed message to queue before any Telegram request was made."""
         with self.db:
             cur = self.db.execute(
-                "UPDATE announcement_deliveries "
-                "SET state='pending',attempts=attempts-1 "
-                "WHERE announcement_id=? AND recipient_id=? AND state='sending'",
-                (aid, uid),
+                "UPDATE announcement_deliveries SET "
+                "state=CASE WHEN EXISTS "
+                "(SELECT 1 FROM announcements a WHERE a.id=? "
+                "AND a.state='cancelled') THEN 'skipped' ELSE 'pending' END,"
+                "attempts=attempts-1 WHERE announcement_id=? "
+                "AND recipient_id=? AND state='sending'",
+                (aid, aid, uid),
             )
         return cur.rowcount == 1
 
