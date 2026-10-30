@@ -57,8 +57,11 @@ async def _send_one(
         )
     except TelegramRetryAfter as exc:
         # A rate-limit response unambiguously rejected this attempt.
-        delay = min(max(1, int(exc.retry_after) + 1), 3600)
-        if not repository.retry_after(reminder.id, now=now, delay=delay):
+        delay = max(1, int(exc.retry_after) + 1)
+        if delay > 3600 or not repository.retry_after(
+            reminder.id, now=now, delay=delay,
+        ):
+            # Do not retry earlier than Telegram's explicit RetryAfter.
             repository.finish_send(reminder.id, sent=False, now=now)
         logger.warning("TODO_REMINDER_RATE_LIMITED")
     except (TelegramForbiddenError, TelegramBadRequest):
@@ -90,6 +93,8 @@ async def run_reminder_sender(
             due = repository.claim_due(now=int(time.time()), limit=10)
             for reminder in due:
                 await _send_one(bot, repository, access, reminder)
+                # Conservative per-chat pacing; keeps bursts below Telegram limits.
+                await asyncio.sleep(1.1)
         except asyncio.CancelledError:
             raise
         except Exception:
