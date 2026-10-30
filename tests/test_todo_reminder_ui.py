@@ -87,7 +87,7 @@ async def test_picker_choose_date_time_confirm_and_cancel(ctx):
     assert len(reminder_repo.for_item(1, task.id)) == 1
     await handler(StubCallback(1, confirm, msg))
     assert len(reminder_repo.for_item(1, task.id)) == 1
-    await handler(StubCallback(1, f"td:rem:cancel", msg))
+    await handler(StubCallback(1, "td:rem:cancel", msg))
     assert todo.get(1, task.id) is not None
 
 
