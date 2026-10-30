@@ -56,9 +56,13 @@ CREATE TABLE IF NOT EXISTS todo_reminders (
     attempt_after_utc INTEGER,
     claimed_at INTEGER,
     delivered_at INTEGER,
-    created_at INTEGER NOT NULL,
-    UNIQUE(user_id,item_id,remind_at_utc)
+    created_at INTEGER NOT NULL
 );
+-- Cancelled, missed and delivered events keep their audit rows without
+-- preventing a user from scheduling the same moment again.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_todo_reminder_active_unique
+    ON todo_reminders(user_id,item_id,remind_at_utc)
+    WHERE state IN ('pending','sending','uncertain');
 CREATE INDEX IF NOT EXISTS idx_todo_reminders_due
     ON todo_reminders(state, remind_at_utc);
 CREATE INDEX IF NOT EXISTS idx_todo_reminders_item
