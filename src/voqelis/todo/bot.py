@@ -60,6 +60,8 @@ def item_markup(item: TodoItem) -> InlineKeyboardMarkup:
     )
     return InlineKeyboardMarkup(inline_keyboard=[
         [action],
+        [InlineKeyboardButton(text="🔔 Напоминания",
+                              callback_data=f"td:rem:list:{item.id}")],
         [InlineKeyboardButton(text="✏️ Изменить",
                               callback_data=f"td:edit:{item.id}")],
         [InlineKeyboardButton(text="🗑 Удалить",
@@ -225,7 +227,10 @@ def create_todo_router(
             return
         navigation.activate(user_id, "todo")
         await message.answer(
-            service.saved_message(item, edited=capture.mode == "edit"),
+            service.saved_message(item, edited=capture.mode == "edit")
+            + ("\n\n🔔 Нужен сигнал в определённое время? "
+               "Открой «Напоминания» в карточке дела."
+               if capture.mode == "add" else ""),
             parse_mode=None, reply_markup=todo_keyboard(),
         )
         await message.answer(
