@@ -79,6 +79,6 @@ async def run_announcement_sender(
                         )
         except asyncio.CancelledError:
             raise
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("ANNOUNCEMENT_SENDER_ERROR")
         await asyncio.sleep(interval)
