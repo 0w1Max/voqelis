@@ -165,6 +165,7 @@ def test_list_pagination_and_item_buttons_are_bounded(store):
     callbacks = [b.callback_data for row in markup.inline_keyboard for b in row]
     assert callbacks == [
         f"td:done:{first[0].id}",
+        f"td:rem:list:{first[0].id}",
         f"td:edit:{first[0].id}",
         f"td:ask:{first[0].id}",
     ]
