@@ -34,6 +34,7 @@ class ReminderDraft:
     proposed_at_utc: int | None
     timezone: str
     expires_at: int
+    claimed: bool
 
 
 def _reminder(row: sqlite3.Row) -> Reminder:
@@ -93,7 +94,7 @@ class ReminderRepository:
                 "VALUES(?,?,?,NULL,?,?) ON CONFLICT(user_id) DO UPDATE SET "
                 "item_id=excluded.item_id,token=excluded.token,"
                 "proposed_at_utc=NULL,timezone=excluded.timezone,"
-                "expires_at=excluded.expires_at",
+                "expires_at=excluded.expires_at,claimed=0",
                 (user_id, item_id, secrets.token_hex(12), timezone, ts + DRAFT_TTL),
             )
         draft = self.pending(user_id, now=ts)
@@ -114,7 +115,26 @@ class ReminderRepository:
                 int(row["proposed_at_utc"]) if row["proposed_at_utc"] is not None else None
             ),
             timezone=str(row["timezone"]), expires_at=int(row["expires_at"]),
+            claimed=bool(row["claimed"]),
         )
+
+    def claim_voice(self, user_id: int, token: str, *, now: int | None = None) -> bool:
+        """Claim a single voice upload per live draft. Stale captures cannot write."""
+        ts = int(time.time()) if now is None else now
+        with self.db:
+            cur = self.db.execute(
+                "UPDATE todo_reminder_drafts SET claimed=1 "
+                "WHERE user_id=? AND token=? AND claimed=0 AND expires_at>?",
+                (user_id, token, ts),
+            )
+        return cur.rowcount == 1
+
+    def release_voice(self, user_id: int, token: str) -> None:
+        with self.db:
+            self.db.execute(
+                "UPDATE todo_reminder_drafts SET claimed=0 "
+                "WHERE user_id=? AND token=?", (user_id, token),
+            )
 
     def propose(
         self, user_id: int, token: str, when: datetime, *, now: int | None = None,
