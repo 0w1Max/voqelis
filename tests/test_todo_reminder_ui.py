@@ -278,3 +278,42 @@ async def test_sender_handles_reminder_disappearing_before_delivery(ctx, monkeyp
         "SELECT state FROM todo_reminders WHERE id=?", (saved.id,),
     ).fetchone()[0]
     assert state == "failed"
+
+
+
+@pytest.mark.asyncio
+async def test_stale_cancel_does_not_cancel_new_reminder_draft(ctx):
+    todo, nav, _access, reminders, router = ctx
+    item = add(todo)
+    nav.activate(1, "todo")
+    callback = router.callback_query.handlers[0].callback
+    message = StubMessage(1)
+    await callback(StubCallback(1, f"td:rem:new:{item.id}", message))
+    old_cancel = choose_button(message, "Не сейчас")
+    first = reminders.pending(1)
+    assert first
+    await callback(StubCallback(1, f"td:rem:new:{item.id}", message))
+    current = reminders.pending(1)
+    assert current and first.token != current.token
+    await callback(StubCallback(1, old_cancel, message))
+    assert reminders.pending(1).token == current.token
+    new_cancel = choose_button(message, "Не сейчас")
+    await callback(StubCallback(1, new_cancel, message))
+    assert reminders.pending(1) is None
+    assert todo.get(1, item.id) is not None
+
+
+@pytest.mark.asyncio
+async def test_reminder_draft_does_not_intercept_other_module_keyboard(ctx):
+    todo, nav, _access, reminders, router = ctx
+    item = add(todo)
+    nav.activate(1, "todo")
+    reminders.begin(1, item.id, navigation_revision=nav.current(1)[1])
+    capture_filter = router.message.handlers[0]
+    from voqelis.menu import FACTS_START, NOTES_START, PLANNER_START
+
+    for button in (FACTS_START, NOTES_START, PLANNER_START):
+        accepted, _data = await capture_filter.check(StubMessage(1, button))
+        assert not accepted, f"Navigation swallowed: {button}"
+    accepted, _ = await capture_filter.check(StubMessage(1, "завтра в 18:30"))
+    assert accepted
