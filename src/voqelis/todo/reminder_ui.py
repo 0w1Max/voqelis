@@ -114,7 +114,7 @@ def create_reminder_router(
             updated = reminders.propose(uid, draft.token, at)
         except ReminderTimeError as exc:
             await message.answer(
-                f"⚠ {exc}\nНапример: «завтра в 18:30», «5 ноября в 10:00»."
+                f"⚠ {exc}\nНапример: «22:10» (сегодня), «завтра в 18:30»."
             )
             return
         except ValueError:
@@ -180,7 +180,7 @@ def create_reminder_router(
                 await callback.answer()
                 await callback.message.answer(
                     f"🔔 Когда напомнить о деле?\n\n{task.text}\n\n"
-                    "Выбери дату или напиши/скажи её вместе со временем.",
+                    "Напиши или скажи время — по умолчанию сегодня.\n"\n                    "Для другого дня назови дату или выбери её кнопкой.",
                     reply_markup=_picker(draft),
                 )
             else:
@@ -287,11 +287,11 @@ def create_reminder_router(
             if action in {"text", "voice"} and len(parts) == 4:
                 await callback.answer()
                 await callback.message.answer(
-                    "⌨️ Напиши дату и время, например «завтра в 18:30»."
+                    "⌨️ Напиши время, например «22:10» (сегодня), или «завтра в 18:30»."
                     if action == "text" else
-                    "🎙 Отправь голосовое с датой и точным временем, например "
-                    "«сегодня в двадцать два десять» "
-                    "или «завтра в десять вечера десять минут».",
+                    "🎙 Скажи время — по умолчанию сегодня. Например, "
+                    "«двадцать два десять» "
+                    "или «в девять пятнадцать вечера». Для другого дня назови дату.",
                 )
                 return
             if action == "ok" and len(parts) == 4:
