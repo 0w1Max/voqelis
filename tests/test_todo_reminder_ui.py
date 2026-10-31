@@ -317,3 +317,54 @@ async def test_reminder_draft_does_not_intercept_other_module_keyboard(ctx):
         assert not accepted, f"Navigation swallowed: {button}"
     accepted, _ = await capture_filter.check(StubMessage(1, "завтра в 18:30"))
     assert accepted
+
+
+
+@pytest.mark.asyncio
+async def test_sender_claims_one_item_only_while_first_send_is_in_flight(
+    ctx, monkeypatch,
+):
+    import asyncio
+
+    from voqelis.todo.delivery import run_reminder_sender
+
+    todo, _nav, access, reminders, _router = ctx
+    task = add(todo)
+    now = int(datetime.now(UTC).timestamp())
+    saved_ids = []
+    for offset in (3600, 3660):
+        draft = reminders.begin(1, task.id, now=now)
+        at = datetime.fromtimestamp(now + offset, UTC)
+        assert reminders.propose(1, draft.token, at, now=now)
+        saved = reminders.confirm(1, draft.token, now=now)
+        assert saved is not None
+        saved_ids.append(saved.id)
+
+    # The worker wakes with both reminders due, but should claim only one.
+    monkeypatch.setattr("voqelis.todo.delivery.time.time", lambda: now + 3700)
+    started = asyncio.Event()
+
+    class BlockFirst:
+        async def send_message(self, *_args, **_kwargs):
+            started.set()
+            await asyncio.Event().wait()
+
+    sender = asyncio.create_task(
+        run_reminder_sender(BlockFirst(), reminders, access, interval=1.0),
+    )
+    try:
+        await asyncio.wait_for(started.wait(), timeout=3)
+        rows = todo.db.execute(
+            "SELECT id,state FROM todo_reminders WHERE id IN (?,?)",
+            saved_ids,
+        ).fetchall()
+        states = {int(row["id"]): row["state"] for row in rows}
+        assert states == {saved_ids[0]: "sending", saved_ids[1]: "pending"}
+    finally:
+        sender.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await sender
+
+    assert reminders.recover_inflight() == 1
+    assert reminders.get(1, saved_ids[0]).state == "uncertain"
+    assert reminders.get(1, saved_ids[1]).state == "pending"
