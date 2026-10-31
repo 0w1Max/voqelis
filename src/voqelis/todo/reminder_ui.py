@@ -180,7 +180,8 @@ def create_reminder_router(
                 await callback.answer()
                 await callback.message.answer(
                     f"🔔 Когда напомнить о деле?\n\n{task.text}\n\n"
-                    "Напиши или скажи время — по умолчанию сегодня.\n"\n                    "Для другого дня назови дату или выбери её кнопкой.",
+                    "Напиши или скажи время — по умолчанию сегодня.\n"
+                    "Для другого дня назови дату или выбери её кнопкой.",
                     reply_markup=_picker(draft),
                 )
             else:
