@@ -39,10 +39,18 @@ From a task card:
 [🎙 Сказать голосом] [⌨️ Написать]. Once a date is selected:
 [09:00] [12:00] [16:00] [18:00] [21:00] [Другое время].
 Hide past times for "today"; show full localized date & timezone at final
-confirmation. Typed/voice "послезавтра в 18:30", "5 ноября в 18:30",
-"05.11.2026 18:30" go straight to *confirmation*, never automatic scheduling.
-Date without time requires time clarification. Reject ambiguous expressions
-and nonexistent/ambiguous DST times rather than guessing. Allow user to back
+confirmation. Within an active reminder draft, time-only text or voice
+such as "22:10", "в десять вечера", "16:15" and "9:15 вечера" means
+*today in the user's reminder timezone*. Explicit "сегодня", "завтра",
+"послезавтра" or a calendar date takes precedence over this default.
+"Послезавтра в 18:30", "5 ноября в 18:30" and "05.11.2026 18:30"
+go straight to *confirmation*, never automatic scheduling.
+If a time has already passed today, reject it and ask for another
+time/date; do not silently roll over to tomorrow. A date without a
+time requires clarification. Distinguish unambiguous digital 24-hour
+HH:MM from spoken low-hour times that need "утра/дня/вечера".
+Reject invalid or ambiguous expressions and nonexistent/ambiguous
+DST times rather than guessing. Allow user to back
 out at any point. A task still exists if reminder creation is canceled.
 
 Do not demand a date on every task creation. Done/deleted tasks cannot get

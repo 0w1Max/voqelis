@@ -248,3 +248,137 @@ def test_cancellation_allows_same_time_again_without_erasing_history(data):
     assert reminders.propose(1, repeated.token, at, now=now)
     assert reminders.confirm(1, repeated.token, now=now) is None
     assert len(reminders.for_item(1, item.id)) == 2
+
+
+@pytest.mark.parametrize(("spoken", "hour", "minute"), [
+    ("завтра в 22:10", 22, 10),
+    ("завтра в 22.10", 22, 10),
+    ("завтра в 22, 10", 22, 10),
+    ("завтра в 22 10", 22, 10),
+    ("завтра в двадцать два десять", 22, 10),
+    ("завтра в двадцать два часа десять минут", 22, 10),
+    ("завтра в двадцать два часа", 22, 0),
+    ("завтра в двадцать два ноль ноль", 22, 0),
+    ("завтра в двадцать два ноль пять", 22, 5),
+    ("завтра в 22 0 5", 22, 5),
+    ("завтра в 22 00", 22, 0),
+    ("завтра в десять вечера десять минут", 22, 10),
+    ("завтра в 10 вечера 10 минут", 22, 10),
+    ("завтра в десять часов десять минут вечера", 22, 10),
+    ("завтра в десять вечера и десять минут", 22, 10),
+    ("завтра в девять утра пять минут", 9, 5),
+    ("напомни сегодня в 23 50", 23, 50),
+    ("завтра в двадцать три пятьдесят девять", 23, 59),
+    ("завтра в 18:30", 18, 30),
+    ("завтра в девять вечера", 21, 0),
+])
+def test_spoken_reminder_minutes_from_asr(spoken, hour, minute):
+    when = parse_reminder_time(spoken, now=NOW)
+    local = when.astimezone(ZoneInfo("Europe/Moscow"))
+    assert (local.hour, local.minute) == (hour, minute)
+
+
+@pytest.mark.parametrize("text", [
+    "завтра в десять десять",
+    "завтра в 10 10",
+    "завтра в 11",
+    "завтра в двадцать пять",
+    "завтра в двадцать два шестьдесят",
+    "завтра в двадцать два десять сорок",
+    "завтра в девять утра и вечером",
+    "завтра в 22 утра",
+    "завтра в 10 вечера 70 минут",
+    "завтра в двадцать два десять завтра",
+])
+def test_spoken_reminder_fails_closed_when_ambiguous_or_invalid(text):
+    with pytest.raises(ReminderTimeError):
+        parse_reminder_time(text, now=NOW)
+
+
+
+@pytest.mark.parametrize(("text", "hour", "minute"), [
+    ("16:15", 16, 15),
+    ("в 16:15", 16, 15),
+    ("16 15", 16, 15),
+    ("шестнадцать пятнадцать", 16, 15),
+    ("22:10", 22, 10),
+    ("22.10", 22, 10),
+    ("22 10", 22, 10),
+    ("двадцать два десять", 22, 10),
+    ("в двадцать два ноль пять", 22, 5),
+    ("10 вечера", 22, 0),
+    ("в 10 вечера", 22, 0),
+    ("в 10:15 вечера", 22, 15),
+    ("9:15 вечера", 21, 15),
+    ("в 9:15 вечера", 21, 15),
+    ("9 15 вечера", 21, 15),
+    ("девять пятнадцать вечера", 21, 15),
+    ("десять вечера десять минут", 22, 10),
+    ("напомни мне в 22:10", 22, 10),
+    ("напомни в 21:30", 21, 30),
+])
+def test_time_only_means_today_in_reminder_capture(text, hour, minute):
+    local_now = NOW.astimezone(ZoneInfo("Europe/Moscow"))
+    result = parse_reminder_time(text, now=NOW)
+    local = result.astimezone(ZoneInfo("Europe/Moscow"))
+    assert local.date() == local_now.date()
+    assert (local.hour, local.minute) == (hour, minute)
+
+
+@pytest.mark.parametrize(("text", "hour", "minute"), [
+    ("10 утра", 10, 0),
+    ("в 10:15", 10, 15),
+    ("9:15", 9, 15),
+    ("в 9 утра 15 минут", 9, 15),
+])
+def test_time_only_morning_is_today_if_still_future(text, hour, minute):
+    # 08:00 MSK on the same date.
+    early = datetime(2026, 10, 30, 5, 0, tzinfo=UTC)
+    local = parse_reminder_time(text, now=early).astimezone(
+        ZoneInfo("Europe/Moscow")
+    )
+    assert local.date().isoformat() == "2026-10-30"
+    assert (local.hour, local.minute) == (hour, minute)
+
+
+@pytest.mark.parametrize(("text", "day_offset"), [
+    ("сегодня 22:10", 0),
+    ("завтра 22:10", 1),
+    ("завтра в 9:15 вечера", 1),
+    ("послезавтра в 16:15", 2),
+    ("31.10.2026 22:10", 1),
+    ("31 октября в 22:10", 1),
+])
+def test_explicit_day_overrides_time_only_today_default(text, day_offset):
+    from datetime import timedelta
+    zone = ZoneInfo("Europe/Moscow")
+    local_now = NOW.astimezone(zone)
+    actual = parse_reminder_time(text, now=NOW).astimezone(zone)
+    assert actual.date() == local_now.date() + timedelta(days=day_offset)
+
+
+@pytest.mark.parametrize("text", [
+    "10 утра",  # 10:00 today is already past at 13:00 local.
+    "в 10:15",  # Written 24-hour time stays 10:15, not 22:15.
+    "сегодня в 10:15",
+    "22:77",
+    "25:10",
+    "в девять",
+    "9 15",
+    "завтра",  # Never infer a clock from a bare date.
+    "16:15 завтра",  # Dates must appear before clocks.
+    "послезавтра завтра в 10:00",
+    "в 10 часов вечера и 80 минут",
+    "в 22:10 утра",
+])
+def test_implicit_today_rejects_past_or_ambiguous_clocks(text):
+    with pytest.raises(ReminderTimeError):
+        parse_reminder_time(text, now=NOW)
+
+
+def test_time_only_today_uses_local_date_near_utc_midnight():
+    now = datetime(2026, 10, 30, 22, 15, tzinfo=UTC)  # 01:15 Moscow 31 Oct
+    answer = parse_reminder_time("03:10", now=now)
+    assert answer.astimezone(ZoneInfo("Europe/Moscow")).isoformat().startswith(
+        "2026-10-31T03:10"
+    )
