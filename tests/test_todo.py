@@ -16,6 +16,7 @@ from voqelis.menu import TODO_ACTIVE, TODO_NEW, TODO_START
 from voqelis.navigation import NavigationStore, create_navigation_router
 from voqelis.queue import JobQueue
 from voqelis.todo.bot import create_todo_router, item_markup
+from voqelis.todo.reminders import ReminderRepository
 from voqelis.todo.service import TodoService
 from voqelis.todo.store import TodoStore
 
@@ -165,6 +166,7 @@ def test_list_pagination_and_item_buttons_are_bounded(store):
     callbacks = [b.callback_data for row in markup.inline_keyboard for b in row]
     assert callbacks == [
         f"td:done:{first[0].id}",
+        f"td:rem:list:{first[0].id}",
         f"td:edit:{first[0].id}",
         f"td:ask:{first[0].id}",
     ]
@@ -464,5 +466,119 @@ async def test_list_callback_uses_clicking_user_not_bot_message_author(store, tm
         await router.callback_query.handlers[0].callback(unauthorized)
         assert unauthorized.acks
         assert len(bot_message.responses) == 1
+    finally:
+        nav.close()
+
+
+
+@pytest.mark.asyncio
+async def test_voice_reminder_admitted_in_todo_without_becoming_a_new_task(store, tmp_path):
+    """A live reminder draft must bypass the default ToDo audio rejection."""
+    nav = NavigationStore(tmp_path / "reminder-navigation.sqlite3")
+    queue = JobQueue(max_pending_jobs=3, max_pending_per_user=2)
+    reminders = ReminderRepository(store)
+    service = TodoService(store)
+    settings = SimpleNamespace(
+        allowed_user_ids=frozenset({1}), max_audio_seconds=1200,
+        max_file_size_bytes=10_000, temp_dir=tmp_path,
+        download_timeout_seconds=10,
+    )
+    router = audio_module.create_router(
+        settings=settings, queue=queue, navigation=nav,
+        todo=service, reminders=reminders,
+    )
+    telegram = TelegramBot()
+    try:
+        nav.activate(1, "todo")
+        # Voice outside a reminder draft remains blocked.
+        no_draft = AudioMessage(1)
+        await handler(router, "on_audio")(no_draft, telegram)
+        assert "Сначала нажми" in no_draft.replies[-1]
+        assert queue.snapshot().reserved == 0
+
+        capture = store.begin_capture(1)
+        item = store.capture_text(1, capture.token, "Позвонить врачу")
+        assert item is not None
+        section, revision = nav.current(1)
+        reminder_draft = reminders.begin(
+            1, item.id, navigation_revision=revision,
+        )
+        voice = AudioMessage(1)
+        await handler(router, "on_audio")(voice, telegram)
+        assert "дату напоминания" in voice.replies[-1]
+        job = await queue.get()
+        assert job.todo_reminder_token == reminder_draft.token
+        assert job.todo_token is None
+        assert job.navigation_section == section
+        assert job.navigation_revision == revision
+        assert reminders.pending(1).claimed
+        queue.task_done()
+        await queue.release(1)
+        reminders.release_voice(1, reminder_draft.token)
+        job.file_path.unlink(missing_ok=True)
+    finally:
+        nav.close()
+
+
+
+@pytest.mark.asyncio
+async def test_voice_reminder_entire_audio_worker_flow_proposes_confirmable_date(
+    store, tmp_path, monkeypatch,
+):
+    """Voice date is parsed as a reminder proposal, never as a new task."""
+    nav = NavigationStore(tmp_path / "reminder-worker-nav.sqlite3")
+    reminders = ReminderRepository(store)
+    service = TodoService(store)
+    settings = SimpleNamespace(
+        allowed_user_ids=frozenset({1}),
+        max_audio_seconds=1200, max_file_size_bytes=10_000,
+        temp_dir=tmp_path, download_timeout_seconds=10,
+    )
+    queue = JobQueue(max_pending_jobs=3, max_pending_per_user=3)
+    router = audio_module.create_router(
+        settings=settings, queue=queue, navigation=nav,
+        todo=service, reminders=reminders,
+    )
+    telegram = TelegramBot()
+    try:
+        nav.activate(1, "todo")
+        capture = store.begin_capture(1)
+        task = store.capture_text(1, capture.token, "Купить продукты")
+        assert task is not None
+        draft = reminders.begin(
+            1, task.id, navigation_revision=nav.current(1)[1],
+        )
+        voice = AudioMessage(1)
+        await handler(router, "on_audio")(voice, telegram)
+        assert "дату напоминания" in voice.replies[-1]
+
+        class FakeTranscriber:
+            async def transcribe(self, _path):
+                return TranscriptionResult(
+                    text="напомни завтра в девять утра",
+                    language="ru", language_probability=1.0,
+                    duration_seconds=2.0, duration_after_vad_seconds=2.0,
+                    processing_seconds=0.1,
+                )
+
+        monkeypatch.setattr(audio_module, "probe_duration_seconds", lambda _: 2.0)
+        worker = asyncio.create_task(audio_module.run_worker(
+            bot=telegram, queue=queue, transcriber=FakeTranscriber(),
+            settings=settings, navigation=nav, todo=service,
+            reminders=reminders,
+        ))
+        try:
+            await asyncio.wait_for(telegram.sent.wait(), timeout=4)
+            assert any("Подтверди напоминание" in m[1] for m in telegram.messages)
+            updated = reminders.pending(1)
+            assert updated and updated.token == draft.token
+            assert updated.proposed_at_utc is not None
+            assert not updated.claimed
+            assert len(store.list_items(1, completed=False)[0]) == 1
+            assert reminders.for_item(1, task.id) == []
+        finally:
+            worker.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await worker
     finally:
         nav.close()

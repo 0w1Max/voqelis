@@ -39,6 +39,9 @@ from .planner.store import PlannerStore
 from .queue import JobQueue
 from .text_punctuation import TextPunctuationProcessor
 from .todo.bot import create_todo_router
+from .todo.delivery import run_reminder_sender
+from .todo.reminder_ui import create_reminder_router
+from .todo.reminders import ReminderRepository
 from .todo.service import TodoService
 from .todo.store import TodoStore
 from .transcription import Transcriber
@@ -174,6 +177,7 @@ async def async_main() -> None:
     navigation = NavigationStore(settings.planner_db_path.with_name("navigation.sqlite3"))
     todo_store = TodoStore(settings.planner_db_path.with_name("todo.sqlite3"))
     todo = TodoService(todo_store)
+    reminders = ReminderRepository(todo_store)
     ops_store = OperationsStore(
         settings.planner_db_path.with_name("operations.sqlite3"),
         owner_id=access_store.admin_id,
@@ -219,6 +223,9 @@ async def async_main() -> None:
         planner=planner, notes=notes, export_dir=settings.temp_dir,
         admin_user_id=access_store.admin_id, navigation=navigation,
     ))
+    dp.include_router(create_reminder_router(
+        reminders=reminders, navigation=navigation, access=access_store,
+    ))
     dp.include_router(create_todo_router(
         service=todo, navigation=navigation,
         allowed_user_ids=settings.allowed_user_ids,
@@ -235,12 +242,17 @@ async def async_main() -> None:
         settings=settings, queue=queue, planner=planner,
         notes=notes, day_facts=day_facts, todo=todo, navigation=navigation,
         owner_user_id=access_store.admin_id, operations=ops_store,
+        reminders=reminders,
     ))
 
     async with Bot(
         token=settings.bot_token,
         default=DefaultBotProperties(parse_mode=None),
     ) as bot:
+        reminder_task = asyncio.create_task(
+            run_reminder_sender(bot, reminders, access_store),
+            name="todo-reminder-sender",
+        )
         worker_task = asyncio.create_task(
             run_worker(
                 bot=bot,
@@ -253,6 +265,7 @@ async def async_main() -> None:
                 notes=notes,
                 day_facts=day_facts, todo=todo, navigation=navigation,
                 owner_user_id=access_store.admin_id, operations=ops_store,
+                reminders=reminders,
             ),
             name="transcription-worker",
         )
@@ -265,8 +278,11 @@ async def async_main() -> None:
             )
         finally:
             worker_task.cancel()
+            reminder_task.cancel()
             with suppress(asyncio.CancelledError):
                 await worker_task
+            with suppress(asyncio.CancelledError):
+                await reminder_task
             await transcriber.close()
             planner_store.close()
             notes_store.close()

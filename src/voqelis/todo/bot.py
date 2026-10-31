@@ -60,6 +60,8 @@ def item_markup(item: TodoItem) -> InlineKeyboardMarkup:
     )
     return InlineKeyboardMarkup(inline_keyboard=[
         [action],
+        [InlineKeyboardButton(text="🔔 Напоминания",
+                              callback_data=f"td:rem:list:{item.id}")],
         [InlineKeyboardButton(text="✏️ Изменить",
                               callback_data=f"td:edit:{item.id}")],
         [InlineKeyboardButton(text="🗑 Удалить",
@@ -129,7 +131,8 @@ def create_todo_router(
             return
         navigation.activate(message.from_user.id, "todo")
         await message.answer(
-            "✅ Список дел\nВыбери действие. Даты и напоминания пока не используются.",
+            "✅ Список дел\nВыбери действие. "
+            "Для любого дела можно настроить несколько напоминаний.",
             reply_markup=todo_keyboard(),
         )
 
@@ -146,7 +149,7 @@ def create_todo_router(
         navigation.activate(user_id, "todo_capture")
         await message.answer(
             "➕ Новое дело\n\nОтправь ОДНО голосовое или текстовое сообщение. "
-            "Это станет одним делом. Даты и сроки не назначаются.\n"
+            "Это станет одним делом. Напоминание добавляется отдельно в карточке.\n"
             "Отмена: /todo_cancel.",
             reply_markup=todo_capture_keyboard(),
         )
@@ -225,7 +228,10 @@ def create_todo_router(
             return
         navigation.activate(user_id, "todo")
         await message.answer(
-            service.saved_message(item, edited=capture.mode == "edit"),
+            service.saved_message(item, edited=capture.mode == "edit")
+            + ("\n\n🔔 Нужен сигнал в определённое время? "
+               "Открой «Напоминания» в карточке дела."
+               if capture.mode == "add" else ""),
             parse_mode=None, reply_markup=todo_keyboard(),
         )
         await message.answer(
