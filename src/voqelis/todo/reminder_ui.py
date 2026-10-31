@@ -15,15 +15,14 @@ from aiogram.types import (
 )
 
 from ..access import AccessStore
-from ..menu import HOME, TODO_ACTIVE, TODO_DONE, TODO_NEW, TODO_START
-from ..navigation import NavigationStore
+from .bot import _OTHER_BUTTONS as MENU_BUTTONS
 from .bot import item_markup
+from ..navigation import NavigationStore
 from .reminders import ReminderDraft, ReminderRepository
 from .temporal import ReminderTimeError, parse_reminder_time
 
 TIMEZONE = "Europe/Moscow"
 QUICK_TIMES = ("09:00", "12:00", "16:00", "18:00", "21:00")
-MENU_BUTTONS = frozenset({HOME, TODO_NEW, TODO_ACTIVE, TODO_DONE, TODO_START})
 
 
 def _keyboard(rows: list[list[tuple[str, str]]]) -> InlineKeyboardMarkup:
@@ -36,7 +35,7 @@ def _keyboard(rows: list[list[tuple[str, str]]]) -> InlineKeyboardMarkup:
 def reminder_confirm_keyboard(token: str) -> InlineKeyboardMarkup:
     return _keyboard([
         [("✅ Сохранить напоминание", f"td:rem:ok:{token}")],
-        [("❌ Отменить", "td:rem:cancel")],
+        [("❌ Отменить", f"td:rem:cancel:{token}")],
     ])
 
 
@@ -46,7 +45,7 @@ def _picker(draft: ReminderDraft) -> InlineKeyboardMarkup:
          in enumerate(("Сегодня", "Завтра", "Послезавтра"))],
         [("📅 Другая дата / ⌨️ Написать", f"td:rem:text:{draft.token}")],
         [("🎙 Сказать голосом", f"td:rem:voice:{draft.token}")],
-        [("❌ Не сейчас", "td:rem:cancel")],
+        [("❌ Не сейчас", f"td:rem:cancel:{draft.token}")],
     ])
 
 
@@ -154,7 +153,11 @@ def create_reminder_router(
             await callback.answer()
             await callback.message.answer("Дело сохранено без личного напоминания.")
             return
-        if action == "cancel" and len(parts) == 3:
+        if action == "cancel" and len(parts) == 4:
+            draft = draft_current(uid, parts[3])
+            if draft is None:
+                await callback.answer("Кнопка отмены устарела.", show_alert=True)
+                return
             reminders.cancel_draft(uid)
             await callback.answer()
             await callback.message.answer("Настройка напоминания отменена. Дело сохранено.")
