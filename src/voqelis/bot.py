@@ -130,9 +130,14 @@ def create_router(
             if section in {"notes", "planner"} and user_id != owner_user_id:
                 await message.reply("Этот модуль доступен только владельцу.")
                 return
-            if section == "todo":
+            if section == "todo" and not (
+                reminders is not None
+                and (reminder_draft := reminders.pending(user_id)) is not None
+                and reminder_draft.navigation_revision == revision
+            ):
                 await message.reply(
-                    "Сначала нажми «➕ Добавить дело» в «✅ Список дел»."
+                    "Сначала нажми «➕ Добавить дело» или настрой "
+                    "напоминание в карточке дела."
                 )
                 return
             if section == "todo_capture" and (
