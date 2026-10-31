@@ -15,9 +15,9 @@ from aiogram.types import (
 )
 
 from ..access import AccessStore
+from ..navigation import NavigationStore
 from .bot import _OTHER_BUTTONS as MENU_BUTTONS
 from .bot import item_markup
-from ..navigation import NavigationStore
 from .reminders import ReminderDraft, ReminderRepository
 from .temporal import ReminderTimeError, parse_reminder_time
 
