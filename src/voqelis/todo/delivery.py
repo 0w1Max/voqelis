@@ -95,9 +95,13 @@ async def run_reminder_sender(
         logger.warning("TODO_REMINDER_INFLIGHT_UNCERTAIN count=%d", recovered)
     while True:
         try:
-            due = repository.claim_due(now=int(time.time()), limit=10)
-            for reminder in due:
-                await _send_one(bot, repository, access, reminder)
+            # Claim only immediately before each send. A crash during delivery
+            # must not mark the remaining, never-attempted batch as uncertain.
+            for _ in range(10):
+                due = repository.claim_due(now=int(time.time()), limit=1)
+                if not due:
+                    break
+                await _send_one(bot, repository, access, due[0])
                 # Conservative per-chat pacing; keeps bursts below Telegram limits.
                 await asyncio.sleep(1.1)
         except asyncio.CancelledError:
