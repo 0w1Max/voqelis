@@ -214,8 +214,8 @@ def create_navigation_router(
             return
         navigation.activate(message.from_user.id, "todo")
         await message.answer(
-            "✅ Список дел\nВыбери действие. Это личный чек-лист "
-            "без дат и напоминаний.",
+            "✅ Список дел\nВыбери действие. "
+            "К каждому делу можно добавить несколько напоминаний.",
             reply_markup=todo_keyboard(),
         )
 
