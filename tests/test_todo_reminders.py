@@ -248,3 +248,48 @@ def test_cancellation_allows_same_time_again_without_erasing_history(data):
     assert reminders.propose(1, repeated.token, at, now=now)
     assert reminders.confirm(1, repeated.token, now=now) is None
     assert len(reminders.for_item(1, item.id)) == 2
+
+
+@pytest.mark.parametrize(("spoken", "hour", "minute"), [
+    ("завтра в 22:10", 22, 10),
+    ("завтра в 22.10", 22, 10),
+    ("завтра в 22, 10", 22, 10),
+    ("завтра в 22 10", 22, 10),
+    ("завтра в двадцать два десять", 22, 10),
+    ("завтра в двадцать два часа десять минут", 22, 10),
+    ("завтра в двадцать два часа", 22, 0),
+    ("завтра в двадцать два ноль ноль", 22, 0),
+    ("завтра в двадцать два ноль пять", 22, 5),
+    ("завтра в 22 0 5", 22, 5),
+    ("завтра в 22 00", 22, 0),
+    ("завтра в десять вечера десять минут", 22, 10),
+    ("завтра в 10 вечера 10 минут", 22, 10),
+    ("завтра в десять часов десять минут вечера", 22, 10),
+    ("завтра в десять вечера и десять минут", 22, 10),
+    ("завтра в девять утра пять минут", 9, 5),
+    ("напомни сегодня в 23 50", 23, 50),
+    ("завтра в двадцать три пятьдесят девять", 23, 59),
+    ("завтра в 18:30", 18, 30),
+    ("завтра в девять вечера", 21, 0),
+])
+def test_spoken_reminder_minutes_from_asr(spoken, hour, minute):
+    when = parse_reminder_time(spoken, now=NOW)
+    local = when.astimezone(ZoneInfo("Europe/Moscow"))
+    assert (local.hour, local.minute) == (hour, minute)
+
+
+@pytest.mark.parametrize("text", [
+    "завтра в десять десять",
+    "завтра в 10 10",
+    "завтра в 11",
+    "завтра в двадцать пять",
+    "завтра в двадцать два шестьдесят",
+    "завтра в двадцать два десять сорок",
+    "завтра в девять утра и вечером",
+    "завтра в 22 утра",
+    "завтра в 10 вечера 70 минут",
+    "завтра в двадцать два десять завтра",
+])
+def test_spoken_reminder_fails_closed_when_ambiguous_or_invalid(text):
+    with pytest.raises(ReminderTimeError):
+        parse_reminder_time(text, now=NOW)
