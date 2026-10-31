@@ -124,6 +124,8 @@ async def test_navigation_only_opens_modules_without_creating_drafts(nav, tmp_pa
         opened_todo = FakeMessage(1, TODO_START)
         await _handler(router, "on_todo")(opened_todo)
         assert "Список дел" in opened_todo.responses[-1][0]
+        assert "несколько напоминаний" in opened_todo.responses[-1][0]
+        assert "без дат и напоминаний" not in opened_todo.responses[-1][0]
         assert nav.current(1)[0] == "todo"
     finally:
         store.close()

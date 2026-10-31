@@ -41,6 +41,55 @@ def test_ambiguous_or_invalid_date_rejected(text):
         parse_reminder_time(text, now=NOW)
 
 
+
+@pytest.mark.parametrize(("text", "expected_clock"), [
+    ("сегодня в 22:10", "22:10"),
+    ("сегодня в 22.10", "22:10"),
+    ("сегодня в 22 10", "22:10"),
+    ("сегодня в 22 10 минут", "22:10"),
+    ("сегодня в 22 часа 10 минут", "22:10"),
+    ("сегодня в двадцать два десять", "22:10"),
+    ("сегодня в двадцать два часа десять минут", "22:10"),
+    ("сегодня в десять вечера десять минут", "22:10"),
+    ("сегодня в 10 вечера 10 минут", "22:10"),
+    ("сегодня в десять часов десять минут вечера", "22:10"),
+    ("сегодня в 10:10 вечера", "22:10"),
+    ("сегодня в 22:00", "22:00"),
+    ("сегодня в 22", "22:00"),
+    ("сегодня в десять вечера", "22:00"),
+    ("сегодня в 18 часов пять минут", "18:05"),
+    ("сегодня в 18 05", "18:05"),
+    ("сегодня в десять вечера пятьдесят девять минут", "22:59"),
+    ("напомни сегодня в 22 10", "22:10"),
+])
+def test_asr_reminder_time_with_spoken_hours_and_minutes(text, expected_clock):
+    # 15:00 Moscow: all tested times are strictly in the future.
+    from zoneinfo import ZoneInfo
+
+    now = datetime(2026, 10, 31, 12, 0, tzinfo=UTC)
+    result = parse_reminder_time(text, now=now)
+    assert result.astimezone(ZoneInfo("Europe/Moscow")).strftime("%H:%M") == expected_clock
+
+
+@pytest.mark.parametrize("text", [
+    "сегодня в десять",
+    "сегодня в 10 10",
+    "сегодня в 12",
+    "сегодня в 22 65",
+    "сегодня в 22 часа 70 минут",
+    "сегодня в 22 10 20",
+    "сегодня в 24:10",
+    "сегодня в двадцать четыре десять",
+    "сегодня в 22 утра 10 минут",
+    "сегодня в десять вечера шестьдесят минут",
+    "сегодня в десять вечера десять минут и двадцать",
+])
+def test_spoken_time_rejects_invalid_or_ambiguous_minutes(text):
+    now = datetime(2026, 10, 31, 12, 0, tzinfo=UTC)
+    with pytest.raises(ReminderTimeError):
+        parse_reminder_time(text, now=now)
+
+
 def test_year_rollover_and_leap_day():
     now = datetime(2026, 12, 31, 10, 0, tzinfo=UTC)
     assert parse_reminder_time("01.01 09:00", now=now).year == 2027

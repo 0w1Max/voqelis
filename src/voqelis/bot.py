@@ -516,11 +516,15 @@ async def run_worker(
                         result.text, now=datetime.now(UTC), timezone=draft.timezone,
                     )
                     proposed = reminders.propose(job.user_id, draft.token, at)
-                except ReminderTimeError:
+                except ReminderTimeError as exc:
                     await bot.send_message(
                         job.chat_id,
-                        "Не получилось определить точную дату и время. "
-                        "Попробуй «завтра в 18:30» или введи дату текстом."
+                        "⚠ Не получилось определить точное время.\n"
+                        f"Распознано: «{result.text[:160]}»\n"
+                        f"Причина: {exc}\n"
+                        "Попробуй «сегодня в 22 часа 10 минут» "
+                        "или введи время текстом.",
+                        parse_mode=None,
                     )
                     continue
                 except ValueError:

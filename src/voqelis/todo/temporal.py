@@ -11,24 +11,32 @@ MONTHS = {
     "мая": 5, "июня": 6, "июля": 7, "августа": 8,
     "сентября": 9, "октября": 10, "ноября": 11, "декабря": 12,
 }
-HOURS = {
-    "час": 1, "два": 2, "три": 3, "четыре": 4, "пять": 5,
-    "шесть": 6, "семь": 7, "восемь": 8, "девять": 9,
-    "десять": 10, "одиннадцать": 11, "двенадцать": 12,
+# Spoken numbers preserve exact hours/minutes, without guessing an AM/PM.
+SMALL_NUMBERS = {
+    "ноль": 0, "нуль": 0, "один": 1, "одна": 1, "час": 1,
+    "два": 2, "две": 2, "три": 3, "четыре": 4,
+    "пять": 5, "шесть": 6, "семь": 7, "восемь": 8,
+    "девять": 9, "десять": 10, "одиннадцать": 11,
+    "двенадцать": 12, "тринадцать": 13, "четырнадцать": 14,
+    "пятнадцать": 15, "шестнадцать": 16,
+    "семнадцать": 17, "восемнадцать": 18,
+    "девятнадцать": 19,
 }
+TENS = {"двадцать": 20, "тридцать": 30, "сорок": 40, "пятьдесят": 50}
 PARTS = frozenset({"утра", "дня", "вечера", "ночи"})
+HOUR_SUFFIXES = frozenset({"час", "часа", "часов"})
+MINUTE_SUFFIXES = frozenset({"минута", "минуты", "минут", "минуту"})
 DATE_PATTERN = (
     r"(?:сегодня|завтра|послезавтра|\d{1,2}\.\d{1,2}(?:\.\d{4})?"
     r"|\d{1,2}\s+(?:" + "|".join(MONTHS) + r"))"
 )
 TEXT_PATTERN = re.compile(
-    rf"^(?P<date>{DATE_PATTERN})\s+(?:в\s+)?(?P<clock>.+)$",
+    rf"^(?P<date>{DATE_PATTERN}),?\s+(?:в\s+)?(?P<clock>.+)$",
     flags=re.IGNORECASE,
 )
-NUMERIC_TIME = re.compile(r"^(?P<h>\d{1,2}):(?P<m>[0-5]\d)$")
-SPOKEN_TIME = re.compile(
-    r"^(?P<h>\d{1,2}|" + "|".join(HOURS) + r")\s+"
-    r"(?P<p>утра|дня|вечера|ночи)$"
+NUMERIC_TIME = re.compile(
+    r"^(?P<h>\d{1,2})[:.](?P<m>[0-5]\d)"
+    r"(?:\s+(?P<part>утра|дня|вечера|ночи))?$"
 )
 
 
@@ -36,36 +44,90 @@ class ReminderTimeError(ValueError):
     """An ambiguous, invalid or out-of-window reminder time."""
 
 
+def _spoken_number(words: list[str], at: int) -> tuple[int, int]:
+    """Read exactly one number (0–59), including «двадцать два»."""
+    if at >= len(words):
+        raise ReminderTimeError("Не удалось определить точное время.")
+    word = words[at]
+    if re.fullmatch(r"\d{1,2}", word):
+        return int(word), at + 1
+    if word in SMALL_NUMBERS:
+        return SMALL_NUMBERS[word], at + 1
+    if word in TENS:
+        value = TENS[word]
+        if at + 1 < len(words) and words[at + 1] in SMALL_NUMBERS:
+            unit = SMALL_NUMBERS[words[at + 1]]
+            if 1 <= unit <= 9:
+                return value + unit, at + 2
+        return value, at + 1
+    raise ReminderTimeError(
+        "Укажи точное время, например «22:10» или «десять вечера десять минут»."
+    )
+
+
+def _resolve_clock(hour: int, minute: int, part: str | None, *,
+                   numeric_clock: bool = False) -> time:
+    if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+        raise ReminderTimeError("Часы и минуты должны быть в допустимых пределах.")
+
+    if part is None:
+        if numeric_clock or hour == 0 or 13 <= hour <= 23:
+            return time(hour, minute)
+        raise ReminderTimeError("Уточни время суток: утра, дня, вечера или ночи.")
+
+    if 13 <= hour <= 23:
+        # A redundant but consistent qualifier may occur in ASR.
+        acceptable = (
+            (part == "дня" and 13 <= hour <= 16)
+            or (part == "вечера" and 17 <= hour <= 23)
+        )
+        if acceptable:
+            return time(hour, minute)
+        raise ReminderTimeError("Противоречие между часом и временем суток.")
+
+    if part == "утра" and 4 <= hour <= 11:
+        return time(hour, minute)
+    if part == "дня" and (1 <= hour <= 4 or hour == 12):
+        return time(hour + 12 if hour <= 4 else 12, minute)
+    if part == "вечера" and 5 <= hour <= 11:
+        return time(hour + 12, minute)
+    if part == "ночи" and (1 <= hour <= 3 or hour == 12):
+        return time(0 if hour == 12 else hour, minute)
+    raise ReminderTimeError("Неоднозначное время суток. Укажи формат ЧЧ:ММ.")
+
+
 def _clock(raw: str) -> time:
-    raw = raw.lower().strip().replace("ё", "е")
+    raw = " ".join(raw.lower().strip().replace("ё", "е").replace(",", " ").split())
     matched = NUMERIC_TIME.fullmatch(raw)
     if matched:
-        hh, mm = int(matched["h"]), int(matched["m"])
-        if hh > 23:
-            raise ReminderTimeError("Час должен быть от 00 до 23.")
-        return time(hh, mm)
-    matched = SPOKEN_TIME.fullmatch(raw)
-    if not matched:
-        raise ReminderTimeError("Укажи точное время, например «18:30» или «девять утра».")
-    raw_hour, part = matched["h"], matched["p"]
-    hour = HOURS.get(raw_hour, -1)
-    if hour < 0:
-        hour = int(raw_hour)
-    if not 1 <= hour <= 12:
-        raise ReminderTimeError("Время суток неоднозначно.")
-    if part == "утра" and 4 <= hour <= 11:
-        return time(hour, 0)
-    if part == "дня" and 1 <= hour <= 4:
-        return time(hour + 12, 0)
-    if part == "дня" and hour == 12:
-        return time(12, 0)
-    if part == "вечера" and 5 <= hour <= 11:
-        return time(hour + 12, 0)
-    if part == "ночи" and 1 <= hour <= 3:
-        return time(hour, 0)
-    if part == "ночи" and hour == 12:
-        return time(0, 0)
-    raise ReminderTimeError("Неоднозначное время суток. Введи формат ЧЧ:ММ.")
+        return _resolve_clock(
+            int(matched["h"]), int(matched["m"]), matched["part"],
+            numeric_clock=True,
+        )
+
+    words = raw.split()
+    hour, pos = _spoken_number(words, 0)
+    if pos < len(words) and words[pos] in HOUR_SUFFIXES:
+        pos += 1
+
+    minute: int | None = None
+    part: str | None = None
+    while pos < len(words):
+        word = words[pos]
+        if word in PARTS:
+            if part is not None:
+                raise ReminderTimeError("Время суток указано несколько раз.")
+            part = word
+            pos += 1
+        elif word == "и" and minute is None and pos + 1 < len(words):
+            pos += 1
+        elif minute is None:
+            minute, pos = _spoken_number(words, pos)
+            if pos < len(words) and words[pos] in MINUTE_SUFFIXES:
+                pos += 1
+        else:
+            raise ReminderTimeError("Не удалось однозначно определить минуты.")
+    return _resolve_clock(hour, 0 if minute is None else minute, part)
 
 
 def _date(raw: str, today: date) -> date:
