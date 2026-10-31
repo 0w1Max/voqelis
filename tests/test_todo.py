@@ -518,3 +518,67 @@ async def test_voice_reminder_admitted_in_todo_without_becoming_a_new_task(store
         job.file_path.unlink(missing_ok=True)
     finally:
         nav.close()
+
+
+
+@pytest.mark.asyncio
+async def test_voice_reminder_entire_audio_worker_flow_proposes_confirmable_date(
+    store, tmp_path, monkeypatch,
+):
+    """Voice date is parsed as a reminder proposal, never as a new task."""
+    nav = NavigationStore(tmp_path / "reminder-worker-nav.sqlite3")
+    reminders = ReminderRepository(store)
+    service = TodoService(store)
+    settings = SimpleNamespace(
+        allowed_user_ids=frozenset({1}),
+        max_audio_seconds=1200, max_file_size_bytes=10_000,
+        temp_dir=tmp_path, download_timeout_seconds=10,
+    )
+    queue = JobQueue(max_pending_jobs=3, max_pending_per_user=3)
+    router = audio_module.create_router(
+        settings=settings, queue=queue, navigation=nav,
+        todo=service, reminders=reminders,
+    )
+    telegram = TelegramBot()
+    try:
+        nav.activate(1, "todo")
+        capture = store.begin_capture(1)
+        task = store.capture_text(1, capture.token, "Купить продукты")
+        assert task is not None
+        draft = reminders.begin(
+            1, task.id, navigation_revision=nav.current(1)[1],
+        )
+        voice = AudioMessage(1)
+        await handler(router, "on_audio")(voice, telegram)
+        assert "дату напоминания" in voice.replies[-1]
+
+        class FakeTranscriber:
+            async def transcribe(self, _path):
+                return TranscriptionResult(
+                    text="напомни завтра в девять утра",
+                    language="ru", language_probability=1.0,
+                    duration_seconds=2.0, duration_after_vad_seconds=2.0,
+                    processing_seconds=0.1,
+                )
+
+        monkeypatch.setattr(audio_module, "probe_duration_seconds", lambda _: 2.0)
+        worker = asyncio.create_task(audio_module.run_worker(
+            bot=telegram, queue=queue, transcriber=FakeTranscriber(),
+            settings=settings, navigation=nav, todo=service,
+            reminders=reminders,
+        ))
+        try:
+            await asyncio.wait_for(telegram.sent.wait(), timeout=4)
+            assert any("Подтверди напоминание" in m[1] for m in telegram.messages)
+            updated = reminders.pending(1)
+            assert updated and updated.token == draft.token
+            assert updated.proposed_at_utc is not None
+            assert not updated.claimed
+            assert len(store.list_items(1, completed=False)[0]) == 1
+            assert reminders.for_item(1, task.id) == []
+        finally:
+            worker.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await worker
+    finally:
+        nav.close()
