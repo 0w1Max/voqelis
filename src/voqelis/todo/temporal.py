@@ -20,7 +20,6 @@ TEXT_PATTERN = re.compile(
     rf"^(?P<date>{DATE_PATTERN})\s+(?:в\s+)?(?P<clock>.+)$",
     flags=re.IGNORECASE,
 )
-NUMERIC_TIME = re.compile(r"^(?P<h>\d{1,2}):(?P<m>[0-5]\d)$")
 
 
 class ReminderTimeError(ValueError):
@@ -77,49 +76,48 @@ def _numbers_from_words(words: list[str]) -> list[int]:
 
 def _clock(raw: str) -> time:
     raw = raw.lower().strip().replace("ё", "е")
-    matched = NUMERIC_TIME.fullmatch(raw)
-    if matched:
-        hh, mm = int(matched["h"]), int(matched["m"])
-        if hh > 23:
-            raise ReminderTimeError("Час должен быть от 00 до 23.")
-        return time(hh, mm)
 
-    # Some ASR/punctuation variants use a dot or comma instead of a colon.
-    dotted = re.fullmatch(r"(\d{1,2})[.,](\d{2})", raw)
-    if dotted:
-        hh, mm = int(dotted[1]), int(dotted[2])
-        if hh > 23 or mm > 59:
-            raise ReminderTimeError("Некорректное время.")
-        return time(hh, mm)
-
-    # Leave numeric groups intact, stripping only standalone punctuation.
-    raw = re.sub(r"[,.!?]", " ", raw)
-    words = raw.split()
-    parts = [w for w in words if w in PARTS]
-    if len(parts) > 1:
-        raise ReminderTimeError("Укажи одно время суток.")
-    part = parts[0] if parts else None
-    words = [w for w in words if w not in PARTS and w not in CLOCK_FILLERS]
-    values = _numbers_from_words(words)
-    if not values or len(values) > 3:
-        raise ReminderTimeError("Укажи часы и минуты, например «22:10».")
-
-    hour = values[0]
-    if len(values) == 1:
-        minute = 0
-    elif len(values) == 2:
-        minute = values[1]
-    elif values[1] == 0 and 0 <= values[2] <= 9:
-        # «двадцать два ноль пять» / «двадцать два ноль ноль».
-        minute = values[2]
+    # Written HH:MM stays a 24-hour literal (09:15 means 09:15).
+    # An explicit daypart additionally permits «9:15 вечера» -> 21:15.
+    numeric = re.fullmatch(
+        r"(?P<h>\d{1,2})[:.,](?P<m>\d{2})"
+        r"(?:\s+(?P<p>утра|дня|вечера|ночи))?",
+        raw,
+    )
+    if numeric:
+        hour, minute = int(numeric["h"]), int(numeric["m"])
+        part = numeric["p"]
     else:
-        raise ReminderTimeError("Минуты неоднозначны. Введи формат ЧЧ:ММ.")
+        # Decimal separators belong only to written HH:MM. Otherwise
+        # punctuation may delimit the words emitted by the ASR engine.
+        raw = re.sub(r"[,.!?]", " ", raw)
+        words = raw.split()
+        parts = [w for w in words if w in PARTS]
+        if len(parts) > 1:
+            raise ReminderTimeError("Укажи одно время суток.")
+        part = parts[0] if parts else None
+        words = [w for w in words if w not in PARTS and w not in CLOCK_FILLERS]
+        values = _numbers_from_words(words)
+        if not values or len(values) > 3:
+            raise ReminderTimeError("Укажи часы и минуты, например «22:10».")
+        hour = values[0]
+        if len(values) == 1:
+            minute = 0
+        elif len(values) == 2:
+            minute = values[1]
+        elif values[1] == 0 and 0 <= values[2] <= 9:
+            # «двадцать два ноль пять» -> 22:05.
+            minute = values[2]
+        else:
+            raise ReminderTimeError("Минуты неоднозначны. Введи формат ЧЧ:ММ.")
+
     if not 0 <= minute <= 59 or not 0 <= hour <= 23:
         raise ReminderTimeError("Некорректные часы или минуты.")
 
     if part is None:
-        # A single small hour without a daypart is ambiguous in spoken text.
-        if 1 <= hour <= 12:
+        # Spoken «10 15» without a daypart could be morning or evening.
+        # Written «10:15» is unambiguously 10:15 in 24-hour notation.
+        if numeric is None and 1 <= hour <= 12:
             raise ReminderTimeError(
                 "Добавь «утра», «дня» или «вечера» либо введи ЧЧ:ММ."
             )
@@ -146,7 +144,6 @@ def _clock(raw: str) -> time:
     ):
         return time(hour, minute)
     raise ReminderTimeError("Неоднозначное время суток. Введи формат ЧЧ:ММ.")
-
 
 def _date(raw: str, today: date) -> date:
     raw = raw.lower()
@@ -199,11 +196,12 @@ def _strict_local_datetime(day: date, clock: time, zone: ZoneInfo) -> datetime:
 def parse_reminder_time(
     text: str, *, now: datetime, timezone: str = "Europe/Moscow",
 ) -> datetime:
-    """Parse an exact local date+time into UTC, rejecting DST ambiguity and past times.
+    """Parse a local reminder date/time into UTC, rejecting past/ambiguous times.
 
-    Accepted examples: сегодня в 18:30, завтра в 9 утра,
-    послезавтра в девять вечера, 5 ноября в 18:30, 05.11.2026 18:30.
-    Does NOT infer a date/time from incomplete or arbitrary task text.
+    In an active reminder draft, *only a time* means today in the user's zone.
+    Any explicit «сегодня», «завтра», «послезавтра» or calendar date wins.
+    Accepted: 16:15, в 9:15 вечера, завтра в 9 утра, 05.11.2026 18:30.
+    Does not extract times from arbitrary task text.
     """
     if now.tzinfo is None:
         raise ValueError("now must have timezone")
@@ -215,13 +213,16 @@ def parse_reminder_time(
     normalized = re.sub(r"^напомни(?:\s+мне)?\s+", "", normalized)
     normalized = normalized.rstrip(".!? ")
     match = TEXT_PATTERN.fullmatch(normalized)
-    if match is None:
-        raise ReminderTimeError(
-            "Укажи дату и время: например, «завтра в 18:30»."
-        )
     local_now = now.astimezone(zone)
-    day = _date(match["date"], local_now.date())
-    at = _strict_local_datetime(day, _clock(match["clock"]), zone)
+    if match is not None:
+        day = _date(match["date"], local_now.date())
+        clock_text = match["clock"]
+    else:
+        # Only this reminder-capture API applies the implicit "today" date.
+        # A missing clock or an unrelated sentence still fails in _clock().
+        day = local_now.date()
+        clock_text = re.sub(r"^в\s+", "", normalized)
+    at = _strict_local_datetime(day, _clock(clock_text), zone)
     if at <= now.astimezone(UTC) + timedelta(seconds=30):
         raise ReminderTimeError("Время уже прошло. Выбери более позднее.")
     if at > now.astimezone(UTC) + timedelta(days=366):
