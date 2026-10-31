@@ -10,6 +10,21 @@ class AudioJob:
     reply_to_message_id: int
     user_id: int
     file_path: Path
+    capture_token: str | None = None
+    day_facts_token: str | None = None
+    todo_token: str | None = None
+    todo_reminder_token: str | None = None
+    navigation_section: str | None = None
+    navigation_revision: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TranscriptSegment:
+    text: str
+    start_seconds: float
+    end_seconds: float
+    average_logprob: float | None = None
+    no_speech_probability: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,3 +37,5 @@ class TranscriptionResult:
     duration_seconds: float
     duration_after_vad_seconds: float
     processing_seconds: float
+    pause_aware_text: str | None = None
+    segments: tuple[TranscriptSegment, ...] = ()
