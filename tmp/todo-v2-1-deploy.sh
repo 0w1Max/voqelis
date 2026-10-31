@@ -349,7 +349,7 @@ for name in names:
     with closing(sqlite3.connect(path.as_uri()+'?mode=ro',uri=True,timeout=10)) as db:
         if db.execute('PRAGMA integrity_check').fetchone()[0]!='ok':
             raise RuntimeError('Integrity check failed: '+name)
-with closing(sqlite3.connect((root/'operations.sqlite3').as_uri()+'?mode=ro',uri=True)) as db:
+with closing(sqlite3.connect((root/'todo.sqlite3').as_uri()+'?mode=ro',uri=True)) as db:
     for name in ('todo_reminders', 'todo_reminder_drafts'):
         if db.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
