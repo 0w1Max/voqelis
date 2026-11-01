@@ -545,7 +545,7 @@ async def run_worker(
                 await bot.send_message(
                     job.chat_id,
                     f"🔔 Подтверди напоминание:\n"
-                    f"{local:%d.%m.%Y · %H:%M} ({proposed.timezone})",
+                    f"{local:%d.%m.%Y · %H:%M}",
                     reply_markup=reminder_confirm_keyboard(proposed.token),
                     parse_mode=None,
                 )

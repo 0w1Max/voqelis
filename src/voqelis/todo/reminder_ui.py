@@ -19,9 +19,10 @@ from ..navigation import NavigationStore
 from .bot import _OTHER_BUTTONS as MENU_BUTTONS
 from .bot import item_markup
 from .reminders import ReminderDraft, ReminderRepository
+from .settings import DEFAULT_TIMEZONE, TodoSettingsRepository
 from .temporal import ReminderTimeError, parse_reminder_time
 
-TIMEZONE = "Europe/Moscow"
+TIMEZONE = DEFAULT_TIMEZONE
 QUICK_TIMES = ("09:00", "12:00", "16:00", "18:00", "21:00")
 
 
@@ -68,7 +69,7 @@ def _display(when: int, timezone: str) -> str:
 
 def create_reminder_router(
     *, reminders: ReminderRepository, navigation: NavigationStore,
-    access: AccessStore,
+    access: AccessStore, settings: TodoSettingsRepository | None = None,
 ) -> Router:
     router = Router(name="todo_reminders")
 
@@ -125,8 +126,7 @@ def create_reminder_router(
             return
         await message.answer(
             "🔔 Подтверди напоминание:\n"
-            f"{_display(updated.proposed_at_utc, updated.timezone)} "
-            f"({updated.timezone})",
+            f"{_display(updated.proposed_at_utc, updated.timezone)}",
             reply_markup=reminder_confirm_keyboard(updated.token),
         )
 
@@ -174,7 +174,7 @@ def create_reminder_router(
                     await callback.answer("Дело уже выполнено.", show_alert=True)
                     return
                 draft = reminders.begin(
-                    uid, item_id, timezone=TIMEZONE,
+                    uid, item_id, timezone=(settings.get(uid).timezone if settings else TIMEZONE),
                     navigation_revision=navigation.current(uid)[1],
                 )
                 await callback.answer()
@@ -280,8 +280,7 @@ def create_reminder_router(
                     return
                 await callback.answer()
                 await callback.message.answer(
-                    f"🔔 Подтверди: {_display(proposed.proposed_at_utc, proposed.timezone)} "
-                    f"({proposed.timezone})",
+                    f"🔔 Подтверди: {_display(proposed.proposed_at_utc, proposed.timezone)}",
                     reply_markup=reminder_confirm_keyboard(token),
                 )
                 return
@@ -307,8 +306,7 @@ def create_reminder_router(
                     return
                 await callback.answer("Сохранено.")
                 await callback.message.answer(
-                    f"✅ Напоминание установлено: {_display(saved.remind_at_utc, saved.timezone)} "
-                    f"({saved.timezone})",
+                    f"✅ Напоминание установлено: {_display(saved.remind_at_utc, saved.timezone)}",
                     reply_markup=_keyboard([[
                         ("➕ Ещё напоминание", f"td:rem:new:{saved.item_id}"),
                         ("🔔 Все напоминания", f"td:rem:list:{saved.item_id}"),

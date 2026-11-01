@@ -77,6 +77,11 @@ CREATE TABLE IF NOT EXISTS todo_reminder_drafts (
     navigation_revision INTEGER NOT NULL DEFAULT 0,
     claimed INTEGER NOT NULL DEFAULT 0 CHECK(claimed IN (0,1))
 );
+CREATE TABLE IF NOT EXISTS todo_settings (
+    user_id INTEGER PRIMARY KEY CHECK(user_id > 0),
+    timezone TEXT NOT NULL,
+    revision INTEGER NOT NULL DEFAULT 1 CHECK(revision > 0)
+);
 """
 
 

@@ -28,6 +28,7 @@ from ..menu import (
     TODO_DONE,
     TODO_LEGACY,
     TODO_NEW,
+    TODO_SETTINGS,
     TODO_START,
     todo_capture_keyboard,
     todo_keyboard,
@@ -40,7 +41,7 @@ _OTHER_BUTTONS = frozenset({
     HOME, FACTS_START, FACTS_NEW, FACTS_RESUME, FACTS_TODAY,
     FACTS_HISTORY, NOTES_START, NOTES_NEW, NOTES_LIST, PLANNER_START,
     TODO_START, TODO_LEGACY, TODO_NEW, TODO_ACTIVE, TODO_DONE,
-    TODO_CANCEL, "🛡 Админ-панель", "📅 Планирование дня",
+    TODO_CANCEL, TODO_SETTINGS, "🛡 Админ-панель", "📅 Планирование дня",
     "📋 Текущий план", "🗓 История планов", "🎙 Расшифровка",
 })
 
