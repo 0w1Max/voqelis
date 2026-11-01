@@ -27,6 +27,7 @@ from ..menu import (
     TODO_CANCEL,
     TODO_DONE,
     TODO_NEW,
+    TODO_SETTINGS,
     TODO_START,
 )
 from ..navigation import NavigationStore
@@ -34,7 +35,8 @@ from .store import Announcement, AnnouncementStore
 
 MENU_BUTTONS = frozenset({
     ADMIN_PANEL, FACTS_START, HOME, NOTES_START, PLANNER_START,
-    REPORT_BUTTON, TODO_ACTIVE, TODO_CANCEL, TODO_DONE, TODO_NEW, TODO_START,
+    REPORT_BUTTON, TODO_ACTIVE, TODO_CANCEL, TODO_DONE, TODO_NEW,
+    TODO_SETTINGS, TODO_START,
 })
 
 logger = logging.getLogger(__name__)
