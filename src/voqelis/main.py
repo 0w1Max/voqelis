@@ -41,6 +41,7 @@ from .text_punctuation import TextPunctuationProcessor
 from .todo.bot import create_todo_router
 from .todo.delivery import run_reminder_sender
 from .todo.digest import TodoDigestRepository
+from .todo.digest_ui import create_todo_digest_router
 from .todo.reminder_ui import create_reminder_router
 from .todo.reminders import ReminderRepository
 from .todo.service import TodoService
@@ -235,6 +236,10 @@ async def async_main() -> None:
     dp.include_router(create_todo_settings_router(
         settings=todo_settings, navigation=navigation, access=access_store,
         digests=todo_digests,
+    ))
+    dp.include_router(create_todo_digest_router(
+        digests=todo_digests, timezones=todo_settings,
+        navigation=navigation, access=access_store,
     ))
     dp.include_router(create_todo_router(
         service=todo, navigation=navigation,
