@@ -124,8 +124,11 @@ Neither draft creation nor CI may send real Telegram announcements.
 - The actor is the unique bootstrap owner from `ALLOWED_USER_IDS`; recipients
   are rechecked against the live approved-user set at delivery time.
 - An admin can send manually created announcements only after reviewing and
-  confirming their exact content. Automated major-release suggestions are future
-  drafts, not push notifications triggered by a GitHub merge.
+  confirming their exact content.
+- Curated suggestions for verified existing modules are saved as private owner
+  drafts exactly once per stable feature key. No queue or public notification
+  is created by suggestion seeding. New suggestions require a manually vetted
+  entry in `notifications/suggestions.py`; GitHub merges and CI never trigger them.
 - Users may opt out with `/notify_off` and restore with `/notify_on`.
   These controls do NOT touch user ToDo reminders.
 - A single active send may complete during pause/cancel due to an in-flight
