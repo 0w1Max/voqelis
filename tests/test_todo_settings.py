@@ -72,7 +72,7 @@ def test_timezone_defaults_are_isolated_and_durable(tmp_path: Path):
     try:
         assert TodoSettingsRepository(reopened).get(1).timezone == "Europe/Berlin"
         assert TodoSettingsRepository(reopened).get(2).timezone == DEFAULT_TIMEZONE
-        assert timezone_label(DEFAULT_TIMEZONE) == "Москва"
+        assert timezone_label(DEFAULT_TIMEZONE) == "Moscow (GMT+3)"
     finally:
         reopened.close()
 
@@ -156,7 +156,7 @@ async def test_settings_keyboard_scoped_and_stale_callbacks(tmp_path: Path):
 
         msg = FakeMessage(1)
         await handler(router, "on_settings")(msg)
-        assert "Москва" in msg.responses[-1][0]
+        assert "Moscow (GMT+3)" in msg.responses[-1][0]
         first = msg.responses[-1][1]["reply_markup"].inline_keyboard[0][0].callback_data
 
         pick = FakeClick(1, first, msg)
