@@ -82,6 +82,29 @@ CREATE TABLE IF NOT EXISTS todo_settings (
     timezone TEXT NOT NULL,
     revision INTEGER NOT NULL DEFAULT 1 CHECK(revision > 0)
 );
+CREATE TABLE IF NOT EXISTS todo_digest_settings (
+    user_id INTEGER PRIMARY KEY CHECK(user_id > 0),
+    enabled INTEGER NOT NULL CHECK(enabled IN (0,1)),
+    times_json TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK(revision > 0)
+);
+CREATE TABLE IF NOT EXISTS todo_digest_input (
+    user_id INTEGER PRIMARY KEY CHECK(user_id > 0),
+    token TEXT NOT NULL,
+    navigation_revision INTEGER NOT NULL,
+    digest_revision INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS todo_digest_delivery (
+    user_id INTEGER NOT NULL CHECK(user_id > 0),
+    local_day TEXT NOT NULL,
+    local_minute INTEGER NOT NULL CHECK(local_minute >= 0 AND local_minute < 1440),
+    timezone TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('sending','sent','skipped','failed','uncertain')),
+    claimed_at_utc INTEGER NOT NULL,
+    finished_at_utc INTEGER,
+    PRIMARY KEY(user_id,local_day,local_minute)
+);
 """
 
 
