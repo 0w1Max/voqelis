@@ -402,3 +402,49 @@ def test_news_draft_does_not_swallow_todo_settings_button(env):
     assert access.is_allowed(1)
     assert navigation.current(1)[0] == "home"
 
+def test_curated_suggestions_are_owner_only_idempotent_and_unsent(env):
+    store, access, _ = env
+    entries = (
+        ("todo-reminders-v21", "В Voqelis доступен список дел с напоминаниями."),
+        ("day-facts-v1", "В Voqelis доступен раздел Факты дня."),
+    )
+    assert store.seed_suggestions(2, entries) == 0
+    assert store.seed_suggestions(1, entries, now=1000) == 2
+    assert store.seed_suggestions(1, entries, now=1001) == 0
+    proposals = store.suggested(1)
+    assert len(proposals) == 2 and all(p.state == "draft" for p in proposals)
+    assert store.suggested(2) == []
+    assert all(store.summary(1, p.id)["pending"] == 0 for p in proposals)
+    assert access.is_allowed(2)
+
+    reopened = AnnouncementStore(store.path, owner_id=1)
+    try:
+        assert reopened.seed_suggestions(1, entries, now=2000) == 0
+        assert len(reopened.suggested(1)) == 2
+    finally:
+        reopened.close()
+
+    # Even cancelling a proposal does not recreate or send it on restart.
+    assert store.cancel(1, proposals[0].id)
+    assert store.seed_suggestions(1, entries, now=3000) == 0
+    assert len(store.suggested(1)) == 1
+
+
+@pytest.mark.asyncio
+async def test_suggestions_admin_center_is_private_and_does_not_send(env):
+    store, access, navigation = env
+    store.seed_suggestions(1, (("day-facts-v1", "Доступен раздел Факты дня."),))
+    router = create_notification_router(
+        store=store, access=access, navigation=navigation, enabled=False,
+    )
+    on_callback = router.callback_query.handlers[0].callback
+    guest = FakeCallback(2, "news:ideas", FakeMessage(2))
+    await on_callback(guest, object())
+    assert guest.answers and "прав" in guest.answers[-1][0].lower()
+    owner_msg = FakeMessage(1)
+    await on_callback(FakeCallback(1, "news:ideas", owner_msg), object())
+    markup = owner_msg.replies[-1][1]["reply_markup"]
+    assert markup.inline_keyboard[0][0].callback_data.startswith("news:preview:")
+    proposal = store.suggested(1)[0]
+    assert proposal.state == "draft"
+    assert store.summary(1, proposal.id)["pending"] == 0

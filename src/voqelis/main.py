@@ -26,6 +26,7 @@ from .notes.store import NotesStore
 from .notifications.bot import create_notification_router
 from .notifications.delivery import run_announcement_sender
 from .notifications.store import AnnouncementStore
+from .notifications.suggestions import CURATED_SUGGESTIONS
 from .operations.bot import create_operations_router
 from .operations.github import GitHubAppConfig
 from .operations.store import OperationsStore
@@ -196,6 +197,11 @@ async def async_main() -> None:
         settings.planner_db_path.with_name("admin_notifications.sqlite3"),
         owner_id=access_store.admin_id,
     )
+    # Curated suggestions are private drafts, never a broadcast or a deployment claim.
+    if access_store.admin_id is not None:
+        announcement_store.seed_suggestions(
+            access_store.admin_id, CURATED_SUGGESTIONS,
+        )
     # Disabled until separately authorized and accepted in Telegram.
     announcements_enabled = os.getenv(
         "ADMIN_ANNOUNCEMENTS_ENABLED", "false",

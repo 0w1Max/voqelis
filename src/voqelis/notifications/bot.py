@@ -52,6 +52,7 @@ def _buttons(rows: list[list[tuple[str, str]]]) -> InlineKeyboardMarkup:
 def _home_markup() -> InlineKeyboardMarkup:
     return _buttons([
         [("➕ Создать объявление", "news:new")],
+        [("💡 Предложения для объявлений", "news:ideas")],
         [("📝 Черновики и история", "news:history")],
     ])
 
@@ -269,6 +270,23 @@ def create_notification_router(
             await callback.answer()
             await callback.message.answer(
                 "📋 Последние объявления" if entries else "Черновиков и рассылок нет.",
+                reply_markup=_buttons(rows) if rows else _home_markup(),
+            )
+            return
+        if action == "ideas" and len(parts) == 2:
+            suggestions = store.suggested(uid)
+            rows = [
+                [(f"💡 Черновик #{item.id}", f"news:preview:{item.id}")]
+                for item in suggestions
+            ]
+            await callback.answer()
+            await callback.message.answer(
+                "💡 Предложения для объявлений\n\n"
+                "Здесь появляются проверенные предложения о доступных функциях. "
+                "Перед отправкой проверь текст и при необходимости измени его. "
+                "Ничего не рассылается автоматически."
+                if suggestions else
+                "Сейчас нет новых предложений. Можно создать объявление вручную.",
                 reply_markup=_buttons(rows) if rows else _home_markup(),
             )
             return

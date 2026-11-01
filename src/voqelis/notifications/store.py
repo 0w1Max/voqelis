@@ -48,6 +48,13 @@ CREATE TABLE IF NOT EXISTS announcement_optouts (
     recipient_id INTEGER PRIMARY KEY,
     opted_out_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS announcement_proposals (
+    owner_id INTEGER NOT NULL,
+    proposal_key TEXT NOT NULL,
+    announcement_id INTEGER NOT NULL UNIQUE REFERENCES announcements(id),
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY(owner_id, proposal_key)
+);
 """
 
 
@@ -117,6 +124,65 @@ class AnnouncementStore:
             "ORDER BY id DESC LIMIT ?", (uid, min(20, max(1, limit))),
         ).fetchall()
         return [_ann(r) for r in rows]
+
+    def seed_suggestions(
+        self, uid: int, suggestions: tuple[tuple[str, str], ...],
+        *, now: int | None = None,
+    ) -> int:
+        """Add curated, owner-only draft proposals exactly once per feature key.
+
+        Never queues recipients or sends Telegram messages.
+        """
+        if not self._admin(uid):
+            return 0
+        if len(suggestions) > 20 or len({key for key, _ in suggestions}) != len(suggestions):
+            raise ValueError("Invalid announcement suggestion catalog")
+        for key, body in suggestions:
+            if (
+                not key or len(key) > 100
+                or any(ch not in "abcdefghijklmnopqrstuvwxyz0123456789-_" for ch in key)
+                or not isinstance(body, str) or not 1 <= len(body.strip()) <= MAX_TEXT
+                or any(ord(ch) < 32 and ch not in "\n\t" for ch in body)
+            ):
+                raise ValueError("Invalid announcement suggestion")
+        ts = int(time.time()) if now is None else now
+        created = 0
+        with self.db:
+            self.db.execute("BEGIN IMMEDIATE")
+            for key, body in suggestions:
+                exists = self.db.execute(
+                    "SELECT 1 FROM announcement_proposals "
+                    "WHERE owner_id=? AND proposal_key=?",
+                    (uid, key),
+                ).fetchone()
+                if exists:
+                    continue
+                cur = self.db.execute(
+                    "INSERT INTO announcements "
+                    "(owner_id,body,revision,token,created_at,updated_at) "
+                    "VALUES (?,?,1,?,?,?)",
+                    (uid, body.strip(), secrets.token_hex(12), ts, ts),
+                )
+                self.db.execute(
+                    "INSERT INTO announcement_proposals "
+                    "(owner_id,proposal_key,announcement_id,created_at) "
+                    "VALUES (?,?,?,?)",
+                    (uid, key, int(cur.lastrowid), ts),
+                )
+                created += 1
+        return created
+
+    def suggested(self, uid: int, limit: int = 10) -> list[Announcement]:
+        if not self._admin(uid):
+            return []
+        rows = self.db.execute(
+            "SELECT a.* FROM announcements a "
+            "JOIN announcement_proposals p ON p.announcement_id=a.id "
+            "WHERE p.owner_id=? AND a.owner_id=? AND a.state='draft' "
+            "ORDER BY a.id DESC LIMIT ?",
+            (uid, uid, min(20, max(1, limit))),
+        ).fetchall()
+        return [_ann(row) for row in rows]
 
     def create(self, uid: int, *, now: int | None = None) -> Announcement | None:
         if not self._admin(uid):
