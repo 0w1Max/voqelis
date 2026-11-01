@@ -42,9 +42,9 @@ from .todo.bot import create_todo_router
 from .todo.delivery import run_reminder_sender
 from .todo.reminder_ui import create_reminder_router
 from .todo.reminders import ReminderRepository
+from .todo.service import TodoService
 from .todo.settings import TodoSettingsRepository
 from .todo.settings_ui import create_todo_settings_router
-from .todo.service import TodoService
 from .todo.store import TodoStore
 from .transcription import Transcriber
 
