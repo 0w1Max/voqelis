@@ -86,7 +86,7 @@ async def send_due_digests(
         except TelegramAPIError:
             repository.finish(due, "uncertain")
             logger.warning("TODO_DIGEST_DELIVERY_UNCERTAIN")
-        except Exception:  # noqa: BLE001
+        except Exception:
             repository.finish(due, "uncertain")
             logger.exception("TODO_DIGEST_DELIVERY_UNKNOWN")
         else:
