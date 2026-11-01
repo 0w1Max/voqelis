@@ -5,12 +5,22 @@ from __future__ import annotations
 from aiogram import F, Router
 from aiogram.enums import ChatType
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 from ..access import AccessStore
 from ..menu import TODO_SETTINGS
 from ..navigation import NavigationStore
-from .settings import TIMEZONE_CHOICES, TodoPreferences, TodoSettingsRepository, timezone_label
+from .settings import (
+    TIMEZONE_CHOICES,
+    TodoPreferences,
+    TodoSettingsRepository,
+    timezone_label,
+)
 
 PAGE_SIZE = 8
 
