@@ -42,6 +42,8 @@ from .todo.bot import create_todo_router
 from .todo.delivery import run_reminder_sender
 from .todo.reminder_ui import create_reminder_router
 from .todo.reminders import ReminderRepository
+from .todo.settings import TodoSettingsRepository
+from .todo.settings_ui import create_todo_settings_router
 from .todo.service import TodoService
 from .todo.store import TodoStore
 from .transcription import Transcriber
@@ -178,6 +180,7 @@ async def async_main() -> None:
     todo_store = TodoStore(settings.planner_db_path.with_name("todo.sqlite3"))
     todo = TodoService(todo_store)
     reminders = ReminderRepository(todo_store)
+    todo_settings = TodoSettingsRepository(todo_store)
     ops_store = OperationsStore(
         settings.planner_db_path.with_name("operations.sqlite3"),
         owner_id=access_store.admin_id,
@@ -225,6 +228,10 @@ async def async_main() -> None:
     ))
     dp.include_router(create_reminder_router(
         reminders=reminders, navigation=navigation, access=access_store,
+        settings=todo_settings,
+    ))
+    dp.include_router(create_todo_settings_router(
+        settings=todo_settings, navigation=navigation, access=access_store,
     ))
     dp.include_router(create_todo_router(
         service=todo, navigation=navigation,
