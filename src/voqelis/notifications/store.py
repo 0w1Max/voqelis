@@ -382,7 +382,7 @@ class AnnouncementStore:
             )
             self.db.execute(
                 "UPDATE announcements SET state='completed' "
-                "WHERE state='queued' AND NOT EXISTS "
+                "WHERE state IN ('queued','paused') AND NOT EXISTS "
                 "(SELECT 1 FROM announcement_deliveries d WHERE "
                 "d.announcement_id=announcements.id "
                 "AND d.state IN ('pending','sending'))"
@@ -474,7 +474,7 @@ class AnnouncementStore:
         if waiting is None:
             self.db.execute(
                 "UPDATE announcements SET state='completed' "
-                "WHERE id=? AND state='queued'", (aid,),
+                "WHERE id=? AND state IN ('queued','paused')", (aid,),
             )
 
     def summary(self, uid: int, aid: int) -> dict[str, int]:

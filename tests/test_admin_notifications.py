@@ -468,4 +468,74 @@ def test_announcement_input_does_not_intercept_other_module_buttons():
     assert menu.TODO_LEGACY in MENU_BUTTONS
     assert menu.TRANSCRIBE_START in MENU_BUTTONS
 
+def test_paused_announcement_completes_after_last_inflight_send(env):
+    store, _, _ = env
+    item = draft(store)
+    assert store.confirmation(1, item.id, item.revision, item.token, [2]) == 1
+    claimed = store.claim()
+    assert claimed and claimed.recipient_id == 2
+    assert store.pause(1, item.id)
+    assert store.finish_delivery(item.id, 2, "sent")
+    assert store.get(1, item.id).state == "completed"
+    assert store.summary(1, item.id)["sent"] == 1
+    assert store.claim() is None
+    assert not store.resume(1, item.id)
 
+
+def test_paused_announcement_stays_paused_while_pending_exists(env):
+    store, _, _ = env
+    item = draft(store)
+    assert store.confirmation(1, item.id, item.revision, item.token, [2, 3]) == 2
+    first = store.claim()
+    assert first and first.recipient_id == 2
+    assert store.pause(1, item.id)
+    assert store.finish_delivery(item.id, 2, "sent")
+    assert store.get(1, item.id).state == "paused"
+    assert store.claim() is None
+    assert store.resume(1, item.id)
+    second = store.claim()
+    assert second and second.recipient_id == 3
+    assert store.finish_delivery(item.id, 3, "sent")
+    assert store.get(1, item.id).state == "completed"
+
+
+def test_paused_last_inflight_restart_becomes_uncertain_and_completed(tmp_path: Path):
+    db_path = tmp_path / "admin_notifications.sqlite3"
+    store = AnnouncementStore(db_path, owner_id=1)
+    item = draft(store)
+    assert store.confirmation(1, item.id, item.revision, item.token, [2]) == 1
+    assert store.claim() is not None
+    assert store.pause(1, item.id)
+    store.close()
+
+    reopened = AnnouncementStore(db_path, owner_id=1)
+    try:
+        assert reopened.recover() == 1
+        assert reopened.get(1, item.id).state == "completed"
+        assert reopened.summary(1, item.id)["uncertain"] == 1
+        assert reopened.claim() is None
+        assert not reopened.resume(1, item.id)
+        assert reopened.db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    finally:
+        reopened.close()
+
+
+def test_two_connections_never_claim_same_recipient(tmp_path: Path):
+    db_path = tmp_path / "admin_notifications.sqlite3"
+    one = AnnouncementStore(db_path, owner_id=1)
+    two = AnnouncementStore(db_path, owner_id=1)
+    try:
+        item = draft(one)
+        assert one.confirmation(1, item.id, item.revision, item.token, [2, 3]) == 2
+        first = one.claim()
+        second = two.claim()
+        assert first and second
+        assert {first.recipient_id, second.recipient_id} == {2, 3}
+        assert one.claim() is None
+        assert two.claim() is None
+        assert one.finish_delivery(item.id, first.recipient_id, "sent")
+        assert two.finish_delivery(item.id, second.recipient_id, "sent")
+        assert one.get(1, item.id).state == "completed"
+    finally:
+        two.close()
+        one.close()
