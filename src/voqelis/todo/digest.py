@@ -7,7 +7,7 @@ import re
 import secrets
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from .settings import TodoSettingsRepository
