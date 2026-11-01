@@ -237,6 +237,9 @@ def _admin_markup(store: AccessStore, page: int = 0) -> InlineKeyboardMarkup:
         text="🛠 Операции", callback_data="ops:admin"
     )])
     rows.append([InlineKeyboardButton(
+        text="📣 Уведомления пользователям", callback_data="news:home"
+    )])
+    rows.append([InlineKeyboardButton(
         text="🔄 Обновить", callback_data=f"access:panel:{page}"
     )])
     return InlineKeyboardMarkup(inline_keyboard=rows)
