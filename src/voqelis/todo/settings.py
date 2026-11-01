@@ -11,7 +11,7 @@ DEFAULT_TIMEZONE = "Europe/Moscow"
 
 # User-facing names are never IANA identifiers. Stored values remain standard IANA IDs.
 TIMEZONE_CHOICES = (
-    ("Москва", "Europe/Moscow"),
+    ("Moscow (GMT+3)", "Europe/Moscow"),
     ("Калининград", "Europe/Kaliningrad"),
     ("Самара", "Europe/Samara"),
     ("Екатеринбург", "Asia/Yekaterinburg"),
