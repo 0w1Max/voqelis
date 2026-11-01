@@ -40,6 +40,7 @@ from .queue import JobQueue
 from .text_punctuation import TextPunctuationProcessor
 from .todo.bot import create_todo_router
 from .todo.delivery import run_reminder_sender
+from .todo.digest import TodoDigestRepository
 from .todo.reminder_ui import create_reminder_router
 from .todo.reminders import ReminderRepository
 from .todo.service import TodoService
@@ -181,6 +182,7 @@ async def async_main() -> None:
     todo = TodoService(todo_store)
     reminders = ReminderRepository(todo_store)
     todo_settings = TodoSettingsRepository(todo_store)
+    todo_digests = TodoDigestRepository(todo_store, todo_settings)
     ops_store = OperationsStore(
         settings.planner_db_path.with_name("operations.sqlite3"),
         owner_id=access_store.admin_id,
@@ -232,6 +234,7 @@ async def async_main() -> None:
     ))
     dp.include_router(create_todo_settings_router(
         settings=todo_settings, navigation=navigation, access=access_store,
+        digests=todo_digests,
     ))
     dp.include_router(create_todo_router(
         service=todo, navigation=navigation,
@@ -257,7 +260,7 @@ async def async_main() -> None:
         default=DefaultBotProperties(parse_mode=None),
     ) as bot:
         reminder_task = asyncio.create_task(
-            run_reminder_sender(bot, reminders, access_store),
+            run_reminder_sender(bot, reminders, access_store, digests=todo_digests),
             name="todo-reminder-sender",
         )
         worker_task = asyncio.create_task(
