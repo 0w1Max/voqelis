@@ -51,7 +51,7 @@ async def _send_one(
     message = (
         "🔔 Напоминание о деле\n\n"
         f"{item.text}\n\n"
-        f"⏰ {local:%d.%m.%Y, %H:%M} ({reminder.timezone})"
+        f"⏰ {local:%d.%m.%Y, %H:%M}"
         + ("\n⚠ Доставлено с задержкой." if overdue else "")
     )
     try:
