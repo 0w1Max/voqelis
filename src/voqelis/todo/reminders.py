@@ -70,6 +70,24 @@ class ReminderRepository:
         ).fetchall()
         return [_reminder(r) for r in rows]
 
+    def pending_item_ids(self, user_id: int, item_ids: list[int]) -> frozenset[int]:
+        """One scoped query for the active ToDo page; only pending reminders count."""
+        if user_id <= 0 or len(item_ids) > 50:
+            raise ValueError("Invalid reminder lookup")
+        if not item_ids:
+            return frozenset()
+        ids = sorted(set(item_ids))
+        if any(type(item_id) is not int or item_id <= 0 for item_id in ids):
+            raise ValueError("Invalid item ID")
+        markers = ",".join("?" for _ in ids)
+        rows = self.db.execute(
+            "SELECT DISTINCT item_id FROM todo_reminders "
+            "WHERE user_id=? AND state='pending' "
+            f"AND item_id IN ({markers})",
+            (user_id, *ids),
+        ).fetchall()
+        return frozenset(int(row["item_id"]) for row in rows)
+
     def get(self, user_id: int, reminder_id: int) -> Reminder | None:
         row = self.db.execute(
             "SELECT r.* FROM todo_reminders r JOIN todo_items t "
