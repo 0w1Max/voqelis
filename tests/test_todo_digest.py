@@ -17,7 +17,7 @@ from voqelis.todo.digest import (
     clock,
     parse_clock,
 )
-from voqelis.todo.digest_delivery import digest_message, send_due_digests
+from voqelis.todo.digest_delivery import send_due_digests
 from voqelis.todo.digest_ui import create_todo_digest_router
 from voqelis.todo.settings import TodoSettingsRepository
 from voqelis.todo.settings_ui import create_todo_settings_router
@@ -45,7 +45,7 @@ def utc(year: int, month: int, day: int, hour: int, minute: int = 0) -> int:
 
 
 def test_default_daily_16_00_moscow_and_persistent_editing(data, tmp_path):
-    todo, zones, digests = data
+    todo, _, digests = data
     default = digests.get(1)
     assert default.enabled and default.times == (DEFAULT_MINUTE,) and default.revision == 0
     assert clock(DEFAULT_MINUTE) == "16:00"
