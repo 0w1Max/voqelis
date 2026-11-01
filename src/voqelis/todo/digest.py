@@ -154,6 +154,10 @@ class TodoDigestRepository:
             # Reminder text mode and digest text mode are mutually exclusive.
             self.db.execute("DELETE FROM todo_reminder_drafts WHERE user_id=?", (uid,))
 
+    def cancel_input(self, uid: int) -> None:
+        with self.db:
+            self.db.execute("DELETE FROM todo_digest_input WHERE user_id=?", (uid,))
+
     def pending_input(self, uid: int, *, now: int | None = None) -> DigestInput | None:
         ts = int(time.time()) if now is None else now
         row = self.db.execute(
