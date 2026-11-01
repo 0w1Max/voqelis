@@ -1,11 +1,14 @@
-# Secrets
+# Secrets and environment backups
 .env
+.env.*
+!.env.example
 
 # Python
 __pycache__/
 *.py[cod]
 *.pyo
 .venv/
+.venv-asr-benchmark/
 venv/
 *.egg-info/
 
