@@ -15,6 +15,7 @@ from aiogram.types import (
 from ..access import AccessStore
 from ..menu import TODO_SETTINGS
 from ..navigation import NavigationStore
+from .digest import DigestPreferences, TodoDigestRepository, clock
 from .settings import (
     TIMEZONE_CHOICES,
     TodoPreferences,
@@ -32,11 +33,28 @@ def _keyboard(rows: list[list[tuple[str, str]]]) -> InlineKeyboardMarkup:
     ])
 
 
-def _overview(prefs: TodoPreferences, nav_revision: int) -> InlineKeyboardMarkup:
-    return _keyboard([[
+def _overview(
+    prefs: TodoPreferences, nav_revision: int,
+    digest: DigestPreferences | None = None,
+) -> InlineKeyboardMarkup:
+    rows = [[
         ("🌍 Изменить часовой пояс",
          f"td:settings:choose:{nav_revision}:{prefs.revision}:0"),
-    ]])
+    ]]
+    if digest is not None:
+        rows.append([
+            ("🔔 Ежедневная сводка",
+             f"td:digest:menu:{nav_revision}:{digest.revision}"),
+        ])
+    return _keyboard(rows)
+
+
+def _digest_status(digest: DigestPreferences | None) -> str:
+    if digest is None:
+        return ""
+    status = "Включена" if digest.enabled else "Выключена"
+    times = ", ".join(clock(m) for m in digest.times) or "не задано"
+    return f"\n🔔 Ежедневная сводка: {status}\n⏰ Время: {times}"
 
 
 def _choices(prefs: TodoPreferences, nav_revision: int, page: int) -> InlineKeyboardMarkup:
@@ -67,6 +85,7 @@ def _choices(prefs: TodoPreferences, nav_revision: int, page: int) -> InlineKeyb
 
 def create_todo_settings_router(
     *, settings: TodoSettingsRepository, navigation: NavigationStore, access: AccessStore,
+    digests: TodoDigestRepository | None = None,
 ) -> Router:
     router = Router(name="todo_settings")
 
@@ -84,12 +103,14 @@ def create_todo_settings_router(
             await message.answer("Сначала открой «✅ Список дел».")
             return
         prefs = settings.get(uid)
+        digest = digests.get(uid) if digests is not None else None
         await message.answer(
             "⚙️ Настройки списка дел\n\n"
-            f"🌍 Часовой пояс: {timezone_label(prefs.timezone)}\n\n"
+            f"🌍 Часовой пояс: {timezone_label(prefs.timezone)}"
+            f"{_digest_status(digest)}\n\n"
             "Выбранный пояс применяется к новым напоминаниям. "
             "Ранее установленные напоминания не сдвигаются.",
-            reply_markup=_overview(prefs, revision),
+            reply_markup=_overview(prefs, revision, digest),
         )
 
     @router.callback_query(F.data.startswith("td:settings:"))
@@ -105,6 +126,7 @@ def create_todo_settings_router(
         parts = (callback.data or "").split(":")
         section, nav_revision = navigation.current(uid)
         prefs = settings.get(uid)
+        digest = digests.get(uid) if digests is not None else None
         if (
             len(parts) not in {5, 6} or parts[2] not in {"show", "choose", "set"}
             or not parts[3].isdigit() or not parts[4].isdigit()
@@ -119,8 +141,9 @@ def create_todo_settings_router(
         if action == "show" and len(parts) == 5:
             await callback.answer()
             await callback.message.answer(
-                f"⚙️ Настройки списка дел\n🌍 Часовой пояс: {timezone_label(prefs.timezone)}",
-                reply_markup=_overview(prefs, nav_revision),
+                f"⚙️ Настройки списка дел\n🌍 Часовой пояс: {timezone_label(prefs.timezone)}"
+                f"{_digest_status(digest)}",
+                reply_markup=_overview(prefs, nav_revision, digest),
             )
             return
 
@@ -154,7 +177,7 @@ def create_todo_settings_router(
                 f"✓ Часовой пояс: {timezone_label(updated.timezone)}\n\n"
                 "Новые напоминания будут использовать этот пояс. "
                 "Уже сохранённые не изменены. Незавершённое назначение напоминания отменено.",
-                reply_markup=_overview(updated, nav_revision),
+                reply_markup=_overview(updated, nav_revision, digest),
             )
             return
 
