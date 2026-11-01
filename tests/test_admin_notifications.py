@@ -387,3 +387,18 @@ async def test_old_broadcast_preview_button_is_rejected(env):
     assert store.get(1, item.id).state == "draft"
     await cb(FakeCallback(1, second, owner), object())
     assert store.get(1, item.id).state == "queued"
+
+
+def test_news_draft_does_not_swallow_todo_settings_button(env):
+    # Current ToDo V2.2 reply-keyboard button must be handled by its own router.
+    from voqelis.menu import TODO_SETTINGS
+    from voqelis.notifications.bot import MENU_BUTTONS
+
+    store, access, navigation = env
+    item = store.create(1)
+    assert item and store.awaiting(1)
+    assert TODO_SETTINGS in MENU_BUTTONS
+    assert store.get(1, item.id).state == "draft"
+    assert access.is_allowed(1)
+    assert navigation.current(1)[0] == "home"
+
