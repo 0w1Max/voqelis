@@ -34,6 +34,7 @@ from ..menu import (
     todo_keyboard,
 )
 from ..navigation import NavigationStore
+from .reminders import ReminderRepository
 from .service import TodoService
 from .store import MAX_PAGE, PAGE_SIZE, TodoItem
 
@@ -72,12 +73,16 @@ def item_markup(item: TodoItem) -> InlineKeyboardMarkup:
 
 def list_markup(
     items: list[TodoItem], *, completed: bool, page: int, total: int,
+    reminder_item_ids: frozenset[int] = frozenset(),
 ) -> InlineKeyboardMarkup | None:
     if not items:
         return None
     rows = [
         [InlineKeyboardButton(
-            text=f"#{item.id} · {_preview(item.text)}",
+            text=(
+                f"#{item.id} · {_preview(item.text)}"
+                + (" 🔔" if not completed and item.id in reminder_item_ids else "")
+            ),
             callback_data=f"td:item:{item.id}",
         )] for item in items
     ]
@@ -101,6 +106,7 @@ def create_todo_router(
     allowed_user_ids: frozenset[int],
 ) -> Router:
     router = Router(name="todo")
+    reminders = ReminderRepository(service.store)
 
     def permitted(message: Message) -> bool:
         return (
@@ -119,10 +125,15 @@ def create_todo_router(
         except ValueError:
             await message.answer("Номер страницы должен быть от 1 до 50.")
             return
+        reminder_item_ids = (
+            reminders.pending_item_ids(user_id, [item.id for item in items])
+            if items and not completed else frozenset()
+        )
         await message.answer(
             body, parse_mode=None,
             reply_markup=list_markup(
                 items, completed=completed, page=page, total=total,
+                reminder_item_ids=reminder_item_ids,
             ),
         )
 
