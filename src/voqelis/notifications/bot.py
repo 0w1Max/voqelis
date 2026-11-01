@@ -17,27 +17,33 @@ from aiogram.types import (
 
 from ..access import AccessStore
 from ..menu import (
-    ADMIN_PANEL,
-    FACTS_START,
-    HOME,
-    NOTES_START,
-    PLANNER_START,
-    REPORT_BUTTON,
-    TODO_ACTIVE,
-    TODO_CANCEL,
-    TODO_DONE,
-    TODO_NEW,
-    TODO_SETTINGS,
-    TODO_START,
+    TODO_LEGACY,
+    TRANSCRIBE_START,
+    facts_keyboard,
+    main_keyboard,
+    notes_keyboard,
+    planner_section_keyboard,
+    todo_capture_keyboard,
+    todo_keyboard,
 )
 from ..navigation import NavigationStore
 from .store import Announcement, AnnouncementStore
 
-MENU_BUTTONS = frozenset({
-    ADMIN_PANEL, FACTS_START, HOME, NOTES_START, PLANNER_START,
-    REPORT_BUTTON, TODO_ACTIVE, TODO_CANCEL, TODO_DONE, TODO_NEW,
-    TODO_SETTINGS, TODO_START,
-})
+# The owner might press a reply-keyboard button while editing a draft.
+# Derive the exclusions from the real keyboards to avoid hijacking navigation.
+MENU_BUTTONS = frozenset(
+    button.text
+    for keyboard in (
+        main_keyboard(admin=True, reporter=True),
+        facts_keyboard(),
+        notes_keyboard(),
+        planner_section_keyboard(),
+        todo_keyboard(),
+        todo_capture_keyboard(),
+    )
+    for row in keyboard.keyboard
+    for button in row
+) | frozenset({TODO_LEGACY, TRANSCRIBE_START})
 
 logger = logging.getLogger(__name__)
 

@@ -448,3 +448,24 @@ async def test_suggestions_admin_center_is_private_and_does_not_send(env):
     proposal = store.suggested(1)[0]
     assert proposal.state == "draft"
     assert store.summary(1, proposal.id)["pending"] == 0
+
+def test_announcement_input_does_not_intercept_other_module_buttons():
+    from voqelis import menu
+    from voqelis.notifications.bot import MENU_BUTTONS
+
+    keyboards = (
+        menu.main_keyboard(admin=True, reporter=True),
+        menu.facts_keyboard(),
+        menu.notes_keyboard(),
+        menu.planner_section_keyboard(),
+        menu.todo_keyboard(),
+        menu.todo_capture_keyboard(),
+    )
+    for keyboard in keyboards:
+        for row in keyboard.keyboard:
+            for button in row:
+                assert button.text in MENU_BUTTONS
+    assert menu.TODO_LEGACY in MENU_BUTTONS
+    assert menu.TRANSCRIBE_START in MENU_BUTTONS
+
+
