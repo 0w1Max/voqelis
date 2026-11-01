@@ -30,7 +30,7 @@ def _keyboard(rows: list[list[tuple[str, str]]]) -> InlineKeyboardMarkup:
 
 
 def _panel(prefs: DigestPreferences, nav_revision: int, timezone_rev: int):
-    prefix = f"td:digest:"
+    prefix = "td:digest:"
     rows = [
         [("🔕 Отключить" if prefs.enabled else "🔔 Включить",
           f"{prefix}toggle:{nav_revision}:{prefs.revision}")],
