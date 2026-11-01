@@ -27,6 +27,7 @@ TODO_NEW = "➕ Добавить дело"
 TODO_ACTIVE = "📋 Активные дела"
 TODO_DONE = "✅ Выполненные"
 TODO_CANCEL = "❌ Отменить ввод"
+TODO_SETTINGS = "⚙️ Настройки"
 
 
 def _keyboard(rows: list[list[str]]) -> ReplyKeyboardMarkup:
@@ -74,7 +75,7 @@ def planner_section_keyboard() -> ReplyKeyboardMarkup:
 
 
 def todo_keyboard() -> ReplyKeyboardMarkup:
-    return _keyboard([[TODO_NEW, TODO_ACTIVE], [TODO_DONE, HOME]])
+    return _keyboard([[TODO_NEW, TODO_ACTIVE], [TODO_DONE, TODO_SETTINGS], [HOME]])
 
 
 def todo_capture_keyboard() -> ReplyKeyboardMarkup:
