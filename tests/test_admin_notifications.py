@@ -402,7 +402,7 @@ def test_news_draft_does_not_swallow_todo_settings_button(env):
     assert access.is_allowed(1)
     assert navigation.current(1)[0] == "home"
 
-def test_curated_suggestions_are_owner_only_idempotent_and_unsent(env):
+def test_curated_suggestions_are_owner_only_idempotent_and_unsent(env, tmp_path):
     store, access, _ = env
     entries = (
         ("todo-reminders-v21", "В Voqelis доступен список дел с напоминаниями."),
@@ -417,7 +417,7 @@ def test_curated_suggestions_are_owner_only_idempotent_and_unsent(env):
     assert all(store.summary(1, p.id)["pending"] == 0 for p in proposals)
     assert access.is_allowed(2)
 
-    reopened = AnnouncementStore(store.path, owner_id=1)
+    reopened = AnnouncementStore(tmp_path / "admin_notifications.sqlite3", owner_id=1)
     try:
         assert reopened.seed_suggestions(1, entries, now=2000) == 0
         assert len(reopened.suggested(1)) == 2
