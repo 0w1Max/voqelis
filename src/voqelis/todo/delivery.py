@@ -18,6 +18,8 @@ from aiogram.exceptions import (
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from ..access import AccessStore
+from .digest import TodoDigestRepository
+from .digest_delivery import send_due_digests
 from .reminders import Reminder, ReminderRepository
 
 logger = logging.getLogger(__name__)
@@ -85,11 +87,15 @@ async def _send_one(
 
 async def run_reminder_sender(
     bot: Bot, repository: ReminderRepository, access: AccessStore,
-    *, interval: float = 15.0,
+    *, interval: float = 15.0, digests: TodoDigestRepository | None = None,
 ) -> None:
     """Recover ambiguous in-flight sends and process a bounded due batch."""
     if interval <= 0:
         raise ValueError("interval must be positive")
+    if digests is not None:
+        recovered_digests = digests.recover_inflight()
+        if recovered_digests:
+            logger.warning("TODO_DIGEST_INFLIGHT_UNCERTAIN count=%d", recovered_digests)
     recovered = repository.recover_inflight()
     if recovered:
         logger.warning("TODO_REMINDER_INFLIGHT_UNCERTAIN count=%d", recovered)
@@ -104,6 +110,8 @@ async def run_reminder_sender(
                 await _send_one(bot, repository, access, due[0])
                 # Conservative per-chat pacing; keeps bursts below Telegram limits.
                 await asyncio.sleep(1.1)
+            if digests is not None:
+                await send_due_digests(bot, digests, access)
         except asyncio.CancelledError:
             raise
         except Exception:
